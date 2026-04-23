@@ -134,6 +134,19 @@ class TestGrafanaApi:
         assert req.full_url == "http://grafana:3000/api/datasources/uid/prometheus/health"
         assert payload == {"status": "OK"}
 
+    def test_dashboard_uses_uid_endpoint(self, mocker: pytest.MockFixture) -> None:
+        api = GrafanaApi("http://grafana:3000")
+        mock_urlopen = mocker.patch(
+            "tests.system.harness.observability.request.urlopen",
+            return_value=_FakeResponse({"dashboard": {"uid": "finder"}}),
+        )
+
+        payload = api.dashboard("finder")
+
+        req = mock_urlopen.call_args.args[0]
+        assert req.full_url == "http://grafana:3000/api/dashboards/uid/finder"
+        assert payload == {"dashboard": {"uid": "finder"}}
+
     def test_rejects_partial_auth_configuration(self) -> None:
         with pytest.raises(ValueError, match="both username and password"):
             GrafanaApi("http://grafana:3000", username="admin")

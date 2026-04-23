@@ -113,6 +113,9 @@ class GrafanaApi(_HttpClient):
     def dashboards(self) -> object:
         return self._request_json("/api/search", params={"type": "dash-db"})
 
+    def dashboard(self, uid: str) -> object:
+        return self._request_json(f"/api/dashboards/uid/{uid}")
+
 
 @dataclass(frozen=True, slots=True)
 class AlertmanagerApi(_HttpClient):
