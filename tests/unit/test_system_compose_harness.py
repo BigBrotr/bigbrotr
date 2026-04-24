@@ -1,5 +1,5 @@
 from pathlib import Path
-from subprocess import CompletedProcess
+from subprocess import CalledProcessError, CompletedProcess
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -7,6 +7,7 @@ import pytest
 from tests.system.harness.compose import (
     ComposeServiceStatus,
     ComposeStack,
+    _format_compose_failure,
     build_test_env_values,
     parse_compose_ps,
     write_test_env_file,
@@ -178,6 +179,30 @@ class TestComposeStack:
             stack.run("ps", "--format", "json")
 
         assert "DOCKER_CONFIG" not in mock_run.call_args.kwargs["env"]
+
+    def test_run_surfaces_compose_stdout_and_stderr_on_failure(self, tmp_path: Path) -> None:
+        stack = ComposeStack.for_profile("bigbrotr", tmp_path, "bb-system-a")
+
+        with (
+            patch(
+                "tests.system.harness.compose.subprocess.run",
+                side_effect=CalledProcessError(
+                    1,
+                    stack.command("up", "-d"),
+                    output="compose stdout",
+                    stderr="compose stderr",
+                ),
+            ),
+            pytest.raises(RuntimeError, match="Compose command failed with exit code 1"),
+        ):
+            stack.run("up", "-d")
+
+    def test_format_compose_failure_omits_blank_streams(self) -> None:
+        exc = CalledProcessError(17, ("docker", "compose", "ps"), output="", stderr="")
+
+        error = _format_compose_failure(exc)
+
+        assert str(error) == "Compose command failed with exit code 17: docker compose ps"
 
     def test_up_can_force_rebuild(self, tmp_path: Path) -> None:
         stack = ComposeStack.for_profile("bigbrotr", tmp_path, "bb-system-a")

@@ -49,6 +49,19 @@ def _compose_command_env() -> dict[str, str]:
     return env
 
 
+def _format_compose_failure(exc: subprocess.CalledProcessError) -> RuntimeError:
+    """Return one readable error that preserves compose stdout/stderr."""
+    command = exc.cmd if isinstance(exc.cmd, str) else " ".join(str(part) for part in exc.cmd)
+    message_lines = [
+        f"Compose command failed with exit code {exc.returncode}: {command}",
+    ]
+    if isinstance(exc.stdout, str) and exc.stdout.strip():
+        message_lines.extend(("stdout:", exc.stdout.rstrip()))
+    if isinstance(exc.stderr, str) and exc.stderr.strip():
+        message_lines.extend(("stderr:", exc.stderr.rstrip()))
+    return RuntimeError("\n".join(message_lines))
+
+
 def env_template_path(profile: str) -> Path:
     """Return the `.env.example` template path for a built-in deployment."""
     return deployment_dir(profile) / ".env.example"
@@ -268,14 +281,17 @@ class ComposeStack:
 
     def run(self, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
         """Run a compose command with captured text output."""
-        return subprocess.run(  # noqa: S603
-            self.command(*args),
-            cwd=self.project_dir,
-            check=check,
-            text=True,
-            capture_output=True,
-            env=_compose_command_env(),
-        )
+        try:
+            return subprocess.run(  # noqa: S603
+                self.command(*args),
+                cwd=self.project_dir,
+                check=check,
+                text=True,
+                capture_output=True,
+                env=_compose_command_env(),
+            )
+        except subprocess.CalledProcessError as exc:
+            raise _format_compose_failure(exc) from exc
 
     def up(
         self,
