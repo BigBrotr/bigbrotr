@@ -7,7 +7,7 @@ BigBrotr services and built-in deployments.
 
 ## Overview
 
-All continuous BigBrotr services expose a `/metrics` endpoint in Prometheus exposition format. Seeder is a one-shot service and does not expose a metrics endpoint. The Docker Compose stack includes Prometheus and Grafana pre-configured, but you can also connect to an external monitoring stack.
+All continuous BigBrotr services expose a `/metrics` endpoint in Prometheus exposition format. Seeder is a one-shot service and does not expose a metrics endpoint. The Docker Compose stack includes Prometheus, Alertmanager, Grafana, and postgres-exporter pre-configured, but you can also connect to an external monitoring stack.
 
 ### Metrics Exposed
 
@@ -40,6 +40,8 @@ Endpoints:
 
 !!! note
     The default Grafana credentials are `admin` / `<GRAFANA_PASSWORD from .env>`.
+    Postgres-exporter stays internal-only on `postgres-exporter:9187`; Prometheus
+    scrapes it from the monitoring network instead of exposing it on a host port.
 
 ### Using an external Prometheus
 
@@ -120,8 +122,11 @@ To verify targets are being scraped:
 
 The built-in deployments auto-provision Grafana with:
 
-- A Prometheus datasource pointing to `http://prometheus:9090`
+- A default `Prometheus` datasource (UID `prometheus`) pointing to `http://prometheus:9090`
 - A dashboard directory at `monitoring/grafana/provisioning/dashboards/`
+- `10` auto-provisioned dashboards per profile: one profile overview plus
+  dedicated dashboards for `finder`, `validator`, `monitor`, `synchronizer`,
+  `refresher`, `ranker`, `api`, `dvm`, and `assertor`
 
 To add a custom dashboard:
 
@@ -131,9 +136,9 @@ To add a custom dashboard:
 4. Select the **Prometheus** datasource
 
 !!! tip
-    The built-in deployment ships one overview dashboard plus dedicated
-    per-service dashboards for finder, validator, monitor, synchronizer,
-    refresher, ranker, api, dvm, and assertor.
+    The built-in deployment ships `10` dashboards per profile: one overview
+    dashboard plus dedicated per-service dashboards for finder, validator,
+    monitor, synchronizer, refresher, ranker, api, dvm, and assertor.
 
 ## 5. Set Up Alerting Rules
 

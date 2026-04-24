@@ -318,7 +318,7 @@ Every service exposes `/metrics` on its configured port with four metric types:
 | `service_counter_total` | Counter | Cumulative totals (cycles_success, cycles_failed, errors by type) |
 | `cycle_duration_seconds` | Histogram | Cycle latency with 10 buckets (1s to 1h) |
 
-### Alert Rules (7)
+### Alert Rules
 
 | Alert | Condition | Severity |
 |-------|-----------|----------|
@@ -328,11 +328,13 @@ Every service exposes `/metrics` on its configured port with four metric types:
 | SlowCycles | p99 cycle duration > 300s for 5m | warning |
 | DatabaseConnectionsHigh | > 80 active connections for 5m | warning |
 | CacheHitRatioLow | buffer cache hit ratio < 95% for 10m | warning |
-| RefresherViewsFailing | view refresh failures for 10m | warning |
+| RefresherTargetsFailing | refresh targets failing for 10m | warning |
 
 ### Grafana Dashboard
 
-Auto-provisioned dashboard with per-service panels: cycle duration, error counts, consecutive failures, and service-specific progress metrics.
+Auto-provisioned default `Prometheus` datasource plus one deployment overview
+dashboard and dedicated per-service dashboards for cycle duration, error counts,
+consecutive failures, and service-specific progress metrics.
 
 ### Structured Logging
 
@@ -565,7 +567,7 @@ bigbrotr/
 | ranker | bigbrotr (parametric) | Private DuckDB-backed NIP-85 rank computation + snapshot export |
 | api | bigbrotr (parametric) | REST API (FastAPI) |
 | dvm | bigbrotr (parametric) | NIP-90 Data Vending Machine |
-| postgres-exporter | `prometheuscommunity/postgres-exporter:v0.16.0` | PostgreSQL metrics |
+| postgres-exporter | `prometheuscommunity/postgres-exporter:v0.17.0` | PostgreSQL metrics |
 | prometheus | `prom/prometheus:v2.51.0` | Metrics collection (30d retention) |
 | alertmanager | `prom/alertmanager:v0.27.0` | Alert routing and grouping |
 | grafana | `grafana/grafana:10.4.1` | Dashboards |

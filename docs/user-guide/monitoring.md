@@ -101,19 +101,33 @@ metrics:
 
 ## Health Checks
 
-Each service container uses the `/metrics` endpoint as its Docker health check:
+The deployment uses endpoint-level Docker health checks instead of PID-only
+probes:
 
 ```yaml
-healthcheck:
-  test: ["CMD", "curl", "-sf", "http://localhost:8000/metrics"]
-  interval: 30s
-  timeout: 10s
-  retries: 3
-  start_period: 30s
+# Continuous worker services with metrics endpoints
+test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')\""]
+
+# API container
+test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/health')\""]
+
+# postgres-exporter
+test: ["CMD-SHELL", "wget -q --spider http://localhost:9187/metrics || exit 1"]
+
+# Prometheus
+test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+
+# Alertmanager
+test: ["CMD", "wget", "-q", "--spider", "http://localhost:9093/-/healthy"]
+
+# Grafana
+test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
 ```
 
 !!! note
-    This is a real health check, not a PID-based fake check. If the metrics endpoint is unreachable, Docker marks the container as unhealthy.
+    Finder, Validator, Monitor, Synchronizer, Refresher, Ranker, DVM, and
+    Assertor use `/metrics`; API uses `/health`; Seeder remains a one-shot
+    container with no long-lived health check.
 
 ---
 
@@ -327,8 +341,9 @@ Fires when the Refresher service has failing current-state, analytics, or period
 
 ## Grafana Dashboards
 
-Grafana is auto-provisioned with a Prometheus datasource, a deployment overview
-dashboard, and dedicated per-service dashboards for:
+Grafana is auto-provisioned with a default `Prometheus` datasource (UID
+`prometheus`), a deployment overview dashboard, and dedicated per-service
+dashboards for:
 
 - Finder
 - Validator
@@ -387,10 +402,10 @@ Grafana provisioning files are located in `deployments/*/monitoring/grafana/prov
 ```text
 grafana/provisioning/
 +-- datasources/
-|   +-- prometheus.yaml       # Prometheus datasource (auto-configured)
+|   +-- prometheus.yaml       # Prometheus datasource (uid: prometheus)
 +-- dashboards/
     +-- dashboards.yaml       # Dashboard provider configuration
-    +-- bigbrotr.json         # BigBrotr overview dashboard
+    +-- <profile>.json        # Profile overview dashboard
     +-- finder.json           # Finder dashboard
     +-- validator.json        # Validator dashboard
     +-- monitor.json          # Monitor dashboard

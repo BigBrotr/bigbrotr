@@ -126,7 +126,7 @@ Each deployment creates two Docker bridge networks:
 | Network | Members | Purpose |
 |---------|---------|---------|
 | **data-network** | PostgreSQL, PGBouncer, Tor, all services | Database and relay connectivity |
-| **monitoring-network** | Prometheus, Grafana, all services | Metrics scraping and dashboards |
+| **monitoring-network** | Prometheus, Grafana, Alertmanager, postgres-exporter, all services | Metrics scraping, alert routing, and dashboards |
 
 PostgreSQL is only on the data network. Grafana is only on the monitoring network. Application services bridge both networks.
 
