@@ -12,5 +12,7 @@ def test_system_band_scaffold_exists() -> None:
     assert (root / "pipelines" / "README.md").is_file()
     assert (root / "resilience").is_dir()
     assert (root / "resilience" / "README.md").is_file()
+    assert (root / "resilience" / "database").is_dir()
+    assert (root / "resilience" / "database" / "README.md").is_file()
     assert (root / "services").is_dir()
     assert (root / "services" / "README.md").is_file()
