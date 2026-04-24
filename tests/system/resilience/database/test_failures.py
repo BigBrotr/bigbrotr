@@ -245,7 +245,7 @@ def test_synchronizer_recovers_after_database_and_pool_outage_without_partial_st
     assert failed_snapshot["events"] == initial_snapshot["events"]
     assert failed_snapshot["observations"] == initial_snapshot["observations"]
     assert failed_snapshot["cursors"] == initial_snapshot["cursors"]
-    assert "run_cycle_error" in failed_snapshot["logs"]
+    assert failed_snapshot["error_count"] >= 1
 
     assert recovery_event is not None
     recovered_event_ids = [row["event_id"] for row in recovered_snapshot["events"]]

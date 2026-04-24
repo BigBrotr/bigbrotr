@@ -870,6 +870,45 @@ class TestSynchronize:
         ):
             await sync.synchronize()
 
+    async def test_disconnects_cached_clients_when_cycle_fails(
+        self,
+        mock_synchronizer_brotr: Brotr,
+    ) -> None:
+        cursor = SyncCursor(key="wss://relay1.example.com")
+        relay = Relay("wss://relay1.example.com")
+        evt1 = _make_mock_event(100)
+
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
+        sync.set_gauge = MagicMock()  # type: ignore[method-assign]
+        sync._client_manager.disconnect = AsyncMock()  # type: ignore[method-assign]
+
+        async def fake_synchronize_worker(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+            yield evt1, relay
+
+        with (
+            patch(
+                "bigbrotr.services.synchronizer.service.count_cursors_to_sync",
+                new_callable=AsyncMock,
+                return_value=1,
+            ),
+            patch(
+                "bigbrotr.services.synchronizer.service.iter_cursors_to_sync_pages",
+                return_value=_mock_pages([cursor]),
+            ),
+            patch("bigbrotr.services.synchronizer.runtime.EventObservation"),
+            patch.object(sync, "_synchronize_worker", side_effect=fake_synchronize_worker),
+            patch.object(
+                sync,
+                "_flush_sync_batch",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("db error"),
+            ),
+            pytest.raises(RuntimeError, match="db error"),
+        ):
+            await sync.synchronize()
+
+        sync._client_manager.disconnect.assert_awaited_once()  # type: ignore[attr-defined]
+
     async def test_flushes_at_batch_size(self, mock_synchronizer_brotr: Brotr) -> None:
         cursor = SyncCursor(key="wss://relay1.example.com")
         relay = Relay("wss://relay1.example.com")

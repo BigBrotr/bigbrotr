@@ -191,45 +191,49 @@ class Synchronizer(
         Returns:
             Total events synced across all relays.
         """
-        plan = await self._build_sync_cycle_plan()
-        if plan is None:
-            self._logger.warning("no_networks_enabled")
-            return 0
+        try:
+            plan = await self._build_sync_cycle_plan()
+            if plan is None:
+                self._logger.warning("no_networks_enabled")
+                return 0
 
-        events_synced = 0
-        buffer: list[EventObservation] = []
-        pending_cursors: dict[str, SyncCursor] = {}
+            events_synced = 0
+            buffer: list[EventObservation] = []
+            pending_cursors: dict[str, SyncCursor] = {}
 
-        self.set_gauge("total_relays", plan.total_relays)
-        self.set_gauge("relays_seen", 0)
-        self.set_gauge("events_seen", 0)
+            self.set_gauge("total_relays", plan.total_relays)
+            self.set_gauge("relays_seen", 0)
+            self.set_gauge("events_seen", 0)
 
-        self._logger.info("sync_started", relay_count=plan.total_relays)
+            self._logger.info("sync_started", relay_count=plan.total_relays)
 
-        timed_out = False
-        async for cursors in iter_cursors_to_sync_pages(
-            self._brotr,
-            plan.end_time,
-            list(plan.networks),
-            page_size=plan.page_size,
-        ):
-            page_events_synced, timed_out = await self._synchronize_cursor_page(
-                cursors,
-                buffer,
-                pending_cursors,
-                plan=plan,
+            timed_out = False
+            async for cursors in iter_cursors_to_sync_pages(
+                self._brotr,
+                plan.end_time,
+                list(plan.networks),
+                page_size=plan.page_size,
+            ):
+                page_events_synced, timed_out = await self._synchronize_cursor_page(
+                    cursors,
+                    buffer,
+                    pending_cursors,
+                    plan=plan,
+                )
+                events_synced += page_events_synced
+                if timed_out:
+                    break
+
+            events_synced += await self._flush_sync_batch(buffer, pending_cursors)
+
+            self._logger.info(
+                "sync_completed",
+                events_synced=events_synced,
             )
-            events_synced += page_events_synced
-            if timed_out:
-                break
-
-        events_synced += await self._flush_sync_batch(buffer, pending_cursors)
-
-        self._logger.info(
-            "sync_completed",
-            events_synced=events_synced,
-        )
-        return events_synced
+            return events_synced
+        except Exception:
+            await self._client_manager.disconnect()
+            raise
 
     async def _synchronize_cursor_page(
         self,

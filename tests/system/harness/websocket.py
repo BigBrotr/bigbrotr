@@ -330,16 +330,17 @@ class LocalTlsWebSocketRuntime:
         backend: ClientConnection,
         session: _MutableWebSocketFixtureSession,
     ) -> None:
+        stop_event = threading.Event()
         threads = (
             threading.Thread(
                 target=self._forward_messages,
-                args=(websocket, backend, session),
+                args=(websocket, backend, session, stop_event),
                 kwargs={"capture_messages": True},
                 daemon=True,
             ),
             threading.Thread(
                 target=self._forward_messages,
-                args=(backend, websocket, session),
+                args=(backend, websocket, session, stop_event),
                 daemon=True,
             ),
         )
@@ -347,6 +348,14 @@ class LocalTlsWebSocketRuntime:
             thread.start()
         for thread in threads:
             thread.join(timeout=self.timeout * 2)
+        if any(thread.is_alive() for thread in threads):
+            stop_event.set()
+            with contextlib.suppress(Exception):
+                backend.close()
+            with contextlib.suppress(Exception):
+                websocket.close()
+            for thread in threads:
+                thread.join(timeout=self.timeout)
         if any(thread.is_alive() for thread in threads):
             raise RuntimeError("Timed out waiting for TLS WebSocket proxy threads to stop")
 
@@ -369,18 +378,23 @@ class LocalTlsWebSocketRuntime:
         source: ServerConnection | ClientConnection,
         target: ServerConnection | ClientConnection,
         session: _MutableWebSocketFixtureSession,
+        stop_event: threading.Event,
         *,
         capture_messages: bool = False,
     ) -> None:
         try:
-            while True:
-                message = source.recv()
+            while not stop_event.is_set():
+                try:
+                    message = source.recv(timeout=self.poll_interval)
+                except TimeoutError:
+                    continue
                 if capture_messages:
                     session.received_messages.append(self._render_message(message))
                 target.send(message)
-        except ConnectionClosed:
+        except (ConnectionClosed, OSError):
             return
         finally:
+            stop_event.set()
             with contextlib.suppress(Exception):
                 target.close()
             with contextlib.suppress(Exception):
