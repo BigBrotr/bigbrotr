@@ -112,12 +112,13 @@ def _configure_synchronizer_runtime(
     plan: RuntimeAddressPlan,
     *,
     request_timeout: float,
+    cycle_interval: float = 3600.0,
 ) -> None:
     config_path = plan.runtime_root / "config" / "services" / "synchronizer.yaml"
     payload = yaml.safe_load(config_path.read_text())
     assert isinstance(payload, dict)
 
-    payload["interval"] = 3600.0
+    payload["interval"] = cycle_interval
 
     processing = payload.setdefault("processing", {})
     assert isinstance(processing, dict)
@@ -148,12 +149,17 @@ def _prepare_synchronizer_run(
     run_name: str,
     *,
     request_timeout: float,
+    cycle_interval: float = 3600.0,
 ) -> tuple[SystemArtifactBundle, RuntimeAddressPlan, ComposeStack]:
     bundle = create_bundle(tmp_path, run_name)
     plan = RuntimeAddressPlan.create("bigbrotr", tmp_path / "runtime", run_name)
     prepare_runtime_compose_config(plan)
     configure_runtime_host_gateway(plan, "synchronizer")
-    _configure_synchronizer_runtime(plan, request_timeout=request_timeout)
+    _configure_synchronizer_runtime(
+        plan,
+        request_timeout=request_timeout,
+        cycle_interval=cycle_interval,
+    )
     stack = create_stack(plan)
     record_runtime_plan(bundle, plan)
     return bundle, plan, stack

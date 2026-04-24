@@ -98,6 +98,7 @@ def _configure_monitor_runtime(
     *,
     discovery_interval: float,
     timeout: float,
+    cycle_interval: float = 3600.0,
 ) -> None:
     config_path = plan.runtime_root / "config" / "services" / "monitor.yaml"
     payload = yaml.safe_load(config_path.read_text())
@@ -105,7 +106,7 @@ def _configure_monitor_runtime(
 
     flags = _metadata_flags(nip11_info=True, nip66_rtt=True)
 
-    payload["interval"] = 3600.0
+    payload["interval"] = cycle_interval
 
     processing = payload.setdefault("processing", {})
     assert isinstance(processing, dict)
@@ -154,6 +155,7 @@ def _prepare_monitor_run(
     *,
     discovery_interval: float,
     timeout: float,
+    cycle_interval: float = 3600.0,
 ) -> tuple[SystemArtifactBundle, RuntimeAddressPlan, ComposeStack]:
     bundle = create_bundle(tmp_path, run_name)
     plan = RuntimeAddressPlan.create("bigbrotr", tmp_path / "runtime", run_name)
@@ -162,6 +164,7 @@ def _prepare_monitor_run(
         plan,
         discovery_interval=discovery_interval,
         timeout=timeout,
+        cycle_interval=cycle_interval,
     )
     stack = create_stack(plan)
     record_runtime_plan(bundle, plan)
@@ -324,7 +327,7 @@ def test_monitor_persists_probe_documents_for_healthy_and_degraded_relays(  # no
                 "degraded_sessions": degraded_runtime.sessions(),
             },
             is_ready=lambda current: (
-                len(current["documents"]) == 2
+                len(current["documents"]) == 4
                 and len(current["checkpoints"]) == 2
                 and len(current["good_sessions"]) >= 1
                 and len(current["degraded_sessions"]) >= 1
@@ -362,8 +365,9 @@ def test_monitor_persists_probe_documents_for_healthy_and_degraded_relays(  # no
         relay_documents = documents_by_relay.setdefault(str(row["relay_url"]), {})
         relay_documents[str(row["role"])] = dict(row)
 
-    assert set(documents_by_relay) == {good_url}
+    assert set(documents_by_relay) == {good_url, degraded_url}
     assert set(documents_by_relay[good_url]) == {"nip11_info", "nip66_rtt"}
+    assert set(documents_by_relay[degraded_url]) == {"nip11_info", "nip66_rtt"}
 
     good_nip11 = _decode_document_data(documents_by_relay[good_url]["nip11_info"]["data"])
     assert good_nip11["logs"]["success"] is True
@@ -374,6 +378,14 @@ def test_monitor_persists_probe_documents_for_healthy_and_degraded_relays(  # no
     assert good_rtt["logs"]["open_success"] is True
     assert isinstance(good_rtt["data"]["rtt_open"], int)
     assert good_rtt["data"]["rtt_open"] >= 0
+
+    degraded_nip11 = _decode_document_data(documents_by_relay[degraded_url]["nip11_info"]["data"])
+    assert degraded_nip11["logs"]["success"] is False
+    assert degraded_nip11["logs"]["reason"] == "HTTP 504"
+
+    degraded_rtt = _decode_document_data(documents_by_relay[degraded_url]["nip66_rtt"]["data"])
+    assert degraded_rtt["logs"]["open_success"] is True
+    assert degraded_rtt["logs"]["write_reason"] == "TimeoutError"
 
     checkpoints = {row["state_key"]: row["timestamp"] for row in snapshot["checkpoints"]}
     assert set(checkpoints) == {good_url, degraded_url}
@@ -455,7 +467,7 @@ def test_monitor_restart_respects_persisted_checkpoints(  # noqa: PLR0915
                 "degraded_sessions": degraded_runtime.sessions(),
             },
             is_ready=lambda current: (
-                len(current["documents"]) == 2
+                len(current["documents"]) == 4
                 and len(current["checkpoints"]) == 2
                 and current["log_count"] >= 1
                 and len(current["good_sessions"]) >= 1

@@ -325,6 +325,28 @@ class TestNip66RttMetadataTestWrite:
         assert result["write_success"] is False
         assert "Send error" in result["write_reason"]
 
+    async def test_empty_exception_reason_falls_back_to_exception_type(
+        self,
+        mock_nostr_client: MagicMock,
+        mock_event_builder: MagicMock,
+    ) -> None:
+        """Empty transport errors still produce a non-empty write reason."""
+        from nostr_sdk import RelayUrl
+
+        relay_url = RelayUrl.parse("wss://relay.example.com")
+        mock_nostr_client.send_event_builder = AsyncMock(side_effect=OSError(""))
+
+        result = await Nip66RttMetadata._test_write(
+            mock_nostr_client,
+            mock_event_builder,
+            relay_url,
+            10.0,
+            "wss://relay.example.com",
+        )
+
+        assert result["write_success"] is False
+        assert result["write_reason"] == "OSError"
+
     async def test_verification_fails(
         self,
         mock_nostr_client: MagicMock,
@@ -410,6 +432,23 @@ class TestNip66RttMetadataVerifyWrite:
 
         assert result["verified"] is False
         assert "Verification error" in result["reason"]
+
+    async def test_empty_exception_reason_falls_back_to_exception_type(
+        self,
+        mock_nostr_client: MagicMock,
+    ) -> None:
+        """Verification failures with empty messages stay model-valid."""
+        from nostr_sdk import EventId
+
+        event_id = EventId.parse("a" * 64)
+        mock_nostr_client.stream_events = AsyncMock(side_effect=OSError(""))
+
+        result = await Nip66RttMetadata._verify_write(
+            mock_nostr_client, event_id, 10.0, "wss://relay.example.com"
+        )
+
+        assert result["verified"] is False
+        assert result["reason"] == "OSError"
 
 
 class TestNip66RttMetadataCleanup:

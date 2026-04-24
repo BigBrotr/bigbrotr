@@ -61,6 +61,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger("bigbrotr.nips.nip66")
 
 
+def _exception_reason(exc: BaseException) -> str:
+    reason = str(exc).strip()
+    if reason:
+        return reason
+    return type(exc).__name__
+
+
 class Nip66RttDependencies(NamedTuple):
     """Grouped dependencies for RTT probe tests.
 
@@ -245,7 +252,7 @@ class Nip66RttMetadata(BaseNipMetadata):
             logger.debug("rtt_open_ok relay=%s rtt_open_ms=%s", relay.url, rtt_open)
             return client, rtt_open
         except (OSError, TimeoutError, NostrSdkError, ValueError) as e:
-            reason = str(e) or type(e).__name__
+            reason = _exception_reason(e)
             logger.debug("rtt_open_failed relay=%s reason=%s", relay.url, reason)
             # Cascading failure: mark all phases as failed
             logs["open_success"] = False
@@ -288,8 +295,9 @@ class Nip66RttMetadata(BaseNipMetadata):
                 result["read_reason"] = "no events returned"
                 logger.debug("rtt_read_no_events relay=%s", relay_url_str)
         except (OSError, TimeoutError, NostrSdkError) as e:
-            result["read_reason"] = str(e)
-            logger.debug("rtt_read_failed relay=%s reason=%s", relay_url_str, str(e))
+            reason = _exception_reason(e)
+            result["read_reason"] = reason
+            logger.debug("rtt_read_failed relay=%s reason=%s", relay_url_str, reason)
 
         return result
 
@@ -349,8 +357,9 @@ class Nip66RttMetadata(BaseNipMetadata):
                 result["write_reason"] = "no response from relay"
                 logger.debug("rtt_write_no_response relay=%s", relay_url_str)
         except (OSError, TimeoutError, NostrSdkError) as e:
-            result["write_reason"] = str(e)
-            logger.debug("rtt_write_failed relay=%s reason=%s", relay_url_str, str(e))
+            reason = _exception_reason(e)
+            result["write_reason"] = reason
+            logger.debug("rtt_write_failed relay=%s reason=%s", relay_url_str, reason)
 
         return result
 
@@ -384,8 +393,9 @@ class Nip66RttMetadata(BaseNipMetadata):
             )
             return {"verified": False, "reason": "unverified: accepted but not retrievable"}
         except (OSError, TimeoutError, NostrSdkError) as e:
-            logger.debug("rtt_write_unverified relay=%s reason=%s", relay_url_str, str(e))
-            return {"verified": False, "reason": str(e)}
+            reason = _exception_reason(e)
+            logger.debug("rtt_write_unverified relay=%s reason=%s", relay_url_str, reason)
+            return {"verified": False, "reason": reason}
 
     @staticmethod
     async def _cleanup(client: Client) -> None:
