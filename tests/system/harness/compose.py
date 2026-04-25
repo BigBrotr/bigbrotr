@@ -316,6 +316,7 @@ class ComposeStack:
         *,
         remove_orphans: bool = True,
         volumes: bool = True,
+        local_images: bool = True,
         timeout: int | None = None,
     ) -> subprocess.CompletedProcess[str]:
         """Tear the compose stack down."""
@@ -324,6 +325,8 @@ class ComposeStack:
             args.append("--remove-orphans")
         if volumes:
             args.append("--volumes")
+        if local_images:
+            args.extend(("--rmi", "local"))
         if timeout is not None:
             if timeout <= 0:
                 raise ValueError("Compose down timeout must be positive")

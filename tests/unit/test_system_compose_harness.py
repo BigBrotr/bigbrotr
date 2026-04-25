@@ -228,7 +228,10 @@ class TestComposeStack:
 
         mock_run.assert_called_once_with("up", "-d", "--force-recreate", "seeder")
 
-    def test_down_can_cap_stop_timeout(self, tmp_path: Path) -> None:
+    def test_down_removes_project_local_artifacts_and_can_cap_stop_timeout(
+        self,
+        tmp_path: Path,
+    ) -> None:
         stack = ComposeStack.for_profile("bigbrotr", tmp_path, "bb-system-a")
 
         with patch.object(
@@ -238,7 +241,27 @@ class TestComposeStack:
         ) as mock_run:
             stack.down(timeout=15)
 
-        mock_run.assert_called_once_with("down", "--remove-orphans", "--volumes", "--timeout", "15")
+        mock_run.assert_called_once_with(
+            "down",
+            "--remove-orphans",
+            "--volumes",
+            "--rmi",
+            "local",
+            "--timeout",
+            "15",
+        )
+
+    def test_down_can_preserve_project_local_images(self, tmp_path: Path) -> None:
+        stack = ComposeStack.for_profile("bigbrotr", tmp_path, "bb-system-a")
+
+        with patch.object(
+            ComposeStack,
+            "run",
+            return_value=CompletedProcess(args=(), returncode=0, stdout="", stderr=""),
+        ) as mock_run:
+            stack.down(local_images=False)
+
+        mock_run.assert_called_once_with("down", "--remove-orphans", "--volumes")
 
     def test_down_rejects_non_positive_timeout(self, tmp_path: Path) -> None:
         stack = ComposeStack.for_profile("bigbrotr", tmp_path, "bb-system-a")
