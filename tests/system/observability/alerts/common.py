@@ -6,10 +6,10 @@ import yaml
 
 from tests.system.deployments.baseline import (
     CONTINUOUS_SERVICES,
-    capture_stack_artifacts,
     create_bundle,
     create_stack,
     record_runtime_plan,
+    teardown_stack_runtime,
 )
 from tests.system.deployments.runtime_overrides import (
     BOOTSTRAP_SERVICES,
@@ -205,10 +205,10 @@ def certify_service_down_alert_contract(
         stack = create_stack(plan)
         record_runtime_plan(bundle, plan)
 
-        stack.up(*BOOTSTRAP_SERVICES, build=True)
+        stack.up(*BOOTSTRAP_SERVICES)
         relay = start_baseline_relay(plan)
         configure_runtime_relay_targets(plan, relay)
-        stack.up(build=True)
+        stack.up()
         stack.wait_until_ready(CONTINUOUS_SERVICES)
 
         prometheus = prometheus_api(plan)
@@ -290,9 +290,4 @@ def certify_service_down_alert_contract(
             resolved=resolved,
         )
     finally:
-        if bundle is not None and stack is not None:
-            capture_stack_artifacts(bundle, stack)
-        if relay is not None:
-            relay.stop()
-        if stack is not None:
-            stack.down(timeout=30)
+        teardown_stack_runtime(bundle, stack, relay=relay, down_timeout=30)

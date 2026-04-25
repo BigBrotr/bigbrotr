@@ -5,7 +5,10 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tests.system.deployments.baseline import CONTINUOUS_SERVICES, capture_stack_artifacts
+from tests.system.deployments.baseline import (
+    CONTINUOUS_SERVICES,
+    teardown_stack_runtime,
+)
 from tests.system.observability.grafana import common as grafana_helpers
 from tests.system.observability.postgres_exporter import common as exporter_helpers
 from tests.system.observability.prometheus import common as prometheus_helpers
@@ -204,12 +207,7 @@ def _run_live_monitoring_parity(
         )
         return snapshot
     finally:
-        if bundle is not None and stack is not None:
-            capture_stack_artifacts(bundle, stack, services=CONTINUOUS_SERVICES)
-        if relay is not None:
-            relay.stop()
-        if stack is not None:
-            stack.down()
+        teardown_stack_runtime(bundle, stack, relay=relay, services=CONTINUOUS_SERVICES)
 
 
 def test_monitoring_assets_only_differ_on_profile_tokens() -> None:

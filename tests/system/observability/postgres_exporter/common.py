@@ -304,11 +304,6 @@ def certify_postgres_exporter_contract(
             prom_queries=prom_queries,
         )
     finally:
-        if bundle is not None and stack is not None:
-            from tests.system.deployments.baseline import capture_stack_artifacts
+        from tests.system.deployments.baseline import teardown_stack_runtime
 
-            capture_stack_artifacts(bundle, stack)
-        if relay is not None:
-            relay.stop()
-        if stack is not None:
-            stack.down(timeout=30)
+        teardown_stack_runtime(bundle, stack, relay=relay, down_timeout=30)

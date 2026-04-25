@@ -6,10 +6,10 @@ import pytest
 
 from tests.system.deployments.baseline import (
     CONTINUOUS_SERVICES,
-    capture_stack_artifacts,
     create_bundle,
     create_stack,
     record_runtime_plan,
+    teardown_stack_runtime,
 )
 from tests.system.deployments.runtime_overrides import (
     BOOTSTRAP_SERVICES,
@@ -78,10 +78,10 @@ def _prepare_observability_stack(
     stack = create_stack(plan)
     record_runtime_plan(bundle, plan)
 
-    stack.up(*BOOTSTRAP_SERVICES, build=True)
+    stack.up(*BOOTSTRAP_SERVICES)
     relay = start_baseline_relay(plan)
     configure_runtime_relay_targets(plan, relay)
-    stack.up(build=True)
+    stack.up()
     stack.wait_until_ready(CONTINUOUS_SERVICES)
 
     prometheus = prometheus_api(plan)
@@ -222,12 +222,7 @@ def test_prometheus_outage_degrades_grafana_datasource_and_recovers(tmp_path: Pa
         )
         _capture_snapshot(bundle, "prometheus-outage-recovery", recovery)
     finally:
-        if bundle is not None and stack is not None:
-            capture_stack_artifacts(bundle, stack)
-        if relay is not None:
-            relay.stop()
-        if stack is not None:
-            stack.down(timeout=30)
+        teardown_stack_runtime(bundle, stack, relay=relay, down_timeout=30)
 
 
 def test_postgres_exporter_outage_surfaces_honest_prometheus_target_state(tmp_path: Path) -> None:
@@ -301,12 +296,7 @@ def test_postgres_exporter_outage_surfaces_honest_prometheus_target_state(tmp_pa
         )
         _capture_snapshot(bundle, "exporter-outage-recovery", recovery)
     finally:
-        if bundle is not None and stack is not None:
-            capture_stack_artifacts(bundle, stack)
-        if relay is not None:
-            relay.stop()
-        if stack is not None:
-            stack.down(timeout=30)
+        teardown_stack_runtime(bundle, stack, relay=relay, down_timeout=30)
 
 
 def test_alertmanager_outage_preserves_local_alert_firing_and_routes_after_recovery(
@@ -435,9 +425,4 @@ def test_alertmanager_outage_preserves_local_alert_firing_and_routes_after_recov
         )
         _capture_snapshot(bundle, "alertmanager-outage-resolved", resolved)
     finally:
-        if bundle is not None and stack is not None:
-            capture_stack_artifacts(bundle, stack)
-        if relay is not None:
-            relay.stop()
-        if stack is not None:
-            stack.down(timeout=30)
+        teardown_stack_runtime(bundle, stack, relay=relay, down_timeout=30)

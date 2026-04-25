@@ -8,10 +8,10 @@ import pytest
 from tests.system.deployments.baseline import (
     ALL_SERVICES,
     CONTINUOUS_SERVICES,
-    capture_stack_artifacts,
     create_bundle,
     create_stack,
     record_runtime_plan,
+    teardown_stack_runtime,
 )
 from tests.system.deployments.runtime_overrides import (
     BOOTSTRAP_SERVICES,
@@ -235,10 +235,10 @@ def test_bigbrotr_services_emit_common_metric_schema_and_survive_refresher_resta
     initial_snapshots: dict[str, MetricsSnapshot] = {}
     restarted_refresher_snapshot: MetricsSnapshot | None = None
     try:
-        stack.up(*BOOTSTRAP_SERVICES, build=True)
+        stack.up(*BOOTSTRAP_SERVICES)
         relay = start_baseline_relay(plan)
         configure_runtime_relay_targets(plan, relay)
-        stack.up(build=True)
+        stack.up()
         stack.wait_until_ready(CONTINUOUS_SERVICES)
 
         for service_name in METRIC_SERVICES:
@@ -254,10 +254,7 @@ def test_bigbrotr_services_emit_common_metric_schema_and_survive_refresher_resta
             name="restart",
         )
     finally:
-        capture_stack_artifacts(bundle, stack, services=ALL_SERVICES)
-        if relay is not None:
-            relay.stop()
-        stack.down()
+        teardown_stack_runtime(bundle, stack, relay=relay, services=ALL_SERVICES)
 
     assert set(initial_snapshots) == set(METRIC_SERVICES)
 

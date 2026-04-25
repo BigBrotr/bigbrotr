@@ -8,10 +8,10 @@ import pytest
 import yaml
 
 from tests.system.deployments.baseline import (
-    capture_stack_artifacts,
     create_bundle,
     create_stack,
     record_runtime_plan,
+    teardown_stack_runtime,
 )
 from tests.system.deployments.runtime_overrides import (
     BOOTSTRAP_SERVICES,
@@ -239,10 +239,10 @@ def test_assertor_metrics_host_port_is_reachable_for_profile(tmp_path: Path, pro
 
     relay = None
     try:
-        stack.up(*BOOTSTRAP_SERVICES, build=True)
+        stack.up(*BOOTSTRAP_SERVICES)
         relay = start_baseline_relay(plan)
         configure_runtime_relay_targets(plan, relay)
-        stack.up("assertor", build=True)
+        stack.up("assertor")
         stack.wait_until_ready(("assertor",), timeout=180.0)
 
         snapshot = _wait_until(
@@ -259,11 +259,11 @@ def test_assertor_metrics_host_port_is_reachable_for_profile(tmp_path: Path, pro
             metrics_text=snapshot.text,
         )
     finally:
-        capture_stack_artifacts(
-            bundle, stack, services=("postgres", "pgbouncer", "tor", "assertor")
+        teardown_stack_runtime(
+            bundle,
+            stack,
+            relay=relay,
+            services=("postgres", "pgbouncer", "tor", "assertor"),
         )
-        if relay is not None:
-            relay.stop()
-        stack.down()
 
     assert snapshot.single_value("service_info", service="assertor") == 1.0

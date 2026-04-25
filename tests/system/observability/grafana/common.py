@@ -509,14 +509,9 @@ def certify_grafana_datasource_contract(
         capture_grafana_artifacts(bundle, snapshot=snapshot)
         assert_datasource_contract(snapshot, profile=profile)
     finally:
-        if bundle is not None and stack is not None:
-            from tests.system.deployments.baseline import capture_stack_artifacts
+        from tests.system.deployments.baseline import teardown_stack_runtime
 
-            capture_stack_artifacts(bundle, stack)
-        if relay is not None:
-            relay.stop()
-        if stack is not None:
-            stack.down()
+        teardown_stack_runtime(bundle, stack, relay=relay)
 
 
 def certify_grafana_dashboard_provisioning_contract(
@@ -553,14 +548,9 @@ def certify_grafana_dashboard_provisioning_contract(
         capture_dashboard_provisioning_artifacts(bundle, plan=plan, snapshot=snapshot)
         assert_dashboard_provisioning_contract(snapshot, profile=profile)
     finally:
-        if bundle is not None and stack is not None:
-            from tests.system.deployments.baseline import capture_stack_artifacts
+        from tests.system.deployments.baseline import teardown_stack_runtime
 
-            capture_stack_artifacts(bundle, stack)
-        if relay is not None:
-            relay.stop()
-        if stack is not None:
-            stack.down(timeout=30)
+        teardown_stack_runtime(bundle, stack, relay=relay, down_timeout=30)
 
 
 def certify_grafana_dashboard_query_semantics_contract(
@@ -625,11 +615,6 @@ def certify_grafana_dashboard_query_semantics_contract(
             query_results=query_results,
         )
     finally:
-        if bundle is not None and stack is not None:
-            from tests.system.deployments.baseline import capture_stack_artifacts
+        from tests.system.deployments.baseline import teardown_stack_runtime
 
-            capture_stack_artifacts(bundle, stack)
-        if relay is not None:
-            relay.stop()
-        if stack is not None:
-            stack.down(timeout=30)
+        teardown_stack_runtime(bundle, stack, relay=relay, down_timeout=30)

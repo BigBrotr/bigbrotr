@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 import time
 from typing import TYPE_CHECKING
 
@@ -16,7 +17,7 @@ from tests.system.harness.compose import deployment_dir
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from tests.system.harness import ComposeServiceStatus
+    from tests.system.harness import ComposeServiceStatus, LocalRelayRuntime
 
 
 ALL_SERVICES = (
@@ -100,6 +101,46 @@ def capture_stack_artifacts(
             service,
             stack.run("logs", "--no-color", "--tail", "200", service).stdout,
         )
+
+
+def teardown_stack_runtime(
+    bundle: SystemArtifactBundle | None,
+    stack: ComposeStack | None,
+    *,
+    relay: LocalRelayRuntime | None = None,
+    services: tuple[str, ...] = ALL_SERVICES,
+    down_timeout: int | None = None,
+) -> None:
+    cleanup_errors: list[tuple[str, Exception]] = []
+    active_exception = sys.exc_info()[1]
+
+    if bundle is not None and stack is not None:
+        try:
+            capture_stack_artifacts(bundle, stack, services=services)
+        except Exception as exc:  # pragma: no cover - exercised via helper unit tests
+            cleanup_errors.append(("capture_stack_artifacts", exc))
+
+    if relay is not None:
+        try:
+            relay.stop()
+        except Exception as exc:  # pragma: no cover - exercised via helper unit tests
+            cleanup_errors.append(("relay.stop", exc))
+
+    if stack is not None:
+        try:
+            stack.down(timeout=down_timeout)
+        except Exception as exc:  # pragma: no cover - exercised via helper unit tests
+            cleanup_errors.append(("stack.down", exc))
+
+    if not cleanup_errors:
+        return
+
+    details = "\n".join(f"- {step}: {type(exc).__name__}: {exc}" for step, exc in cleanup_errors)
+    message = f"System runtime cleanup failed:\n{details}"
+    if active_exception is not None:
+        active_exception.add_note(message)
+        return
+    raise RuntimeError(message) from cleanup_errors[0][1]
 
 
 def assert_expected_baseline(

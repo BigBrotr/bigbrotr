@@ -20,7 +20,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 from websockets.datastructures import Headers
-from websockets.exceptions import ConnectionClosed
+from websockets.exceptions import ConnectionClosed, InvalidMessage
 from websockets.http11 import Request, Response
 from websockets.sync.client import connect
 from websockets.sync.server import serve
@@ -191,7 +191,7 @@ class LocalTlsWebSocketRuntime:
                     close_timeout=self.poll_interval,
                 ):
                     return
-            except (ConnectionClosed, OSError, TimeoutError):
+            except (ConnectionClosed, InvalidMessage, OSError, TimeoutError):
                 time.sleep(self.poll_interval)
 
         raise RuntimeError("Timed out waiting for TLS WebSocket runtime to become ready")
