@@ -62,12 +62,12 @@ Use these statuses consistently:
 | 1. Higher-band harness foundation | done | The higher-band harness foundation is now closed: `tests/system/`/`tests/live_smoke/` exist physically, compose lifecycle, artifact capture, runtime addressing, fault control, and observability API helpers are all in place, and the self-audit now proves deterministic repeated cycles without mutating the shipped compose assets |
 | 2. Real relay infrastructure | done | The baseline relay is now pinned and proven against a real containerized `nostr-rs-relay` contract with startup/readiness, publish, query, live-subscribe, SQLite inspectability, and per-run artifacts; the capture relay path also proves exact live publication audit for ids/kinds/authors/tags/content/order plus duplicate-send semantics, the fault-injected path is live through digest-pinned `Toxiproxy` with latency, blackhole, reset, disable, and recovery drills, the secondary matrix adds digest-pinned `rnostr` under the same common contract, and the closing self-audit now proves repeated relay publish/read cycles, artifact manifests, and teardown cleanup across baseline/capture/fault/secondary roles without residual drift |
 | 3. Deployment stack baseline | done | Both built-in profiles now reach deterministic baseline readiness with the same runtime-owned local relay path, honest one-shot compose snapshots, corrected shipped health checks, an explicit compose contract audit for dependency ordering and health probes, and a verified teardown/restart baseline that leaves no hidden Docker resource drift between cycles |
-| 4. Service system certification | in progress | `Seeder`, `Finder`, `Validator`, `Monitor`, `Synchronizer`, and `Refresher` are now certified on the composed `bigbrotr` stack, covering real seed-file ownership, real HTTP-source discovery, real `wss` relay validation, real relay probe persistence, real archive ingestion/restart recovery, and real derived-table refresh/runtime checkpoint behavior against live PostgreSQL; the remaining four service slices stay open |
-| 5. Cross-service system pipelines | not started | Discovery, archive, derivation, public-read, and restart pipelines |
-| 6. Observability certification | not started | Metrics, Prometheus, alerts, Grafana, exporter, and operator-doc parity |
-| 7. Failure, recovery, and resilience | not started | Relay, DB, observability, restart, and concurrency hardening |
-| 8. Profile parity and deployment hardening | not started | `bigbrotr` vs `lilbrotr` runtime and monitoring parity |
-| 9. Final audit, cutover, and closeout | not started | Structural cleanup, repeated matrix reruns, and formal closure |
+| 4. Service system certification | done | All ten services are now certified against their real authored boundaries on the composed stack: file-owned seed ingestion, controlled HTTP discovery, real `wss` relay validation/probing/archive, derived-table refresh, private rank-store behavior, real provider-package publication capture, real HTTP API surface, and real DVM relay request/response semantics |
+| 5. Cross-service system pipelines | done | Discovery, archive, derivation, public-read, and restart/resume pipelines are now certified end-to-end under the composed stack with live PostgreSQL, live relay/runtime boundaries, and restart/idempotency assertions instead of service-local proofs only |
+| 6. Observability certification | done | Emitted metric schema, deployment metrics wiring, Prometheus scrape semantics, alert rules, Grafana datasource/provisioning/query contracts, Alertmanager routing, postgres-exporter correctness, and operator-doc parity are now all certified on the live monitoring stack for both built-in profiles |
+| 7. Failure, recovery, and resilience | done | Relay, database/pool, observability-stack, service-restart, and concurrency resilience bands are now certified with real fault injection, repeated reruns, and cleanup hardening until unexplained drift disappeared |
+| 8. Profile parity and deployment hardening | done | `bigbrotr` vs `lilbrotr` runtime parity, monitoring parity, SQL/deployment asset parity, and operator-surface coherence are now all certified with only intentional profile differences left alive |
+| 9. Final audit, cutover, and closeout | done | Structural audit, weak-surface removal, repeated no-change matrix reruns, and formal ledger closeout are complete; the final higher-band tracked surface is `136` files under `tests/system/` plus `2` under `tests/live_smoke/`, and the closing rerun is green with `95` system tests, `5410` unit/non-system tests, and `293` integration tests |
 
 ---
 
@@ -123,65 +123,65 @@ Use these statuses consistently:
 | 4.4 `Monitor` | done | `test: certify monitor system contract` | Added `tests/system/services/monitor/` plus the first real monitor-runtime contract around the shipped container: a healthy relay path now runs through a deterministic host-side TLS relay proxy that serves both `https` NIP-11 fetches and `wss` RTT probes against `nostr-rs-relay`, while a second TLS relay proxy fronts a blackholed Toxiproxy path to prove degraded-check checkpoint persistence without inventing fake boundaries. The slice closed several real harness drifts that only appeared once Monitor was exercised at the authored system boundary: raw Docker IPs were reclassified as `local` and short Docker aliases were rejected as invalid clearnet hosts, while canonical `wss://` relay rows also required a same-origin `https://` path for NIP-11 rather than a websocket-only TLS shim. Closing the slice therefore extended the TLS websocket harness so proxy mode can serve proxied HTTP responses on the same certified TLS origin, added Toxiproxy network-alias support for later service bands, and codified the live Monitor semantics that healthy relays persist `nip11_info` + `nip66_rtt`, degraded relays still advance monitor checkpoints, and restart within the authored discovery window does not re-probe already-checked relays. Audit loop executed with green targeted unit coverage for `tests/unit/test_system_websocket_harness.py tests/unit/test_system_fault_harness.py`, `3x` green reruns of `tests/system/services/monitor/test_service.py -q`, then a green band rerun of `tests/system/test_band_contract.py tests/system/services/monitor/test_service.py -q`; repository gates for closure are `make test-system`, `pre-commit --files ...`, `uv lock --check`, `make ci`, and `./.venv/bin/pytest tests/integration/ -q` |
 | 4.5 `Synchronizer` | done | `test: certify synchronizer system contract` | Added `tests/system/services/synchronizer/` and certified the authored continuous service against a real relay stream: one live `nostr-rs-relay` now feeds archive ingestion through a deterministic host-side TLS boundary, while a second restart path keeps the relay stream behind real `Toxiproxy` fault injection to prove no cursor drift during blackout and honest recovery on the next restart without duplicate `event_observation` rows. The slice closed two real drifts before the contract went green. First, `src/bigbrotr/services/synchronizer/queries.py` built `SyncCursor(timestamp=None)` for relays without persisted cursor rows because the join mapper treated `NULL` columns as present values instead of falling back to sentinel defaults; that was fixed in production code and locked with a new unit test in `tests/unit/services/test_synchronizer.py`. Second, the TLS websocket harness readiness probe had become a raw TLS socket check that triggered noisy invalid-HTTP server errors, so `tests/system/harness/websocket.py` now uses an explicit `/ready` websocket path that bypasses mode-specific handlers and keeps startup deterministic without startup-log drift. The certified contract now proves stale-cursor cleanup, event/archive persistence, cursor advancement, restart/resume dedup, and blackout recovery with live DB assertions plus relay/proxy/container artifacts. Audit loop executed with green targeted unit coverage for `tests/unit/services/test_synchronizer.py tests/unit/test_system_websocket_harness.py`, `3x` green reruns of `tests/system/services/synchronizer/test_service.py -q`, then a green band rerun of `tests/system/test_band_contract.py tests/system/services/synchronizer/test_service.py -q`; repository gates for closure are `make test-system`, `pre-commit --files ...`, `uv lock --check`, `make ci`, and `./.venv/bin/pytest tests/integration/ -q` |
 | 4.6 `Refresher` | done | `test: certify refresher system contract` | Added `tests/system/services/refresher/` and certified the authored continuous service on the composed `bigbrotr` stack with live PostgreSQL seeding through the real `Brotr` boundary. The first contract proves incremental plus periodic orchestration, refreshed `relay_document_current` and `pubkey_kind_stats` outputs, persisted checkpoint touch points, and stale-checkpoint cleanup against the shipped container/config wiring. The second contract proves restart/resume behavior with `max_source_window` enabled, showing that a partial first cycle persists a bounded checkpoint and that the next container restart resumes from that checkpoint without duplicate drift in the refreshed analytics rows. No product drift surfaced in the service itself; the audit loop instead exposed two test-boundary defects that were fixed before closure: the current-document snapshot compared a hex-encoded DB projection against the model's raw binary content hash, and the restart wait conditions compared tuple snapshots from the runtime DB helper against list literals, which could never converge. Audit loop executed with green targeted runtime probes for each contract, `3x` green reruns of `tests/system/services/refresher/test_service.py -q`, then a green band rerun of `tests/system/test_band_contract.py tests/system/services/refresher/test_service.py -q`; repository gates for closure are `make test-system`, `pre-commit --files ...`, `uv lock --check`, `make ci`, and `./.venv/bin/pytest tests/integration/ -q` |
-| 4.7 `Ranker` | not started |  | Real score outputs, private store behavior, profile differences, and restart semantics |
-| 4.8 `Assertor` | not started |  | Real publication capture, event correctness, publish failure handling, and restart behavior |
-| 4.9 `API` | not started |  | Real HTTP boundary certification, payload correctness, pagination/filter/sort, and error mapping |
-| 4.10 `DVM` | not started |  | Real relay/event boundary certification, response event correctness, and reconnect behavior |
+| 4.7 `Ranker` | done | `12448c51` | Real rank exports, private DuckDB store ownership, restart incrementality, and `lilbrotr` profile store isolation are now certified on the composed stack |
+| 4.8 `Assertor` | done | `db7526d2` | Real relay publication capture now proves provider-package event correctness, duplicate-skip restart behavior, and honest failure handling without partial checkpoint persistence |
+| 4.9 `API` | done | `19dee93c` | The real HTTP boundary is now certified for health/read-model surfaces, payload correctness, pagination/filter/sort semantics, and restart continuity |
+| 4.10 `DVM` | done | `bba5d1ca` | The real relay/event boundary is now certified for provider announcement, request handling, response-event correctness, cursor recovery, and `lilbrotr` read-model exposure over relay |
 
 ### Wave 5 — Cross-Service System Pipelines
 
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
-| 5.1 Discovery pipeline | not started |  | `Seeder` -> `Finder` -> `Validator` -> `Monitor` under the composed stack |
-| 5.2 Archive pipeline | not started |  | Validated relays flowing into `Synchronizer` with honest persistence and checkpoints |
-| 5.3 Derivation pipeline | not started |  | `Refresher` -> `Ranker` -> `Assertor` with real publication capture |
-| 5.4 Public read pipeline | not started |  | Shared state flowing into `API` and `DVM` through their true boundaries |
-| 5.5 Restart and partial-completion pipeline | not started |  | Resume, idempotency, and honest failure under interrupted composed flows |
+| 5.1 Discovery pipeline | done | `b11bbf9f` | `Seeder` -> `Finder` -> `Validator` -> `Monitor` is now certified under the composed stack with controlled source ownership, live relay validation, and persisted relay-health state |
+| 5.2 Archive pipeline | done | `2d8de41a` | Validated relays now flow into `Synchronizer` with live relay ingestion, honest `event` / `event_observation` persistence, cursor resume, and restart deduplication |
+| 5.3 Derivation pipeline | done | `7e3bd73d` | `Refresher` -> `Ranker` -> `Assertor` is now certified with live derived outputs, private ranking store usage, and real publication capture instead of mocked publication semantics |
+| 5.4 Public read pipeline | done | `bf4009a6` | Shared state now flows through the real `API` and `DVM` boundaries with live HTTP and relay request/response certification over the composed stack |
+| 5.5 Restart and partial-completion pipeline | done | `3dadd5a7` | Interrupted composed flows are now certified for resume, idempotency, and honest failure semantics across restart and partial-completion boundaries |
 
 ### Wave 6 — Observability Certification
 
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
-| 6.1 Emitted metrics schema contract | not started |  | Metric names, labels, semantics, and lifecycle behavior |
-| 6.2 Deployment metrics wiring contract | not started |  | Real deployment config enabling/exposing intended metrics surfaces |
-| 6.3 `bigbrotr` Prometheus scrape contract | not started |  | Target health, target correctness, and required series presence |
-| 6.4 `lilbrotr` Prometheus scrape contract | not started |  | Equivalent scrape certification for the lightweight profile |
-| 6.5 `bigbrotr` alert-rule contract | not started |  | Positive and negative alert semantics |
-| 6.6 `lilbrotr` alert-rule contract | not started |  | Profile-specific alert semantics and parity checks |
-| 6.7 Grafana datasource provisioning contract | not started |  | Datasource presence, UID stability, and connectivity |
-| 6.8 Alertmanager routing contract | not started |  | Routing config load, alert acceptance, and documented semantics |
-| 6.9 Dashboard provisioning integrity contract | not started |  | Dashboard load, UID stability, and provisioning completeness |
-| 6.10 Dashboard query semantics contract | not started |  | Panel queries resolve against live metrics and current labels |
-| 6.11 Postgres-exporter contract | not started |  | Exporter startup, custom query correctness, and schema parity |
-| 6.12 Operator-document parity contract | not started |  | Monitoring docs align with the certified live stack |
+| 6.1 Emitted metrics schema contract | done | `e00c29e5` | Metric family names, labels, lifecycle behavior, and restart continuity are now certified across the live service metrics surface |
+| 6.2 Deployment metrics wiring contract | done | `acae1079` | The live deployment config now certifies intended metrics enablement/exposure, including the corrected `assertor` metrics port wiring and host reachability |
+| 6.3 `bigbrotr` Prometheus scrape contract | done | `594fa6a9` | `bigbrotr` now proves target health, target correctness, and required `up` / `service_info` / exporter series via the live Prometheus API |
+| 6.4 `lilbrotr` Prometheus scrape contract | done | `bfba0f0f` | The lightweight profile now carries the same Prometheus scrape proof with the intended profile-specific target addresses only |
+| 6.5 `bigbrotr` alert-rule contract | done | `79ba9b18` | `ServiceDown` and related positive/negative alert semantics are now certified on the live `bigbrotr` monitoring stack |
+| 6.6 `lilbrotr` alert-rule contract | done | `ccc9130b` | The lightweight profile now proves the same alert semantics plus parity of monitoring behavior across the two built-in deployments |
+| 6.7 Grafana datasource provisioning contract | done | `c6b37f4c` | Datasource presence, UID stability, connectivity, and provisioning correctness are now certified via the live Grafana API |
+| 6.8 Alertmanager routing contract | done | `d7949eb3` | Routing config load, alert receipt, and documented routing semantics are now certified against the live Alertmanager boundary |
+| 6.9 Dashboard provisioning integrity contract | done | `bb08f43a` | Dashboard load, UID stability, expected inventory, and provisioning completeness are now certified for both profiles |
+| 6.10 Dashboard query semantics contract | done | `fc8053bc` | Panel queries are now proven against live metrics and current label sets, with no stale metric-name or label-shape assumptions left |
+| 6.11 Postgres-exporter contract | done | `21fadc63` | Exporter startup, custom query correctness, live sample payloads, and schema/query parity are now certified against the running stack |
+| 6.12 Operator-document parity contract | done | `0627dcf7` | Monitoring/operator docs now align with the certified live stack instead of historical or provisioning-only assumptions |
 
 ### Wave 7 — Failure, Recovery, And Resilience
 
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
-| 7.1 Relay-network failures | not started |  | Latency, disconnect, reset, timeout, degraded subsets, and recovery |
-| 7.2 Database and pool failures | not started |  | Startup failure, transient DB loss, and rollback honesty |
-| 7.3 Observability-stack failures | not started |  | Prometheus/Grafana/Alertmanager/exporter degradation and resulting semantics |
-| 7.4 Service restart and mid-flight interruption | not started |  | Container restart, repeated restarts, and interrupted work recovery |
-| 7.5 Flake and concurrency hardening | not started |  | Repeat high-risk runs until unexplained drift disappears |
+| 7.1 Relay-network failures | done | `9425c766` | Latency, disconnect, reset, timeout, degraded-subset, and recovery behavior are now certified under real relay-network fault injection |
+| 7.2 Database and pool failures | done | `2aa4a116` | Startup failure, transient DB/pool loss, rollback honesty, and service recovery are now certified against the live data path |
+| 7.3 Observability-stack failures | done | `df910274` | Prometheus, Grafana, Alertmanager, and postgres-exporter degradation semantics are now certified with recovery drills on the live monitoring stack |
+| 7.4 Service restart and mid-flight interruption | done | `4d8aab13` | Repeated restarts and interrupted work recovery are now certified on real service boundaries, including `Assertor` partial publish state |
+| 7.5 Flake and concurrency hardening | done | `1984c2e5` | Repeated high-risk coexistence reruns are now stable, teardown is auditable, and unexplained concurrency drift has been driven out of the band |
 
 ### Wave 8 — Profile Parity And Deployment Hardening
 
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
-| 8.1 `bigbrotr` vs `lilbrotr` service/runtime parity | not started |  | Shared contracts plus intentional profile differences only |
-| 8.2 Monitoring parity | not started |  | Datasources, dashboards, alerts, and exporter semantics across both profiles |
-| 8.3 SQL and deployment asset parity | not started |  | Generated SQL, deployed SQL, and certified stack remain aligned |
-| 8.4 Operator-experience audit | not started |  | Final operator-facing coherence review for the deployment stack |
+| 8.1 `bigbrotr` vs `lilbrotr` service/runtime parity | done | `a139d6ca` | Shared service/runtime contracts now differ only on intentional profile boundaries; the closeout also absorbed companion recovery fix `5cbe5868` for synchronizer behavior after failed relay cycles |
+| 8.2 Monitoring parity | done | `17c194a1` | Datasources, dashboards, alerts, exporter semantics, and live monitoring behavior are now certified as profile-parity surfaces with only intentional profile tokens differing |
+| 8.3 SQL and deployment asset parity | done | `9a88a1cb` | Generated SQL, shipped deployment SQL/init assets, and the certified runtime schema now remain aligned across both built-in profiles |
+| 8.4 Operator-experience audit | done | `d194c275` | Final operator-facing coherence review now proves README links, host-port surfaces, and asset inventory match the real shipped deployment stack |
 
 ### Wave 9 — Final Audit, Cutover, And Closeout
 
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
-| 9.1 Structural audit | not started |  | Every surviving file and helper must justify its place |
-| 9.2 Remove obsolete or weak surfaces | not started |  | Delete or migrate superseded tests, helpers, and monitoring drift surfaces |
-| 9.3 Full repeated matrix audit | not started |  | Repeat full higher-band reruns until residual unexplained weakness is gone |
-| 9.4 Final closeout | not started |  | Close the ledger honestly and leave a clean worktree |
+| 9.1 Structural audit | done | `b4af3e60` | The final higher-band topology is now locked and every surviving leaf package/helper surface must justify its place against the structural audit contract |
+| 9.2 Remove obsolete or weak surfaces | done | `a9b7bbe6` | Weak higher-band band-contract placeholders were removed, relay cleanup was hardened, and the remaining topology now reflects only justified live surfaces |
+| 9.3 Full repeated matrix audit | done | `12041346` | A no-change repeated rerun is now green end-to-end: observability/profile bands no longer depend on unnecessary rebuilds during audit, teardown now still runs when artifact capture fails, transient unlabeled `service_info` rows no longer explode readiness polling, and TLS websocket readiness treats `InvalidMessage` as transient startup noise; closing reruns are `make test-system` (`95 passed in 4588.29s`), `make ci` (`5410 passed in 25.41s`), and `./.venv/bin/pytest tests/integration/ -q` (`293 passed in 32.69s`) |
+| 9.4 Final closeout | done | `docs: close system test certification ledger` | The ledger is now aligned with the real branch state, no wave remains open, the final tracked higher-band surface is `136` files under `tests/system/` plus `2` under `tests/live_smoke/`, and no negative audit note remains open |
 
 ---
 
