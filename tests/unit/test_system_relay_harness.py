@@ -197,6 +197,56 @@ class TestLocalRelayRuntime:
             poll_interval=runtime.poll_interval,
         )
 
+    def test_stop_falls_back_to_container_name_when_id_is_missing(self, tmp_path: Path) -> None:
+        runtime = LocalRelayRuntime(role="baseline", runtime_dir=tmp_path / "relay")
+        runtime.host_port = 18080
+
+        with (
+            patch(
+                "tests.system.harness.relay.docker_container_exists",
+                side_effect=[True],
+            ) as mock_exists,
+            patch(
+                "tests.system.harness.relay.subprocess.run",
+                return_value=CompletedProcess(args=(), returncode=0, stdout="", stderr=""),
+            ) as mock_run,
+        ):
+            runtime.stop()
+
+        mock_exists.assert_called_once_with(runtime.container_name)
+        assert mock_run.call_args.args[0][:3] == ("docker", "rm", "-f")
+        assert mock_run.call_args.args[0][3] == runtime.container_name
+        assert runtime.container_id is None
+        assert runtime.host_port is None
+
+    def test_stop_falls_back_to_container_name_after_failed_id_removal(
+        self, tmp_path: Path
+    ) -> None:
+        runtime = LocalRelayRuntime(role="baseline", runtime_dir=tmp_path / "relay")
+        runtime.container_id = "stale-relay-cid"
+        runtime.host_port = 18080
+
+        with (
+            patch(
+                "tests.system.harness.relay.docker_container_exists",
+                return_value=True,
+            ) as mock_exists,
+            patch(
+                "tests.system.harness.relay.subprocess.run",
+                side_effect=[
+                    CompletedProcess(args=(), returncode=1, stdout="", stderr="missing"),
+                    CompletedProcess(args=(), returncode=0, stdout="", stderr=""),
+                ],
+            ) as mock_run,
+        ):
+            runtime.stop()
+
+        mock_exists.assert_called_once_with(runtime.container_name)
+        assert mock_run.call_args_list[0].args[0][3] == "stale-relay-cid"
+        assert mock_run.call_args_list[1].args[0][3] == runtime.container_name
+        assert runtime.container_id is None
+        assert runtime.host_port is None
+
 
 class TestLocalRnostrRuntime:
     def test_start_and_stop_manage_container_lifecycle(self, tmp_path: Path) -> None:

@@ -23,13 +23,11 @@ _EXPECTED_SYSTEM_ROOT_DIRS = {
 _EXPECTED_SYSTEM_ROOT_FILES = {
     "__init__.py",
     "README.md",
-    "test_band_contract.py",
     "test_structure_audit.py",
 }
 _EXPECTED_LIVE_SMOKE_FILES = {
     "__init__.py",
     "README.md",
-    "test_band_contract.py",
 }
 _EXPECTED_SUPPORT_MODULES = {
     "tests/system/deployments/baseline.py",
@@ -129,7 +127,7 @@ def test_support_modules_stay_scoped_to_explicit_helper_surfaces() -> None:
     tracked_python = {
         path.as_posix()
         for path in _tracked_python_files(_SYSTEM_ROOT, tracked)
-        if path.name not in {"__init__.py", "test_band_contract.py", "test_structure_audit.py"}
+        if path.name not in {"__init__.py", "test_structure_audit.py"}
         and not path.name.startswith("test_")
     }
 

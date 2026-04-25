@@ -419,6 +419,37 @@ def _run_docker(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _remove_container_with_fallback(
+    container_id: str | None,
+    *,
+    container_name: str,
+) -> None:
+    target = container_id or container_name
+    result = subprocess.run(  # noqa: S603
+        _docker_command("rm", "-f", target),
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    if result.returncode == 0:
+        return
+
+    if target != container_name and docker_container_exists(container_name):
+        fallback = subprocess.run(  # noqa: S603
+            _docker_command("rm", "-f", container_name),
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        if fallback.returncode == 0:
+            return
+        result = fallback
+
+    raise RuntimeError(
+        f"Failed to remove relay container {container_name!r}: {result.stderr.strip() or result.stdout.strip()}"
+    )
+
+
 def _ensure_relay_image(image: str, platform: str) -> None:
     inspect_result = subprocess.run(  # noqa: S603
         _docker_command("image", "inspect", image),
@@ -575,19 +606,12 @@ class LocalRelayRuntime:
 
     def stop(self) -> None:
         """Force-remove the relay container if it is still present."""
-        if self.container_id is None:
+        if self.container_id is None and not docker_container_exists(self.container_name):
             return
 
-        try:
-            subprocess.run(  # noqa: S603
-                _docker_command("rm", "-f", self.container_id),
-                check=False,
-                text=True,
-                capture_output=True,
-            )
-        finally:
-            self.container_id = None
-            self.host_port = None
+        _remove_container_with_fallback(self.container_id, container_name=self.container_name)
+        self.container_id = None
+        self.host_port = None
 
     def __enter__(self) -> LocalRelayRuntime:
         self.start()
@@ -740,19 +764,12 @@ class LocalRnostrRuntime:
 
     def stop(self) -> None:
         """Force-remove the rnostr container if it is still present."""
-        if self.container_id is None:
+        if self.container_id is None and not docker_container_exists(self.container_name):
             return
 
-        try:
-            subprocess.run(  # noqa: S603
-                _docker_command("rm", "-f", self.container_id),
-                check=False,
-                text=True,
-                capture_output=True,
-            )
-        finally:
-            self.container_id = None
-            self.host_port = None
+        _remove_container_with_fallback(self.container_id, container_name=self.container_name)
+        self.container_id = None
+        self.host_port = None
 
     def __enter__(self) -> LocalRnostrRuntime:
         self.start()

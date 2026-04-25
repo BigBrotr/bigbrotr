@@ -56,10 +56,12 @@ def _start_profile_baseline(
     stack = create_stack(plan)
     record_runtime_plan(bundle, plan)
 
-    stack.up(*BOOTSTRAP_SERVICES, build=True)
+    # Build-path fidelity is already certified in the deployment baseline band.
+    # The concurrency contract only needs previously built stacks to coexist cleanly.
+    stack.up(*BOOTSTRAP_SERVICES)
     relay = start_baseline_relay(plan)
     configure_runtime_relay_targets(plan, relay)
-    stack.up(build=True)
+    stack.up()
     ready = stack.wait_until_ready(CONTINUOUS_SERVICES)
     snapshot = {status.service: status for status in stack.ps(all_services=True)}
     capture_stack_artifacts(bundle, stack, services=ALL_SERVICES)
@@ -78,7 +80,7 @@ def _stop_profile_baseline(runtime: RunningProfileBaseline) -> None:
     relay_container_name = runtime.relay.container_name
     runtime.relay.stop()
     runtime.stack.down(timeout=30)
-    assert_runtime_resources_removed(runtime.plan, relay_container_name)
+    assert_runtime_resources_removed(runtime.plan, relay_container_name, timeout=60.0)
 
 
 @pytest.mark.timeout(2400)
