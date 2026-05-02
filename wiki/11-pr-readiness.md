@@ -57,6 +57,7 @@ the local graph from PostgreSQL.
 | Documentation drift | Run MkDocs strict build and targeted Markdown checks. |
 | Hidden attribution artifacts | Repository-wide text scan before commit and PR. |
 | Ranker local-state misunderstanding | Document DuckDB persistence and rebuild semantics. |
+| CI unit matrix collecting non-unit suites | Keep the GitHub Actions unit-test command aligned with `make ci` by excluding integration, system, and live-smoke suites. |
 
 ## Required Gates
 
@@ -72,3 +73,15 @@ uv lock --check
 ```
 
 The branch should be pushed only after these gates pass.
+
+## CI Unit Matrix Finding
+
+The GitHub Actions `Unit Test` matrix is intended to be the cross-version unit
+gate. It must not collect `tests/system/` or `tests/live_smoke/`, because those
+suites are not part of the local `make ci` unit contract and can depend on
+runtime behavior that is unsuitable for the unit matrix. The unit command should
+therefore match the local gate by ignoring:
+
+- `tests/integration/`;
+- `tests/system/`;
+- `tests/live_smoke/`.

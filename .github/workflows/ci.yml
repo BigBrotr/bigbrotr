@@ -121,6 +121,8 @@ jobs:
         run: >-
           uv run pytest tests/
           --ignore=tests/integration/
+          --ignore=tests/system/
+          --ignore=tests/live_smoke/
           --cov=src/bigbrotr
           --cov-report=xml
           --cov-report=term-missing
