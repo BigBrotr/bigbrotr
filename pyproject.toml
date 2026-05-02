@@ -62,6 +62,7 @@ dependencies = [
     "cryptography>=46.0.6",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.34.0",
+    "duckdb>=1.5.1",
 ]
 
 [dependency-groups]
@@ -84,8 +85,6 @@ dev = [
     "types-jmespath>=1.0.0",
     "asyncpg-stubs>=0.30.0",
     "testcontainers[postgres]>=4.0.0",
-    "alembic>=1.14.0",
-    "sqlalchemy[asyncio]>=2.0.0",
 ]
 docs = [
     "mkdocs>=1.6.0",
@@ -114,6 +113,8 @@ addopts = ["-v", "--strict-markers", "--strict-config", "-ra", "--tb=short", "--
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests requiring database",
+    "system: marks tests as higher-band system tests requiring Docker Compose",
+    "live_smoke: marks tests as quarantined live-network smoke tests",
     "unit: marks tests as unit tests (no external dependencies)",
 ]
 
@@ -211,8 +212,10 @@ strict = true
 
 [[tool.mypy.overrides]]
 module = [
+    "duckdb",
     "nostr_sdk.*",
     "aiohttp_socks.*",
+    "duckdb.*",
     "rfc3986.*",
     "geohash2.*",
     "geoip2.*",

@@ -10,8 +10,10 @@ Note:
     All data classes extend [BaseData][bigbrotr.nips.base.BaseData] and use
     declarative [FieldSpec][bigbrotr.nips.parsing.FieldSpec] parsing.
     Complex nested structures (limitation, retention, fees) override
-    ``parse()`` with custom logic while still leveraging the base mechanism
-    for flat fields.
+    ``parse_report()`` with custom logic while still leveraging the base
+    mechanism for flat fields; ``parse()`` then remains the convenience
+    wrapper that returns constructor-ready canonical payloads while
+    ``parse_report()`` preserves visibility into dropped or unknown fields.
 
 See Also:
     [bigbrotr.nips.nip11.info.Nip11InfoMetadata][bigbrotr.nips.nip11.info.Nip11InfoMetadata]:
@@ -24,15 +26,483 @@ See Also:
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+import re
+from typing import Any, ClassVar, TypeVar
 
-from pydantic import ConfigDict, Field, StrictBool, StrictInt
+from pydantic import ConfigDict, Field, StrictBool, StrictInt, field_validator
 
 from bigbrotr.nips.base import BaseData
-from bigbrotr.nips.parsing import FieldSpec, parse_fields
+from bigbrotr.nips.parsing import (
+    FieldSpec,
+    ParseIssue,
+    ParseReport,
+    join_parse_path,
+    parse_fields_report,
+)
 
 
 KindRange = tuple[StrictInt, StrictInt]
+_RetentionEntryT = TypeVar("_RetentionEntryT")
+_FeeEntryT = TypeVar("_FeeEntryT")
+_HEX_32_TEXT_LENGTH = 64
+_BCP47_SCRIPT_SUBTAG_LENGTH = 4
+_BCP47_REGION_SUBTAG_LENGTH = 2
+_COUNTRY_CODE_RE = re.compile(r"^[A-Z]{2}$", re.IGNORECASE)
+_PASCAL_CASE_ATTRIBUTE_RE = re.compile(r"^[A-Z][A-Za-z0-9]*$")
+
+
+def _is_non_negative_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _is_hex32_text(value: str) -> bool:
+    if len(value) != _HEX_32_TEXT_LENGTH:
+        return False
+    try:
+        bytes.fromhex(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _is_valid_pascal_case_attribute(value: str) -> bool:
+    return bool(_PASCAL_CASE_ATTRIBUTE_RE.fullmatch(value))
+
+
+def _is_valid_country_code(value: str) -> bool:
+    return bool(_COUNTRY_CODE_RE.fullmatch(value))
+
+
+def _canonicalize_language_tag(value: str) -> str:
+    if value == "*":
+        return value
+    primary, *subtags = value.split("-")
+    normalized = [primary.lower()]
+    for subtag in subtags:
+        if len(subtag) == _BCP47_SCRIPT_SUBTAG_LENGTH and subtag.isalpha():
+            normalized.append(subtag.title())
+        elif len(subtag) == _BCP47_REGION_SUBTAG_LENGTH and subtag.isalpha():
+            normalized.append(subtag.upper())
+        else:
+            normalized.append(subtag.lower())
+    return "-".join(normalized)
+
+
+def _canonicalize_topic_tag(value: str) -> str:
+    return value.lower()
+
+
+def _is_valid_kind_range(value: Any) -> bool:
+    return (
+        isinstance(value, (list, tuple))
+        and len(value) == 2  # noqa: PLR2004 - [min, max] range pair
+        and _is_non_negative_int(value[0])
+        and _is_non_negative_int(value[1])
+        and value[0] <= value[1]
+    )
+
+
+def _invalid_input_report(path: str, fallback: str) -> ParseReport:
+    return ParseReport(
+        parsed={},
+        issues=(
+            ParseIssue(
+                kind="invalid_input",
+                path=path or fallback,
+                detail="expected dict",
+            ),
+        ),
+    )
+
+
+def _unknown_field_issues(
+    data: dict[str, Any],
+    known_fields: set[str],
+    *,
+    path: str,
+) -> list[ParseIssue]:
+    return [
+        ParseIssue(
+            kind="unknown_field",
+            path=join_parse_path(path, key),
+            detail="field not declared in parsing spec",
+        )
+        for key in data
+        if key not in known_fields
+    ]
+
+
+def _remove_exact_issue(
+    issues: list[ParseIssue],
+    *,
+    kind: str,
+    path: str,
+    detail: str,
+) -> None:
+    for index, issue in enumerate(issues):
+        if issue.kind == kind and issue.path == path and issue.detail == detail:
+            del issues[index]
+            return
+
+
+def _normalize_explicit_empty_string_lists(
+    data: dict[str, Any],
+    result: dict[str, Any],
+    issues: list[ParseIssue],
+    *,
+    path: str,
+) -> None:
+    for field_name in ("relay_countries", "language_tags", "tags", "attributes"):
+        field_path = join_parse_path(path, field_name)
+        if data.get(field_name) == [] and field_name not in result:
+            result[field_name] = []
+            _remove_exact_issue(
+                issues,
+                kind="invalid_value",
+                path=field_path,
+                detail="expected non-empty list[str]",
+            )
+        if field_name in result:
+            result[field_name] = sorted(set(result[field_name]))
+
+
+def _drop_blank_string_list_entries(
+    parsed: dict[str, Any],
+    issues: list[ParseIssue],
+    field_names: tuple[str, ...],
+    *,
+    path: str,
+) -> None:
+    for field_name in field_names:
+        value = parsed.get(field_name)
+        if not isinstance(value, list):
+            continue
+
+        valid_entries: list[str] = []
+        for index, entry in enumerate(value):
+            if entry.strip() == "":
+                issues.append(
+                    ParseIssue(
+                        kind="invalid_value",
+                        path=join_parse_path(path, f"{field_name}[{index}]"),
+                        detail="expected non-empty str",
+                    )
+                )
+                continue
+            valid_entries.append(entry)
+
+        if valid_entries:
+            parsed[field_name] = sorted(set(valid_entries))
+        else:
+            del parsed[field_name]
+
+
+def _drop_invalid_string_list_entries(
+    parsed: dict[str, Any],
+    issues: list[ParseIssue],
+    field_validators: tuple[tuple[str, Any, str], ...],
+    *,
+    path: str,
+) -> None:
+    for field_name, validator, detail in field_validators:
+        value = parsed.get(field_name)
+        if not isinstance(value, list):
+            continue
+
+        valid_entries: list[str] = []
+        for index, entry in enumerate(value):
+            if not validator(entry):
+                issues.append(
+                    ParseIssue(
+                        kind="invalid_value",
+                        path=join_parse_path(path, f"{field_name}[{index}]"),
+                        detail=detail,
+                    )
+                )
+                continue
+            valid_entries.append(entry)
+
+        if valid_entries:
+            parsed[field_name] = sorted(set(valid_entries))
+        else:
+            del parsed[field_name]
+
+
+def _drop_blank_string_fields(
+    parsed: dict[str, Any],
+    issues: list[ParseIssue],
+    field_names: tuple[str, ...],
+    *,
+    path: str,
+) -> None:
+    for field_name in field_names:
+        value = parsed.get(field_name)
+        if isinstance(value, str) and value.strip() == "":
+            del parsed[field_name]
+            issues.append(
+                ParseIssue(
+                    kind="invalid_value",
+                    path=join_parse_path(path, field_name),
+                    detail="expected non-empty str",
+                )
+            )
+
+
+def _drop_invalid_string_fields(
+    parsed: dict[str, Any],
+    issues: list[ParseIssue],
+    field_validators: tuple[tuple[str, Any, str], ...],
+    *,
+    path: str,
+) -> None:
+    for field_name, validator, detail in field_validators:
+        value = parsed.get(field_name)
+        if isinstance(value, str) and not validator(value):
+            del parsed[field_name]
+            issues.append(
+                ParseIssue(
+                    kind="invalid_value",
+                    path=join_parse_path(path, field_name),
+                    detail=detail,
+                )
+            )
+
+
+def _parse_strict_int_fields(
+    data: dict[str, Any],
+    field_names: tuple[str, ...],
+    *,
+    path: str,
+) -> tuple[dict[str, int], list[ParseIssue]]:
+    result: dict[str, int] = {}
+    issues: list[ParseIssue] = []
+
+    for key in field_names:
+        if key not in data:
+            continue
+        value = data[key]
+        if isinstance(value, int) and not isinstance(value, bool):
+            result[key] = value
+        else:
+            issues.append(
+                ParseIssue(
+                    kind="invalid_value",
+                    path=join_parse_path(path, key),
+                    detail="expected int",
+                )
+            )
+
+    return result, issues
+
+
+def _drop_negative_int_fields(
+    parsed: dict[str, Any],
+    issues: list[ParseIssue],
+    field_names: tuple[str, ...],
+    *,
+    path: str,
+) -> None:
+    for key in field_names:
+        value = parsed.get(key)
+        if isinstance(value, int) and value < 0:
+            del parsed[key]
+            issues.append(
+                ParseIssue(
+                    kind="invalid_value",
+                    path=join_parse_path(path, key),
+                    detail="expected non-negative int",
+                )
+            )
+
+
+def _parse_supported_nips(raw_nips: Any, *, path: str) -> tuple[list[int] | None, list[ParseIssue]]:
+    issues: list[ParseIssue] = []
+    if not isinstance(raw_nips, list):
+        return None, [
+            ParseIssue(
+                kind="invalid_value",
+                path=path,
+                detail="expected list[int]",
+            )
+        ]
+
+    if not raw_nips:
+        return [], issues
+
+    nips: list[int] = []
+    for index, value in enumerate(raw_nips):
+        if _is_non_negative_int(value):
+            nips.append(value)
+        else:
+            issues.append(
+                ParseIssue(
+                    kind="invalid_value",
+                    path=join_parse_path(path, f"[{index}]"),
+                    detail="expected int",
+                )
+            )
+
+    if nips:
+        return sorted(set(nips)), issues
+    return None, issues
+
+
+def _parse_retention_kinds(
+    raw_kinds: Any,
+    *,
+    path: str,
+) -> tuple[list[int | tuple[int, int]] | None, list[ParseIssue]]:
+    if not isinstance(raw_kinds, list):
+        return None, [
+            ParseIssue(
+                kind="invalid_value",
+                path=path,
+                detail="expected list[int | [int, int]]",
+            )
+        ]
+
+    if not raw_kinds:
+        return [], []
+
+    kinds: list[int | tuple[int, int]] = []
+    issues: list[ParseIssue] = []
+    for index, item in enumerate(raw_kinds):
+        item_path = join_parse_path(path, f"[{index}]")
+        if _is_non_negative_int(item):
+            kinds.append(item)
+            continue
+        if _is_valid_kind_range(item):
+            kinds.append((item[0], item[1]))
+            continue
+        issues.append(
+            ParseIssue(
+                kind="invalid_value",
+                path=item_path,
+                detail="expected int or ascending [int, int] range",
+            )
+        )
+
+    if kinds:
+        return _normalize_retention_kinds(kinds), issues
+    return None, issues
+
+
+def _parse_retention_entries(
+    raw_entries: Any,
+    *,
+    path: str,
+) -> tuple[list[dict[str, Any]] | None, list[ParseIssue]]:
+    if not isinstance(raw_entries, list):
+        return None, [
+            ParseIssue(
+                kind="invalid_value",
+                path=path,
+                detail="expected list[retention_entry]",
+            )
+        ]
+
+    if not raw_entries:
+        return [], []
+
+    entries: list[dict[str, Any]] = []
+    issues: list[ParseIssue] = []
+    for index, entry in enumerate(raw_entries):
+        entry_report = Nip11InfoDataRetentionEntry.parse_report(
+            entry,
+            path=join_parse_path(path, f"[{index}]"),
+        )
+        issues.extend(entry_report.issues)
+        if entry_report.parsed:
+            entries.append(entry_report.parsed)
+
+    if entries:
+        return _normalize_retention_entries_order(entries), issues
+    return None, issues
+
+
+def _retention_kind_sort_key(value: int | tuple[int, int]) -> tuple[int, int, int]:
+    if isinstance(value, int):
+        return (0, value, value)
+    return (1, value[0], value[1])
+
+
+def _normalize_retention_kinds(
+    value: list[int | tuple[int, int]] | None,
+) -> list[int | tuple[int, int]] | None:
+    if value is None:
+        return None
+    return sorted(set(value), key=_retention_kind_sort_key)
+
+
+def _optional_int_sort_key(value: int | None) -> tuple[int, int]:
+    if value is None:
+        return (1, 0)
+    return (0, value)
+
+
+def _retention_entry_sort_key(
+    entry: Any,
+) -> tuple[tuple[tuple[int, int, int], ...], tuple[int, int], tuple[int, int]]:
+    if isinstance(entry, dict):
+        kinds = entry.get("kinds")
+        time = entry.get("time")
+        count = entry.get("count")
+    else:
+        kinds = getattr(entry, "kinds", None)
+        time = getattr(entry, "time", None)
+        count = getattr(entry, "count", None)
+
+    normalized_kinds = _normalize_retention_kinds(kinds) or []
+    return (
+        tuple(_retention_kind_sort_key(value) for value in normalized_kinds),
+        _optional_int_sort_key(time),
+        _optional_int_sort_key(count),
+    )
+
+
+def _normalize_retention_entries_order(
+    entries: list[_RetentionEntryT] | None,
+) -> list[_RetentionEntryT] | None:
+    if entries is None:
+        return None
+    return sorted(entries, key=_retention_entry_sort_key)
+
+
+def _optional_str_sort_key(value: str | None) -> tuple[int, str]:
+    if value is None:
+        return (1, "")
+    return (0, value)
+
+
+def _fee_entry_sort_key(
+    entry: Any,
+) -> tuple[tuple[int, ...], tuple[int, int], tuple[int, str], tuple[int, int]]:
+    if isinstance(entry, dict):
+        kinds = entry.get("kinds")
+        amount = entry.get("amount")
+        unit = entry.get("unit")
+        period = entry.get("period")
+    else:
+        kinds = getattr(entry, "kinds", None)
+        amount = getattr(entry, "amount", None)
+        unit = getattr(entry, "unit", None)
+        period = getattr(entry, "period", None)
+
+    normalized_kinds = sorted(set(kinds)) if kinds is not None else []
+    return (
+        tuple(normalized_kinds),
+        _optional_int_sort_key(amount),
+        _optional_str_sort_key(unit),
+        _optional_int_sort_key(period),
+    )
+
+
+def _normalize_fee_entries_order(
+    entries: list[_FeeEntryT] | None,
+) -> list[_FeeEntryT] | None:
+    if entries is None:
+        return None
+    return sorted(entries, key=_fee_entry_sort_key)
 
 
 class Nip11InfoDataLimitation(BaseData):
@@ -85,6 +555,24 @@ class Nip11InfoDataLimitation(BaseData):
         default=None, description="Default limit when not specified in REQ"
     )
 
+    @field_validator(
+        "max_message_length",
+        "max_subscriptions",
+        "max_limit",
+        "max_subid_length",
+        "max_event_tags",
+        "max_content_length",
+        "min_pow_difficulty",
+        "created_at_lower_limit",
+        "created_at_upper_limit",
+        "default_limit",
+    )
+    @classmethod
+    def _require_non_negative_int_fields(cls, value: int | None, info: Any) -> int | None:
+        if value is not None and value < 0:
+            raise ValueError(f"{info.field_name} must be non-negative")
+        return value
+
     _FIELD_SPEC: ClassVar[FieldSpec] = FieldSpec(
         int_fields=frozenset(
             {
@@ -109,6 +597,32 @@ class Nip11InfoDataLimitation(BaseData):
         ),
     )
 
+    @classmethod
+    def parse_report(cls, data: Any, *, path: str = "") -> ParseReport:
+        """Parse limitation data while rejecting negative numeric budgets."""
+        report = super().parse_report(data, path=path)
+        parsed = dict(report.parsed)
+        issues = list(report.issues)
+
+        _drop_negative_int_fields(
+            parsed,
+            issues,
+            (
+                "max_message_length",
+                "max_subscriptions",
+                "max_limit",
+                "max_subid_length",
+                "max_event_tags",
+                "max_content_length",
+                "min_pow_difficulty",
+                "created_at_lower_limit",
+                "created_at_upper_limit",
+                "default_limit",
+            ),
+            path=path,
+        )
+        return ParseReport(parsed=parsed, issues=tuple(issues))
+
 
 class Nip11InfoDataRetentionEntry(BaseData):
     """Single retention policy entry from a NIP-11 document.
@@ -120,7 +634,9 @@ class Nip11InfoDataRetentionEntry(BaseData):
         The ``parse()`` override handles the mixed ``int | [int, int]``
         format specified by NIP-11. Lists are converted to tuples for
         immutability, and ``to_dict()`` uses ``mode="json"`` to convert
-        tuples back to lists for JSON serialization.
+        tuples back to lists for JSON serialization. ``kinds`` is normalized
+        to a deduplicated stable order so equivalent retention scopes do not
+        drift when source order changes.
 
     See Also:
         [Nip11InfoData][bigbrotr.nips.nip11.data.Nip11InfoData]: Parent
@@ -133,8 +649,32 @@ class Nip11InfoDataRetentionEntry(BaseData):
     time: StrictInt | None = Field(default=None, description="Retention time in seconds")
     count: StrictInt | None = Field(default=None, description="Maximum events to retain")
 
+    @field_validator("kinds")
     @classmethod
-    def parse(cls, data: Any) -> dict[str, Any]:
+    def _normalize_kinds(
+        cls, value: list[int | tuple[int, int]] | None
+    ) -> list[int | tuple[int, int]] | None:
+        if value is not None:
+            for kind in value:
+                if isinstance(kind, int):
+                    if kind < 0:
+                        raise ValueError("kinds must contain only non-negative values")
+                    continue
+                if kind[0] < 0 or kind[1] < 0:
+                    raise ValueError("kinds must contain only non-negative values")
+                if kind[0] > kind[1]:
+                    raise ValueError("kind ranges must be ascending")
+        return _normalize_retention_kinds(value)
+
+    @field_validator("time", "count")
+    @classmethod
+    def _require_non_negative_fields(cls, value: int | None, info: Any) -> int | None:
+        if value is not None and value < 0:
+            raise ValueError(f"{info.field_name} must be non-negative")
+        return value
+
+    @classmethod
+    def parse_report(cls, data: Any, *, path: str = "") -> ParseReport:
         """Parse a retention entry, handling mixed int/range kinds lists.
 
         Args:
@@ -144,32 +684,24 @@ class Nip11InfoDataRetentionEntry(BaseData):
             Validated dictionary with ``kinds``, ``time``, and ``count``.
         """
         if not isinstance(data, dict):
-            return {}
+            return _invalid_input_report(path, cls.__name__)
         result: dict[str, Any] = {}
+        issues = _unknown_field_issues(data, {"kinds", "time", "count"}, path=path)
 
-        if "kinds" in data and isinstance(data["kinds"], list):
-            kinds: list[int | tuple[int, int]] = []
-            for item in data["kinds"]:
-                if isinstance(item, int) and not isinstance(item, bool):
-                    kinds.append(item)
-                elif (
-                    isinstance(item, list)
-                    and len(item) == 2  # noqa: PLR2004 - [min, max] range pair
-                    and isinstance(item[0], int)
-                    and not isinstance(item[0], bool)
-                    and isinstance(item[1], int)
-                    and not isinstance(item[1], bool)
-                ):
-                    kinds.append((item[0], item[1]))
-            if kinds:
+        if "kinds" in data:
+            kinds, kinds_issues = _parse_retention_kinds(
+                data["kinds"],
+                path=join_parse_path(path, "kinds"),
+            )
+            issues.extend(kinds_issues)
+            if kinds is not None:
                 result["kinds"] = kinds
 
-        for key in ("time", "count"):
-            if key in data:
-                value = data[key]
-                if isinstance(value, int) and not isinstance(value, bool):
-                    result[key] = value
-        return result
+        int_fields, int_issues = _parse_strict_int_fields(data, ("time", "count"), path=path)
+        result.update(int_fields)
+        issues.extend(int_issues)
+        _drop_negative_int_fields(result, issues, ("time", "count"), path=path)
+        return ParseReport(parsed=result, issues=tuple(issues))
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a dictionary, converting tuples to lists for JSON."""
@@ -178,6 +710,10 @@ class Nip11InfoDataRetentionEntry(BaseData):
 
 class Nip11InfoDataFeeEntry(BaseData):
     """Single fee entry (admission, subscription, or publication).
+
+    Note:
+        ``kinds`` is normalized to a deduplicated ascending order so
+        equivalent fee scopes do not drift when source order changes.
 
     See Also:
         [Nip11InfoDataFees][bigbrotr.nips.nip11.data.Nip11InfoDataFees]:
@@ -197,6 +733,70 @@ class Nip11InfoDataFeeEntry(BaseData):
         int_list_fields=frozenset({"kinds"}),
     )
 
+    @field_validator("kinds")
+    @classmethod
+    def _normalize_kinds(cls, value: list[int] | None) -> list[int] | None:
+        if value is None:
+            return None
+        for kind in value:
+            if kind < 0:
+                raise ValueError("kinds must contain only non-negative values")
+        return sorted(set(value))
+
+    @field_validator("amount", "period")
+    @classmethod
+    def _require_non_negative_fields(cls, value: int | None, info: Any) -> int | None:
+        if value is not None and value < 0:
+            raise ValueError(f"{info.field_name} must be non-negative")
+        return value
+
+    @field_validator("unit")
+    @classmethod
+    def _require_non_blank_unit(cls, value: str | None) -> str | None:
+        if value is not None and value.strip() == "":
+            raise ValueError("unit must be a non-empty string")
+        return value
+
+    @classmethod
+    def parse_report(cls, data: Any, *, path: str = "") -> ParseReport:
+        """Parse a fee entry and normalize its kind scope."""
+        report = super().parse_report(data, path=path)
+        parsed = dict(report.parsed)
+        issues = list(report.issues)
+        _drop_blank_string_fields(parsed, issues, ("unit",), path=path)
+        _drop_negative_int_fields(parsed, issues, ("amount", "period"), path=path)
+
+        if isinstance(data, dict) and data.get("kinds") == [] and "kinds" not in parsed:
+            parsed["kinds"] = []
+            _remove_exact_issue(
+                issues,
+                kind="invalid_value",
+                path=join_parse_path(path, "kinds"),
+                detail="expected non-empty list[int]",
+            )
+
+        if "kinds" in parsed:
+            normalized_kinds: list[int] = []
+            for index, kind in enumerate(parsed["kinds"]):
+                if kind < 0:
+                    issues.append(
+                        ParseIssue(
+                            kind="invalid_value",
+                            path=join_parse_path(path, f"kinds[{index}]"),
+                            detail="expected int",
+                        )
+                    )
+                    continue
+                normalized_kinds.append(kind)
+            if normalized_kinds:
+                parsed["kinds"] = sorted(set(normalized_kinds))
+            elif isinstance(data, dict) and data.get("kinds") == []:
+                parsed["kinds"] = []
+            else:
+                del parsed["kinds"]
+
+        return ParseReport(parsed=parsed, issues=tuple(issues))
+
 
 class Nip11InfoDataFees(BaseData):
     """Fee schedule categories from a NIP-11 document.
@@ -204,6 +804,10 @@ class Nip11InfoDataFees(BaseData):
     Contains nested lists of
     [Nip11InfoDataFeeEntry][bigbrotr.nips.nip11.data.Nip11InfoDataFeeEntry]
     objects for admission, subscription, and publication fees.
+
+    Note:
+        Each fee-entry list is normalized to a stable order so equivalent
+        fee schedules do not drift when source order changes.
 
     See Also:
         [Nip11InfoData][bigbrotr.nips.nip11.data.Nip11InfoData]: Parent
@@ -220,8 +824,15 @@ class Nip11InfoDataFees(BaseData):
         default=None, description="Publication fee entries"
     )
 
+    @field_validator("admission", "subscription", "publication")
     @classmethod
-    def parse(cls, data: Any) -> dict[str, Any]:
+    def _normalize_entries(
+        cls, value: list[Nip11InfoDataFeeEntry] | None
+    ) -> list[Nip11InfoDataFeeEntry] | None:
+        return _normalize_fee_entries_order(value)
+
+    @classmethod
+    def parse_report(cls, data: Any, *, path: str = "") -> ParseReport:
         """Parse fee schedule data with nested fee entry objects.
 
         Args:
@@ -231,29 +842,65 @@ class Nip11InfoDataFees(BaseData):
             Validated dictionary with non-empty fee entry lists.
         """
         if not isinstance(data, dict):
-            return {}
+            return _invalid_input_report(path, cls.__name__)
         result: dict[str, Any] = {}
+        issues = _unknown_field_issues(
+            data,
+            {"admission", "subscription", "publication"},
+            path=path,
+        )
+
         for key in ("admission", "subscription", "publication"):
-            if key in data and isinstance(data[key], list):
-                entries = [Nip11InfoDataFeeEntry.parse(e) for e in data[key]]
-                entries = [e for e in entries if e]
-                if entries:
-                    result[key] = entries
-        return result
+            if key not in data:
+                continue
+
+            raw_entries = data[key]
+            field_path = join_parse_path(path, key)
+            if not isinstance(raw_entries, list):
+                issues.append(
+                    ParseIssue(
+                        kind="invalid_value",
+                        path=field_path,
+                        detail="expected list[fee_entry]",
+                    )
+                )
+                continue
+
+            entries: list[dict[str, Any]] = []
+            for index, entry in enumerate(raw_entries):
+                entry_report = Nip11InfoDataFeeEntry.parse_report(
+                    entry,
+                    path=join_parse_path(field_path, f"[{index}]"),
+                )
+                issues.extend(entry_report.issues)
+                if entry_report.parsed:
+                    entries.append(entry_report.parsed)
+
+            if entries:
+                result[key] = _normalize_fee_entries_order(entries)
+            elif not raw_entries:
+                result[key] = []
+
+        return ParseReport(parsed=result, issues=tuple(issues))
 
 
 class Nip11InfoData(BaseData):
     """Complete NIP-11 relay information document.
 
-    Overrides ``parse()`` to handle nested objects (limitation, retention,
-    fees) and ``to_dict()`` to use ``by_alias=True`` for the ``self``
-    field, which maps to ``self_pubkey`` internally.
+    Overrides ``parse_report()`` to handle nested objects (limitation,
+    retention, fees) and ``to_dict()`` to use ``by_alias=True`` for the
+    external ``self`` field, which maps to ``self_pubkey`` internally.
 
     Note:
         The NIP-11 ``self`` field is a reserved Python keyword, so it is
         mapped to ``self_pubkey`` with a Pydantic alias. The ``to_dict()``
         method uses ``by_alias=True`` to ensure the JSON output uses the
-        correct ``self`` key name as specified by the NIP.
+        correct ``self`` key name as specified by the NIP. ``supported_nips``
+        plus the set-like string lists ``relay_countries``,
+        ``language_tags``, ``tags``, and ``attributes`` are normalized to
+        deduplicated ascending order, and the nested ``retention`` and
+        ``fees`` entry lists are normalized to stable order, so equivalent
+        relay descriptions do not drift when source order changes.
 
     See Also:
         [Nip11InfoMetadata][bigbrotr.nips.nip11.info.Nip11InfoMetadata]:
@@ -262,6 +909,9 @@ class Nip11InfoData(BaseData):
             Nested limitation sub-model.
         [Nip11InfoDataFees][bigbrotr.nips.nip11.data.Nip11InfoDataFees]:
             Nested fee schedule sub-model.
+        [BaseData.parse][bigbrotr.nips.base.BaseData.parse]:
+            Shared constructor-ready canonical parsing contract used after the
+            custom ``parse_report()`` step here.
     """
 
     model_config = ConfigDict(frozen=True, populate_by_name=True)
@@ -308,6 +958,101 @@ class Nip11InfoData(BaseData):
         """Relay's own public key from the NIP-11 ``self`` field."""
         return self.self_pubkey
 
+    @field_validator("supported_nips")
+    @classmethod
+    def _normalize_supported_nips(cls, value: list[int] | None) -> list[int] | None:
+        if value is None:
+            return None
+        for nip in value:
+            if nip < 0:
+                raise ValueError("supported_nips must contain only non-negative values")
+        return sorted(set(value))
+
+    @field_validator(
+        "name",
+        "description",
+        "banner",
+        "icon",
+        "pubkey",
+        "self_pubkey",
+        "contact",
+        "software",
+        "version",
+        "privacy_policy",
+        "terms_of_service",
+        "posting_policy",
+        "payments_url",
+    )
+    @classmethod
+    def _require_non_blank_strings(cls, value: str | None, info: Any) -> str | None:
+        if value is not None and value.strip() == "":
+            raise ValueError(f"{info.field_name} must be a non-empty string")
+        return value
+
+    @field_validator("pubkey", "self_pubkey")
+    @classmethod
+    def _require_hex_pubkeys(cls, value: str | None, info: Any) -> str | None:
+        if value is not None and not _is_hex32_text(value):
+            raise ValueError(f"{info.field_name} must be a 64-character hex string")
+        return value
+
+    @field_validator("relay_countries", "language_tags", "tags", "attributes")
+    @classmethod
+    def _normalize_string_lists(cls, value: list[str] | None, info: Any) -> list[str] | None:
+        if value is None:
+            return None
+        for entry in value:
+            if entry.strip() == "":
+                raise ValueError(f"{info.field_name} entries must be non-empty strings")
+        return sorted(set(value))
+
+    @field_validator("relay_countries")
+    @classmethod
+    def _normalize_relay_countries(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        normalized: list[str] = []
+        for entry in value:
+            if not _is_valid_country_code(entry):
+                raise ValueError("relay_countries entries must be ISO 3166-1 alpha-2 codes")
+            normalized.append(entry.upper())
+        return sorted(set(normalized))
+
+    @field_validator("language_tags")
+    @classmethod
+    def _normalize_language_tags(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        normalized = [_canonicalize_language_tag(entry) for entry in value]
+        if "*" in normalized:
+            return ["*"]
+        return sorted(set(normalized))
+
+    @field_validator("tags")
+    @classmethod
+    def _normalize_topic_tags(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        normalized = [_canonicalize_topic_tag(entry) for entry in value]
+        return sorted(set(normalized))
+
+    @field_validator("attributes")
+    @classmethod
+    def _require_pascal_case_attributes(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        for entry in value:
+            if not _is_valid_pascal_case_attribute(entry):
+                raise ValueError("attributes entries must be PascalCase strings")
+        return value
+
+    @field_validator("retention")
+    @classmethod
+    def _normalize_retention(
+        cls, value: list[Nip11InfoDataRetentionEntry] | None
+    ) -> list[Nip11InfoDataRetentionEntry] | None:
+        return _normalize_retention_entries_order(value)
+
     _FIELD_SPEC: ClassVar[FieldSpec] = FieldSpec(
         str_fields=frozenset(
             {
@@ -336,62 +1081,119 @@ class Nip11InfoData(BaseData):
         ),
     )
 
-    @staticmethod
-    def _parse_sub_objects(data: dict[str, Any]) -> dict[str, Any]:
-        """Parse nested limitation, retention, and fees sub-objects.
+    @classmethod
+    def parse_report(cls, data: Any, *, path: str = "") -> ParseReport:
+        """Parse a complete NIP-11 document and record dropped fields."""
+        if not isinstance(data, dict):
+            return _invalid_input_report(path, cls.__name__)
 
-        Args:
-            data: Raw dictionary from the relay HTTP response.
+        parse_input = dict(data)
+        if "self_pubkey" in parse_input and "self" not in parse_input:
+            parse_input["self"] = parse_input["self_pubkey"]
 
-        Returns:
-            Validated dictionary containing only non-empty sub-objects.
-        """
-        result: dict[str, Any] = {}
+        report = parse_fields_report(
+            parse_input,
+            cls._FIELD_SPEC,
+            path=path,
+            extra_known_fields=frozenset(
+                {"supported_nips", "limitation", "retention", "fees", "self_pubkey"}
+            ),
+        )
+        result = dict(report.parsed)
+        issues = list(report.issues)
+
+        _drop_blank_string_fields(
+            result,
+            issues,
+            (
+                "name",
+                "description",
+                "banner",
+                "icon",
+                "pubkey",
+                "self",
+                "contact",
+                "software",
+                "version",
+                "privacy_policy",
+                "terms_of_service",
+                "posting_policy",
+                "payments_url",
+            ),
+            path=path,
+        )
+        _drop_invalid_string_fields(
+            result,
+            issues,
+            (
+                ("pubkey", _is_hex32_text, "expected 64-character hex string"),
+                ("self", _is_hex32_text, "expected 64-character hex string"),
+            ),
+            path=path,
+        )
+        _drop_blank_string_list_entries(
+            result,
+            issues,
+            ("relay_countries", "language_tags", "tags", "attributes"),
+            path=path,
+        )
+        _drop_invalid_string_list_entries(
+            result,
+            issues,
+            (
+                (
+                    "relay_countries",
+                    _is_valid_country_code,
+                    "expected valid ISO 3166-1 alpha-2 code",
+                ),
+            ),
+            path=path,
+        )
+        _drop_invalid_string_list_entries(
+            result,
+            issues,
+            (("attributes", _is_valid_pascal_case_attribute, "expected PascalCase str"),),
+            path=path,
+        )
+        _normalize_explicit_empty_string_lists(data, result, issues, path=path)
+
+        if "supported_nips" in data:
+            supported_nips, supported_nips_issues = _parse_supported_nips(
+                data["supported_nips"],
+                path=join_parse_path(path, "supported_nips"),
+            )
+            issues.extend(supported_nips_issues)
+            if supported_nips is not None:
+                result["supported_nips"] = supported_nips
 
         if "limitation" in data:
-            limitation = Nip11InfoDataLimitation.parse(data["limitation"])
-            if limitation:
-                result["limitation"] = limitation
+            limitation_report = Nip11InfoDataLimitation.parse_report(
+                data["limitation"],
+                path=join_parse_path(path, "limitation"),
+            )
+            issues.extend(limitation_report.issues)
+            if limitation_report.parsed:
+                result["limitation"] = limitation_report.parsed
 
-        if "retention" in data and isinstance(data["retention"], list):
-            entries = [Nip11InfoDataRetentionEntry.parse(e) for e in data["retention"]]
-            entries = [e for e in entries if e]
-            if entries:
-                result["retention"] = entries
+        if "retention" in data:
+            retention_entries, retention_issues = _parse_retention_entries(
+                data["retention"],
+                path=join_parse_path(path, "retention"),
+            )
+            issues.extend(retention_issues)
+            if retention_entries is not None:
+                result["retention"] = retention_entries
 
         if "fees" in data:
-            fees = Nip11InfoDataFees.parse(data["fees"])
-            if fees:
-                result["fees"] = fees
+            fees_report = Nip11InfoDataFees.parse_report(
+                data["fees"],
+                path=join_parse_path(path, "fees"),
+            )
+            issues.extend(fees_report.issues)
+            if fees_report.parsed:
+                result["fees"] = fees_report.parsed
 
-        return result
-
-    @classmethod
-    def parse(cls, data: Any) -> dict[str, Any]:
-        """Parse a complete NIP-11 document with nested sub-objects.
-
-        Handles string fields, supported_nips list, and nested limitation,
-        retention, and fees objects.
-
-        Args:
-            data: Raw dictionary from the relay HTTP response.
-
-        Returns:
-            Validated dictionary suitable for model construction.
-        """
-        if not isinstance(data, dict):
-            return {}
-        result = parse_fields(data, cls._FIELD_SPEC)
-
-        if "supported_nips" in data and isinstance(data["supported_nips"], list):
-            nips = [
-                n for n in data["supported_nips"] if isinstance(n, int) and not isinstance(n, bool)
-            ]
-            if nips:
-                result["supported_nips"] = sorted(set(nips))
-
-        result.update(cls._parse_sub_objects(data))
-        return result
+        return ParseReport(parsed=result, issues=tuple(issues))
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a dictionary using field aliases (``self`` instead of ``self_pubkey``)."""

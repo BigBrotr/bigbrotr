@@ -24,18 +24,17 @@ cd bigbrotr
 # Install uv (if not already installed)
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Install with development and documentation dependencies
-uv sync --group dev --group docs
-
-# Install pre-commit hooks
-pre-commit install
+# Install development + docs dependencies and pre-commit hooks
+make install
 
 # Verify the setup
 make ci
+uv lock --check
 ```
 
 !!! tip
-    `make install` runs `uv sync --group dev --group docs` and `pre-commit install` in one step.
+    Run `make docs` as an extra verification step whenever you touch `docs/`,
+    `README.md`, `CONTRIBUTING.md`, or other repository guidance surfaces.
 
 ---
 
@@ -78,17 +77,21 @@ bigbrotr/
 |   +-- core/                         # Pool, Brotr, BaseService, Logger, Metrics, YAML
 |   +-- models/                       # Frozen dataclasses (pure, zero I/O)
 |   |   +-- service_state.py          # ServiceState, ServiceStateType
-|   +-- nips/                         # NIP-11 and NIP-66 protocol I/O
+|   +-- nips/                         # NIP-aware protocol layer, registry, and builders
 |   |   +-- nip11/                    # Relay info document fetch/parse
 |   |   +-- nip66/                    # Monitoring: dns, geo, http, net, rtt, ssl
-|   +-- services/                     # Business logic (8 services)
+|   +-- services/                     # Business logic (10 services)
 |   |   +-- seeder/                   # Relay seed loading
 |   |   +-- finder/                   # Relay URL discovery
 |   |   +-- validator/                # Candidate validation
 |   |   +-- monitor/                  # Health check orchestration, publishing, tags
 |   |   +-- synchronizer/             # Event collection
-|   |   +-- refresher/                # Materialized view refresh
-|   |   +-- common/                   # Shared constants, configs, queries, mixins
+|   |   +-- refresher/                # Derived facts refresh
+|   |   +-- ranker/                   # NIP-85 rank computation + public score export
+|   |   +-- assertor/                 # NIP-85 provider-package publishing
+|   |   +-- api/                      # Read-only REST API
+|   |   +-- dvm/                      # NIP-90 Data Vending Machine
+|   |   +-- common/                   # Shared read-core, catalog, config, paging, mixins
 |   +-- utils/                        # DNS, keys, transport helpers
 +-- tests/
 |   +-- conftest.py                   # Root fixtures (mock_pool, mock_brotr, etc.)
@@ -98,11 +101,11 @@ bigbrotr/
 |   +-- integration/                  # Integration tests (require database)
 +-- deployments/
 |   +-- Dockerfile                    # Single parametric Dockerfile
-|   +-- bigbrotr/                     # Full-featured deployment
-|   +-- lilbrotr/                     # Lightweight deployment
+|   +-- bigbrotr/                     # Full-archive reference deployment
+|   +-- lilbrotr/                     # Lightweight reference deployment
 +-- tools/
 |   +-- generate_sql.py              # SQL template generator
-|   +-- templates/sql/               # Jinja2 SQL templates (base + overrides)
+|   +-- templates/sql/               # Jinja2 SQL templates (base + profile/test overrides)
 +-- docs/                             # Documentation (MkDocs Material)
 +-- .github/                          # CI/CD workflows
 +-- Makefile                          # Development commands
@@ -132,10 +135,10 @@ All common development tasks are available as Makefile targets:
 |--------|---------|-------------|
 | `make test-unit` | `pytest tests/ --ignore=tests/integration/` | Run unit tests |
 | `make test-integration` | `pytest tests/integration/` | Run integration tests (requires Docker) |
-| `make test-fast` | `pytest -m "not slow"` | Run unit tests excluding slow markers |
+| `make test-fast` | `pytest tests/ --ignore=tests/integration/ -m "not slow"` | Run unit tests excluding slow markers |
 | `make coverage` | `pytest tests/ --ignore=tests/integration/ --cov=src/bigbrotr --cov-report=term-missing --cov-report=html` | Run unit tests with coverage report |
 
-### Documentation
+### Documentation And Repository Guidance
 
 | Target | Command | Description |
 |--------|---------|-------------|
@@ -165,6 +168,31 @@ All common development tasks are available as Makefile targets:
 !!! note
     The `DEPLOYMENT` variable defaults to `bigbrotr`. Override it for other deployments:
     `make docker-build DEPLOYMENT=lilbrotr`.
+
+### Additional commands worth knowing
+
+```bash
+# Verify the lockfile is aligned with pyproject.toml
+uv lock --check
+
+# Run a built-in deployment profile locally
+python -m bigbrotr finder --profile bigbrotr --once
+python -m bigbrotr finder --profile lilbrotr --once
+```
+
+---
+
+## Documentation Surfaces
+
+BigBrotr treats `docs/` as the maintained documentation surface.
+
+Before changing a major area, read the nearest:
+
+- `AGENTS.md`
+- narrative docs that describe the local contract
+
+When a change materially alters how a maintained folder is understood or
+operated, update the relevant canonical docs page in the same slice.
 
 ---
 

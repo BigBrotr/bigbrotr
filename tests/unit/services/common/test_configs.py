@@ -2,7 +2,9 @@
 Unit tests for services.common.configs module.
 
 Tests:
-- TableConfig - Per-table access and pricing policy
+- NostrKeysConfig - Shared Nostr signing-key config
+- ReadModelPolicy - Per-read-model access and pricing policy
+- Relay list parsing helpers
 - ClearnetConfig - Configuration for clearnet (standard internet) relays
 - TorConfig - Configuration for Tor (.onion) relays
 - I2pConfig - Configuration for I2P (.i2p) relays
@@ -10,9 +12,14 @@ Tests:
 - NetworksConfig - Unified configuration container for all networks
 """
 
+import os
+from unittest.mock import patch
+
 import pytest
+from nostr_sdk import Keys
 from pydantic import ValidationError
 
+from bigbrotr.models import Relay
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.services.common.configs import (
     ClearnetConfig,
@@ -20,45 +27,219 @@ from bigbrotr.services.common.configs import (
     LokiConfig,
     NetworksConfig,
     NetworkTypeConfig,
-    TableConfig,
+    NostrKeysConfig,
+    PublicReadAdapterConfig,
+    ReadModelPolicy,
     TorConfig,
+    parse_relay_list_fail_soft,
 )
 
 
+VALID_HEX_KEY = (
+    "67dea2ed018072d675f5415ecfaed7d2597555e202d85b3d65ea4e58d2d92ffa"  # pragma: allowlist secret
+)
+
+
+class _DummyApiAdapterConfig(PublicReadAdapterConfig):
+    READ_SURFACE = "api"
+
+
+class TestNostrKeysConfig:
+    def test_default_without_keys_env_generates_ephemeral_keys(self) -> None:
+        config = NostrKeysConfig.model_validate({})
+        assert config.keys_env is None
+        assert isinstance(config.keys, Keys)
+
+    def test_unset_env_generates_ephemeral_keys(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            config = NostrKeysConfig(keys_env="NOSTR_PRIVATE_KEY_MONITOR")
+        assert isinstance(config.keys, Keys)
+
+    def test_blank_env_generates_ephemeral_keys(self) -> None:
+        with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY_MONITOR": ""}):
+            config = NostrKeysConfig(keys_env="NOSTR_PRIVATE_KEY_MONITOR")
+        assert isinstance(config.keys, Keys)
+
+    def test_blank_keys_env_collapses_to_none(self) -> None:
+        config = NostrKeysConfig(keys_env="   ")
+        assert config.keys_env is None
+        assert isinstance(config.keys, Keys)
+
+    def test_rejects_non_string_keys_env_alias(self) -> None:
+        with pytest.raises(ValidationError, match=r"keys_env: expected string, got bytes"):
+            NostrKeysConfig(keys_env=b"NOSTR_PRIVATE_KEY_MONITOR")
+
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            NostrKeysConfig.model_validate({b"keys_env": "NOSTR_PRIVATE_KEY_MONITOR"})
+
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            NostrKeysConfig.model_validate(
+                {"private_key_env": "NOSTR_PRIVATE_KEY_MONITOR"}  # pragma: allowlist secret
+            )
+
+    def test_loads_hex_key_from_env(self) -> None:
+        with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY_MONITOR": VALID_HEX_KEY}):
+            config = NostrKeysConfig(keys_env="NOSTR_PRIVATE_KEY_MONITOR")
+        assert isinstance(config.keys, Keys)
+        assert config.keys.secret_key().to_hex() == VALID_HEX_KEY
+
+    def test_trimmed_keys_env_loads_key_from_env(self) -> None:
+        with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY_MONITOR": VALID_HEX_KEY}):
+            config = NostrKeysConfig(keys_env=" NOSTR_PRIVATE_KEY_MONITOR ")
+        assert config.keys_env == "NOSTR_PRIVATE_KEY_MONITOR"
+        assert config.keys.secret_key().to_hex() == VALID_HEX_KEY
+
+    def test_explicit_keys_override_env(self) -> None:
+        explicit_keys = Keys.generate()
+        with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY_MONITOR": VALID_HEX_KEY}):
+            config = NostrKeysConfig(keys_env="NOSTR_PRIVATE_KEY_MONITOR", keys=explicit_keys)
+        assert config.keys is explicit_keys
+
+    def test_trimmed_keys_env_is_preserved_when_explicit_keys_override_env(self) -> None:
+        explicit_keys = Keys.generate()
+        config = NostrKeysConfig(keys_env=" CUSTOM_KEY ", keys=explicit_keys)
+        assert config.keys_env == "CUSTOM_KEY"
+        assert config.keys is explicit_keys
+
+    def test_model_validate_uses_custom_env(self) -> None:
+        with patch.dict(os.environ, {"CUSTOM_KEY": VALID_HEX_KEY}):
+            config = NostrKeysConfig.model_validate({"keys_env": "CUSTOM_KEY"})
+        assert isinstance(config.keys, Keys)
+
+    def test_repr_redacts_secret_and_shows_none_for_uninitialized_model(self) -> None:
+        config = NostrKeysConfig.model_construct(keys_env="NOSTR_PRIVATE_KEY_MONITOR", keys=None)
+        assert repr(config) == (
+            "NostrKeysConfig(keys_env='NOSTR_PRIVATE_KEY_MONITOR', pubkey=None)"
+        )
+
+    def test_repr_redacts_secret_and_shows_pubkey(self) -> None:
+        with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY_MONITOR": VALID_HEX_KEY}):
+            config = NostrKeysConfig(keys_env="NOSTR_PRIVATE_KEY_MONITOR")
+        rendered = repr(config)
+        assert VALID_HEX_KEY not in rendered
+        assert "pubkey=" in rendered
+
+    def test_model_dump_includes_resolved_keys_field(self) -> None:
+        config = NostrKeysConfig(keys_env="NOSTR_PRIVATE_KEY_MONITOR")
+        dump = config.model_dump()
+        assert "keys" in dump
+        assert dump["keys"] is not None
+
+
 # =============================================================================
-# TableConfig Tests
+# ReadModelPolicy Tests
 # =============================================================================
 
 
-class TestTableConfig:
-    """Tests for TableConfig Pydantic model."""
+class TestReadModelPolicy:
+    """Tests for ReadModelPolicy Pydantic model."""
 
     def test_default_disabled(self) -> None:
-        config = TableConfig()
+        config = ReadModelPolicy()
         assert config.enabled is False
         assert config.price == 0
 
     def test_enabled(self) -> None:
-        config = TableConfig(enabled=True)
+        config = ReadModelPolicy(enabled=True)
         assert config.enabled is True
 
     def test_from_dict(self) -> None:
-        config = TableConfig.model_validate({"enabled": True})
+        config = ReadModelPolicy.model_validate({"enabled": True})
         assert config.enabled is True
 
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            ReadModelPolicy.model_validate({b"enabled": True})
+
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            ReadModelPolicy.model_validate({"visibility": "public"})
+
+    @pytest.mark.parametrize("value", ["true", 1])
+    def test_rejects_boolean_enabled_aliases(self, value: object) -> None:
+        with pytest.raises(ValidationError, match=r"enabled: expected boolean, got"):
+            ReadModelPolicy(enabled=value)
+
     def test_with_price(self) -> None:
-        config = TableConfig(enabled=True, price=5000)
+        config = ReadModelPolicy(enabled=True, price=5000)
         assert config.price == 5000
         assert config.enabled is True
 
     def test_negative_price_rejected(self) -> None:
         with pytest.raises(ValidationError):
-            TableConfig(price=-1)
+            ReadModelPolicy(price=-1)
 
     def test_disabled_with_price(self) -> None:
-        config = TableConfig(enabled=False, price=100)
+        config = ReadModelPolicy(enabled=False, price=100)
         assert config.enabled is False
         assert config.price == 100
+
+    @pytest.mark.parametrize("value", ["1000", 1000.0, 0.0, True])
+    def test_rejects_non_integer_price_aliases(self, value: object) -> None:
+        with pytest.raises(ValidationError, match=r"price: expected integer, got"):
+            ReadModelPolicy(price=value)
+
+
+class TestPublicReadAdapterConfig:
+    def test_rejects_non_string_read_model_key_alias(self) -> None:
+        with pytest.raises(ValidationError, match=r"read_models: expected string keys, got bytes"):
+            _DummyApiAdapterConfig(read_models={b"relays": {"enabled": True}})
+
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            _DummyApiAdapterConfig.model_validate({b"default_page_size": 10})
+
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            _DummyApiAdapterConfig.model_validate({"page_limits": {"default_page_size": 10}})
+
+
+class TestRelayListParsing:
+    def test_parse_relay_list_fail_soft_normalizes_strings(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        with caplog.at_level("WARNING", logger="bigbrotr.services.common.configs"):
+            relays = parse_relay_list_fail_soft(
+                [
+                    "wss://relay.example.com",
+                    "wss://relay.example.com:443",
+                    "bad relay",
+                ]
+            )
+
+        assert [relay.url for relay in relays] == [
+            "wss://relay.example.com",
+            "wss://relay.example.com",
+        ]
+        assert "invalid_relay_config_entry" in caplog.text
+
+    def test_parse_relay_list_fail_soft_preserves_relay_instances(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        assert parse_relay_list_fail_soft([relay]) == [relay]
+
+    def test_parse_relay_list_fail_soft_skips_non_string_items(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level("WARNING", logger="bigbrotr.services.common.configs"):
+            relays = parse_relay_list_fail_soft(["wss://relay.example.com", 123])
+
+        assert [relay.url for relay in relays] == ["wss://relay.example.com"]
+        assert "item_type=int" in caplog.text
+
+    def test_parse_relay_list_fail_soft_rejects_scalar_values(self) -> None:
+        with pytest.raises(TypeError, match="Relay list must be a sequence"):
+            parse_relay_list_fail_soft("wss://relay.example.com")
+
+    def test_parse_relay_list_fail_soft_preserves_none(self) -> None:
+        assert parse_relay_list_fail_soft(None) is None
+
+    def test_parse_relay_list_fail_soft_accepts_local_private_relays(self) -> None:
+        relays = parse_relay_list_fail_soft(["ws://172.31.0.10:8080"])
+
+        assert [relay.url for relay in relays] == ["ws://172.31.0.10:8080"]
 
 
 # =============================================================================
@@ -114,6 +295,24 @@ class TestClearnetConfigCustomValues:
         assert config.max_tasks == 25
         assert config.timeout == 10.0
 
+    @pytest.mark.parametrize("value", ["true", 1])
+    def test_rejects_boolean_enabled_aliases(self, value: object) -> None:
+        with pytest.raises(ValidationError, match=r"enabled: expected boolean, got"):
+            ClearnetConfig(enabled=value)
+
+    @pytest.mark.parametrize(
+        "value", [True, "", "   ", "garbage", "socks5://:9050", "socks5://x:0"]
+    )
+    def test_rejects_invalid_proxy_url(self, value: object) -> None:
+        with pytest.raises(
+            ValidationError, match="proxy_url must be a valid proxy URL with scheme and hostname"
+        ):
+            ClearnetConfig(proxy_url=value)  # type: ignore[arg-type]
+
+    def test_trims_valid_proxy_url(self) -> None:
+        config = ClearnetConfig(proxy_url=" socks5://127.0.0.1:9050 ")
+        assert config.proxy_url == "socks5://127.0.0.1:9050"
+
 
 # =============================================================================
 # TorConfig Tests
@@ -142,6 +341,11 @@ class TestTorConfigDefaults:
         """Test Tor has 30.0s timeout by default (longer than clearnet)."""
         config = TorConfig()
         assert config.timeout == 30.0
+
+    @pytest.mark.parametrize("value", ["true", 1])
+    def test_rejects_boolean_enabled_aliases(self, value: object) -> None:
+        with pytest.raises(ValidationError, match=r"enabled: expected boolean, got"):
+            TorConfig(enabled=value)
 
 
 class TestTorConfigPartialOverride:
@@ -175,6 +379,19 @@ class TestTorConfigCustomValues:
         assert config.max_tasks == 20
         assert config.timeout == 45.0
 
+    @pytest.mark.parametrize(
+        "value", [True, "", "   ", "garbage", "socks5://:9050", "socks5://x:0"]
+    )
+    def test_rejects_invalid_proxy_url(self, value: object) -> None:
+        with pytest.raises(
+            ValidationError, match="proxy_url must be a valid proxy URL with scheme and hostname"
+        ):
+            TorConfig(proxy_url=value)  # type: ignore[arg-type]
+
+    def test_trims_valid_proxy_url(self) -> None:
+        config = TorConfig(proxy_url=" socks5://localhost:9050 ")
+        assert config.proxy_url == "socks5://localhost:9050"
+
 
 # =============================================================================
 # I2pConfig Tests
@@ -204,6 +421,11 @@ class TestI2pConfigDefaults:
         config = I2pConfig()
         assert config.timeout == 45.0
 
+    @pytest.mark.parametrize("value", ["true", 1])
+    def test_rejects_boolean_enabled_aliases(self, value: object) -> None:
+        with pytest.raises(ValidationError, match=r"enabled: expected boolean, got"):
+            I2pConfig(enabled=value)
+
 
 class TestI2pConfigCustomValues:
     """Tests for I2pConfig with custom values."""
@@ -214,6 +436,19 @@ class TestI2pConfigCustomValues:
         assert config.enabled is True
         assert config.proxy_url == "socks5://i2p:4447"
         assert config.timeout == 45.0
+
+    @pytest.mark.parametrize(
+        "value", [True, "", "   ", "garbage", "socks5://:9050", "socks5://x:0"]
+    )
+    def test_rejects_invalid_proxy_url(self, value: object) -> None:
+        with pytest.raises(
+            ValidationError, match="proxy_url must be a valid proxy URL with scheme and hostname"
+        ):
+            I2pConfig(proxy_url=value)  # type: ignore[arg-type]
+
+    def test_trims_valid_proxy_url(self) -> None:
+        config = I2pConfig(proxy_url=" socks5://i2p:4447 ")
+        assert config.proxy_url == "socks5://i2p:4447"
 
 
 # =============================================================================
@@ -244,6 +479,11 @@ class TestLokiConfigDefaults:
         config = LokiConfig()
         assert config.timeout == 30.0
 
+    @pytest.mark.parametrize("value", ["true", 1])
+    def test_rejects_boolean_enabled_aliases(self, value: object) -> None:
+        with pytest.raises(ValidationError, match=r"enabled: expected boolean, got"):
+            LokiConfig(enabled=value)
+
 
 class TestLokiConfigCustomValues:
     """Tests for LokiConfig with custom values."""
@@ -253,6 +493,57 @@ class TestLokiConfigCustomValues:
         config = LokiConfig(enabled=True)
         assert config.enabled is True
         assert config.proxy_url == "socks5://lokinet:1080"
+
+    @pytest.mark.parametrize(
+        "value", [True, "", "   ", "garbage", "socks5://:9050", "socks5://x:0"]
+    )
+    def test_rejects_invalid_proxy_url(self, value: object) -> None:
+        with pytest.raises(
+            ValidationError, match="proxy_url must be a valid proxy URL with scheme and hostname"
+        ):
+            LokiConfig(proxy_url=value)  # type: ignore[arg-type]
+
+    def test_trims_valid_proxy_url(self) -> None:
+        config = LokiConfig(proxy_url=" socks5://lokinet:1080 ")
+        assert config.proxy_url == "socks5://lokinet:1080"
+
+
+# =============================================================================
+# Network Config Field-Key Validation Tests
+# =============================================================================
+
+
+class TestNetworkConfigFieldKeys:
+    @pytest.mark.parametrize(
+        ("config_class", "payload"),
+        [
+            (ClearnetConfig, {b"timeout": 5.0}),
+            (TorConfig, {b"enabled": True}),
+            (I2pConfig, {b"max_tasks": 7}),
+            (LokiConfig, {b"proxy_url": "socks5://lokinet:1080"}),
+        ],
+    )
+    def test_model_validate_rejects_non_string_field_keys(
+        self, config_class: type, payload: dict[object, object]
+    ) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            config_class.model_validate(payload)
+
+    def test_clearnet_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            ClearnetConfig.model_validate({"retries": 3})
+
+    def test_tor_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            TorConfig.model_validate({"retries": 3})
+
+    def test_i2p_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            I2pConfig.model_validate({"retries": 3})
+
+    def test_loki_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            LokiConfig.model_validate({"retries": 3})
 
 
 # =============================================================================
@@ -301,6 +592,16 @@ class TestMaxTasksValidation:
         with pytest.raises(ValidationError):
             config_class(max_tasks=201)
 
+    @pytest.mark.parametrize(
+        "config_class",
+        [ClearnetConfig, TorConfig, I2pConfig, LokiConfig],
+    )
+    @pytest.mark.parametrize("value", [True, "10", 10.0])
+    def test_rejects_non_integer_aliases(self, config_class: type, value: object) -> None:
+        """Test non-integer aliases do not coerce into a concurrency budget."""
+        with pytest.raises(ValidationError, match="max_tasks: expected integer, got"):
+            config_class(max_tasks=value)
+
 
 class TestTimeoutValidation:
     """Tests for timeout validation constraints across all network configs."""
@@ -347,6 +648,16 @@ class TestTimeoutValidation:
             config_class(timeout=0.5)
         with pytest.raises(ValidationError):
             config_class(timeout=121.0)
+
+    @pytest.mark.parametrize(
+        "config_class",
+        [ClearnetConfig, TorConfig, I2pConfig, LokiConfig],
+    )
+    @pytest.mark.parametrize("value", [True, "30", "30.0"])
+    def test_rejects_non_numeric_aliases(self, config_class: type, value: object) -> None:
+        """Test non-numeric aliases do not coerce into timeout budgets."""
+        with pytest.raises(ValidationError, match="timeout: expected number, got"):
+            config_class(timeout=value)
 
 
 # =============================================================================
@@ -656,3 +967,27 @@ class TestNetworksConfigYamlConstruction:
         assert config.tor.enabled is False
         assert config.i2p.enabled is False
         assert config.loki.enabled is False
+
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            NetworksConfig.model_validate({b"tor": {"enabled": True}})
+
+    def test_model_validate_rejects_unknown_clearnet_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            NetworksConfig.model_validate({"clearnet": {"retries": 3}})
+
+    def test_model_validate_rejects_unknown_tor_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            NetworksConfig.model_validate({"tor": {"retries": 3}})
+
+    def test_model_validate_rejects_unknown_i2p_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            NetworksConfig.model_validate({"i2p": {"retries": 3}})
+
+    def test_model_validate_rejects_unknown_loki_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            NetworksConfig.model_validate({"loki": {"retries": 3}})
+
+    def test_model_validate_rejects_unknown_root_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            NetworksConfig.model_validate({"tor_proxy": {"enabled": True}})

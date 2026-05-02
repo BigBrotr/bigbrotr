@@ -47,8 +47,11 @@ body:
         - Validator service
         - Monitor service
         - Synchronizer service
-        - API service (planned)
-        - DVM service (planned)
+        - Refresher service
+        - Ranker service
+        - Assertor service
+        - API service
+        - DVM service
         - Database schema
         - Configuration
         - Docker/Deployment

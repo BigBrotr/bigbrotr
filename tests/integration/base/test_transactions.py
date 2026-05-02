@@ -7,9 +7,9 @@ import asyncio
 import pytest
 
 from bigbrotr.core.brotr import Brotr
-from bigbrotr.models import EventRelay, Relay
+from bigbrotr.models import EventObservation, Relay
+from bigbrotr.models.document import Document, DocumentType
 from bigbrotr.models.event import Event
-from bigbrotr.models.metadata import Metadata, MetadataType
 from tests.conftest import make_mock_event
 
 
@@ -25,7 +25,7 @@ class TestTransactionCommit:
     async def test_insert_visible_after_commit(self, brotr: Brotr) -> None:
         async with brotr.transaction() as conn:
             await conn.execute(
-                "INSERT INTO relay (url, network, discovered_at) VALUES ($1, $2, $3)",
+                "INSERT INTO relay (url, network, stored_at) VALUES ($1, $2, $3)",
                 "wss://tx-commit.example.com",
                 "clearnet",
                 1700000000,
@@ -41,7 +41,7 @@ class TestTransactionCommit:
         async with brotr.transaction() as conn:
             for i in range(5):
                 await conn.execute(
-                    "INSERT INTO relay (url, network, discovered_at) VALUES ($1, $2, $3)",
+                    "INSERT INTO relay (url, network, stored_at) VALUES ($1, $2, $3)",
                     f"wss://tx-multi{i}.example.com",
                     "clearnet",
                     1700000000,
@@ -51,19 +51,19 @@ class TestTransactionCommit:
         assert count == 5
 
     async def test_cross_table_transaction(self, brotr: Brotr) -> None:
-        await brotr.insert_relay([Relay("wss://tx-cross.example.com", discovered_at=1700000000)])
+        await brotr.insert_relay([Relay("wss://tx-cross.example.com", stored_at=1700000000)])
         mock = make_mock_event(event_id="f1" * 32, sig="ee" * 64)
         await brotr.insert_event([Event(mock)])
 
         async with brotr.transaction() as conn:
             await conn.execute(
-                "INSERT INTO event_relay (event_id, relay_url, seen_at) VALUES ($1, $2, $3)",
+                "INSERT INTO event_observation (event_id, relay_url, observed_at) VALUES ($1, $2, $3)",
                 bytes.fromhex("f1" * 32),
                 "wss://tx-cross.example.com",
                 1700000001,
             )
 
-        count = await brotr.fetchval("SELECT COUNT(*) FROM event_relay")
+        count = await brotr.fetchval("SELECT COUNT(*) FROM event_observation")
         assert count == 1
 
 
@@ -72,7 +72,7 @@ class TestTransactionRollback:
         with pytest.raises(RuntimeError, match="abort"):
             async with brotr.transaction() as conn:
                 await conn.execute(
-                    "INSERT INTO relay (url, network, discovered_at) VALUES ($1, $2, $3)",
+                    "INSERT INTO relay (url, network, stored_at) VALUES ($1, $2, $3)",
                     "wss://tx-rollback.example.com",
                     "clearnet",
                     1700000000,
@@ -88,13 +88,13 @@ class TestTransactionRollback:
         with pytest.raises(RuntimeError):
             async with brotr.transaction() as conn:
                 await conn.execute(
-                    "INSERT INTO relay (url, network, discovered_at) VALUES ($1, $2, $3)",
+                    "INSERT INTO relay (url, network, stored_at) VALUES ($1, $2, $3)",
                     "wss://tx-partial1.example.com",
                     "clearnet",
                     1700000000,
                 )
                 await conn.execute(
-                    "INSERT INTO relay (url, network, discovered_at) VALUES ($1, $2, $3)",
+                    "INSERT INTO relay (url, network, stored_at) VALUES ($1, $2, $3)",
                     "wss://tx-partial2.example.com",
                     "clearnet",
                     1700000000,
@@ -112,13 +112,13 @@ class TestTransactionRollback:
         with pytest.raises(asyncpg.ForeignKeyViolationError):
             async with brotr.transaction() as conn:
                 await conn.execute(
-                    "INSERT INTO event_relay (event_id, relay_url, seen_at) VALUES ($1, $2, $3)",
+                    "INSERT INTO event_observation (event_id, relay_url, observed_at) VALUES ($1, $2, $3)",
                     b"\x00" * 32,
                     "wss://nonexistent.example.com",
                     1700000001,
                 )
 
-        count = await brotr.fetchval("SELECT COUNT(*) FROM event_relay")
+        count = await brotr.fetchval("SELECT COUNT(*) FROM event_observation")
         assert count == 0
 
 
@@ -131,37 +131,36 @@ class TestBatchSizeValidation:
     async def test_relay_batch_exceeds_max_size(self, brotr: Brotr) -> None:
         max_size = brotr.config.batch.max_size
         oversized = [
-            Relay(f"wss://batch{i}.example.com", discovered_at=1700000000)
-            for i in range(max_size + 1)
+            Relay(f"wss://batch{i}.example.com", stored_at=1700000000) for i in range(max_size + 1)
         ]
         with pytest.raises(ValueError, match="batch size"):
             await brotr.insert_relay(oversized)
 
-    async def test_event_relay_batch_exceeds_max_size(self, brotr: Brotr) -> None:
+    async def test_event_observation_batch_exceeds_max_size(self, brotr: Brotr) -> None:
         max_size = brotr.config.batch.max_size
-        relay = Relay("wss://batchev.example.com", discovered_at=1700000000)
+        relay = Relay("wss://batchev.example.com", stored_at=1700000000)
         oversized = [
-            EventRelay(
+            EventObservation(
                 event=Event(make_mock_event(event_id=f"{i:064x}", sig="ee" * 64)),
                 relay=relay,
-                seen_at=1700000001,
+                observed_at=1700000001,
             )
             for i in range(max_size + 1)
         ]
         with pytest.raises(ValueError, match="batch size"):
-            await brotr.insert_event_relay(oversized)
+            await brotr.insert_event_observation(oversized)
 
-    async def test_metadata_batch_exceeds_max_size(self, brotr: Brotr) -> None:
+    async def test_document_batch_exceeds_max_size(self, brotr: Brotr) -> None:
         max_size = brotr.config.batch.max_size
         oversized = [
-            Metadata(type=MetadataType.NIP11_INFO, data={"i": i}) for i in range(max_size + 1)
+            Document(type=DocumentType.NIP11_INFO, data={"i": i}) for i in range(max_size + 1)
         ]
         with pytest.raises(ValueError, match="batch size"):
-            await brotr.insert_metadata(oversized)
+            await brotr.insert_document(oversized)
 
     async def test_batch_at_exact_max_size_accepted(self, brotr: Brotr) -> None:
         relays = [
-            Relay(f"wss://exact-batch{i}.example.com", discovered_at=1700000000) for i in range(100)
+            Relay(f"wss://exact-batch{i}.example.com", stored_at=1700000000) for i in range(100)
         ]
         inserted = await brotr.insert_relay(relays)
         assert inserted == 100
@@ -174,12 +173,8 @@ class TestBatchSizeValidation:
 
 class TestConcurrentOperations:
     async def test_concurrent_relay_inserts_no_error(self, brotr: Brotr) -> None:
-        batch_a = [
-            Relay(f"wss://conc-a{i}.example.com", discovered_at=1700000000) for i in range(20)
-        ]
-        batch_b = [
-            Relay(f"wss://conc-b{i}.example.com", discovered_at=1700000000) for i in range(20)
-        ]
+        batch_a = [Relay(f"wss://conc-a{i}.example.com", stored_at=1700000000) for i in range(20)]
+        batch_b = [Relay(f"wss://conc-b{i}.example.com", stored_at=1700000000) for i in range(20)]
 
         results = await asyncio.gather(
             brotr.insert_relay(batch_a),
@@ -191,7 +186,7 @@ class TestConcurrentOperations:
         assert count == 40
 
     async def test_concurrent_insert_same_relay_dedup(self, brotr: Brotr) -> None:
-        relay = Relay("wss://conc-same.example.com", discovered_at=1700000000)
+        relay = Relay("wss://conc-same.example.com", stored_at=1700000000)
 
         results = await asyncio.gather(
             brotr.insert_relay([relay]),
@@ -205,18 +200,18 @@ class TestConcurrentOperations:
         assert count == 1
         assert sum(results) >= 1
 
-    async def test_concurrent_event_relay_cascade(self, brotr: Brotr) -> None:
+    async def test_concurrent_event_observation_cascade(self, brotr: Brotr) -> None:
         ers = []
         for i in range(10):
             mock = make_mock_event(event_id=f"{i + 100:064x}", sig="ee" * 64)
-            relay = Relay(f"wss://conc-er{i}.example.com", discovered_at=1700000000)
-            ers.append(EventRelay(event=Event(mock), relay=relay, seen_at=1700000001))
+            relay = Relay(f"wss://conc-er{i}.example.com", stored_at=1700000000)
+            ers.append(EventObservation(event=Event(mock), relay=relay, observed_at=1700000001))
 
         batch1, batch2 = ers[:5], ers[5:]
         await asyncio.gather(
-            brotr.insert_event_relay(batch1, cascade=True),
-            brotr.insert_event_relay(batch2, cascade=True),
+            brotr.insert_event_observation(batch1, cascade=True),
+            brotr.insert_event_observation(batch2, cascade=True),
         )
 
-        count = await brotr.fetchval("SELECT COUNT(*) FROM event_relay")
+        count = await brotr.fetchval("SELECT COUNT(*) FROM event_observation")
         assert count == 10

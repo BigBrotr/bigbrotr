@@ -21,25 +21,20 @@ See Also:
 from __future__ import annotations
 
 import json
-import logging
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, NamedTuple
 
-
-if TYPE_CHECKING:
-    from collections.abc import Mapping
-
 from ._validation import (
     deep_freeze,
-    sanitize_data,
+    normalize_json_data,
     validate_mapping,
     validate_str_not_empty,
 )
-from .constants import ServiceName
 
 
-logger = logging.getLogger(__name__)
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 
 class ServiceStateType(StrEnum):
@@ -69,21 +64,22 @@ class ServiceStateDbParams(NamedTuple):
     """Database parameter container for the ``service_state`` table.
 
     Column order matches the ``service_state_upsert`` stored procedure
-    signature: ``(service_names TEXT[], state_types TEXT[], state_keys TEXT[],
+    signature: ``(owners TEXT[], state_types TEXT[], state_keys TEXT[],
     state_values JSONB[])``.
 
-    The ``state_value`` field is pre-serialized to a JSON string, consistent
-    with how ``EventDbParams.tags`` and ``MetadataDbParams.data`` handle
-    JSONB columns. This allows asyncpg's registered JSONB codec to pass
-    the value through without needing explicit ``::jsonb[]`` casts.
+    The ``state_value`` field is pre-serialized to a deterministic compact
+    JSON string, consistent with how ``EventDbParams.tags`` and
+    ``DocumentDbParams.data`` handle JSONB columns. This allows asyncpg's
+    registered JSONB codec to pass the value through without needing
+    explicit ``::jsonb[]`` casts.
 
     See Also:
         [ServiceState.to_db_params][bigbrotr.models.service_state.ServiceState.to_db_params]:
             Returns a cached instance of this tuple.
     """
 
-    service_name: ServiceName
-    state_type: ServiceStateType
+    owner: str
+    state_type: str
     state_key: str
     state_value: str
 
@@ -96,20 +92,23 @@ class ServiceState:
     from ``Brotr.get_service_state()``.
 
     Attributes:
-        service_name: Owning service (validated against
-            [ServiceName][bigbrotr.models.constants.ServiceName]).
-        state_type: Discriminator (validated against
-            [ServiceStateType][bigbrotr.models.service_state.ServiceStateType]).
+        owner: State owner identifier. Built-in services use the
+            [ServiceName][bigbrotr.models.constants.ServiceName] enum values, but
+            arbitrary non-empty string IDs are accepted for extensibility.
+        state_type: Discriminator. Built-in records use the
+            [ServiceStateType][bigbrotr.models.service_state.ServiceStateType]
+            enum values, but arbitrary non-empty string IDs are accepted.
         state_key: Application-defined key within the service and type
             (e.g., a relay URL for cursor state).
-        state_value: Arbitrary JSON-compatible dictionary with service-specific
-            data.  Each state type stores its own business timestamp inside
-            this dict (e.g. ``{"timestamp": 1700000000}`` for checkpoints).
+        state_value: Arbitrary JSON-compatible dictionary normalized for
+            deterministic serialization, with service-specific data. Each
+            state type stores its own business timestamp inside this dict
+            (e.g. ``{"timestamp": 1700000000}`` for checkpoints).
 
     Examples:
         ```python
         state = ServiceState(
-            service_name=ServiceName.SYNCHRONIZER,
+            owner=ServiceName.SYNCHRONIZER,
             state_type=ServiceStateType.CURSOR,
             state_key="wss://relay.damus.io",
             state_value={"timestamp": 1700000000},
@@ -131,8 +130,8 @@ class ServiceState:
             Database parameter container returned by ``to_db_params()``.
     """
 
-    service_name: ServiceName
-    state_type: ServiceStateType
+    owner: str
+    state_type: str
     state_key: str
     state_value: Mapping[str, Any]
     _json_value: str = field(default="", init=False, repr=False, compare=False)
@@ -145,19 +144,30 @@ class ServiceState:
     )
 
     def __post_init__(self) -> None:
+        normalized_owner = _normalize_state_token(self.owner, "owner")
+        normalized_state_type = _normalize_state_token(self.state_type, "state_type")
+        object.__setattr__(self, "owner", normalized_owner)
+        object.__setattr__(self, "state_type", normalized_state_type)
         validate_str_not_empty(self.state_key, "state_key")
         validate_mapping(self.state_value, "state_value")
 
-        object.__setattr__(self, "service_name", ServiceName(self.service_name))
-        object.__setattr__(self, "state_type", ServiceStateType(self.state_type))
-        sanitized = sanitize_data(self.state_value, "state_value")
-        object.__setattr__(self, "_json_value", json.dumps(sanitized))
-        object.__setattr__(self, "state_value", deep_freeze(sanitized))
+        normalized = normalize_json_data(self.state_value, "state_value")
+        object.__setattr__(
+            self,
+            "_json_value",
+            json.dumps(
+                normalized,
+                sort_keys=True,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
+        )
+        object.__setattr__(self, "state_value", deep_freeze(normalized))
         object.__setattr__(self, "_db_params", self._compute_db_params())
 
     def _compute_db_params(self) -> ServiceStateDbParams:
         return ServiceStateDbParams(
-            service_name=self.service_name,
+            owner=self.owner,
             state_type=self.state_type,
             state_key=self.state_key,
             state_value=self._json_value,
@@ -171,3 +181,10 @@ class ServiceState:
             with fields in stored procedure column order.
         """
         return self._db_params
+
+
+def _normalize_state_token(value: str | StrEnum, name: str) -> str:
+    """Normalize enum-backed or plain string state identifiers."""
+    normalized = value.value if isinstance(value, StrEnum) else value
+    validate_str_not_empty(normalized, name)
+    return normalized

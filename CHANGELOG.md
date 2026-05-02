@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Ranker service**: private DuckDB-backed NIP-85 ranking engine with CLI registration, deployment configs, Prometheus scraping, and snapshot export to PostgreSQL for all four trusted-assertion subject kinds (`30382`, `30383`, `30384`, `30385`)
+- **Assertor full-kinds runtime**: NIP-85 trusted assertions publisher now supports users, events, addressables, and identifiers (`30382-30385`), plus optional algorithm-scoped Kind 0 provider profile publishing
+- **NIP-85 data models and event builders**: `UserAssertion`, `EventAssertion`, `AddressableAssertion`, and `IdentifierAssertion` frozen dataclasses with SHA-256 change detection, plus builder functions for all four assertion kinds
+- **Incremental summary tables**: 6 summary tables (`pubkey_kind_stats`, `pubkey_relay_stats`, `relay_kind_stats`, `pubkey_stats`, `kind_stats`, `relay_stats`) refreshed incrementally via `(after, until]` watermark ranges, replacing expensive full-refresh materialized views for analytics
+- **Expanded NIP-85 facts layer**: `contact_lists_current`, `contact_list_edges_current`, `nip85_addressable_stats`, `nip85_identifier_stats`, and follower-count refresh logic now complete the facts substrate for downstream ranking and publishing
+- **Deployment smoke coverage**: end-to-end integration coverage now exercises the `refresher -> ranker -> assertor` pipeline and verifies that unchanged assertions are not republished on a second cycle
+
+### Changed
+
+- **Refresher service redesigned**: three-phase refresh cycle (matviews → summary tables → periodic tasks). Periodic tasks now counted in total/failed metrics. Wall-clock watermark replaces `MAX(seen_at)` to prevent TOCTOU race on same-timestamp rows
+- **Analytics layer**: 11 materialized views replaced with hybrid model (6 incremental summary tables + 6 bounded materialized views). `event_daily_counts` renamed to `daily_counts`
+- **Operational rollout contract**: deployments now include the `ranker` PostgreSQL role/password (`DB_RANKER_PASSWORD`), PGBouncer userlist support, Ranker DuckDB volume mounts, per-service Nostr key environment variables, and algorithm-aware Assertor v2 checkpointing
+- **Documentation topology**: README, docs site, deployment examples, and service diagrams now describe the full 10-service architecture and the complete NIP-85 pipeline (`refresher -> ranker -> assertor`)
+- **Documentation consolidation**: `docs/` is now the single maintained project documentation tree, with project orientation, repository map, data-flow, evidence, decision, and NIP-85 pipeline pages replacing the temporary wiki, historical planning notes, and folder-level README files
+- **CI pipeline**: `docs/**` and `*.md` removed from `paths-ignore` so documentation-only PRs trigger the full CI pipeline including `mkdocs build --strict`
+
+### Fixed
+
+- **Catalog ILIKE on non-text columns**: `ILIKE` operator now restricted to text-like column types; previously produced PostgreSQL `UndefinedFunctionError` causing API 500 responses and DVM cycle crashes
+- **Catalog error boundary**: `asyncpg.PostgresError` (not just `DataError`) now caught and converted to `CatalogError` in both `query()` and `get_by_pk()`
+- **DVM error boundary**: `asyncpg.PostgresError` added to `_process_event()` exception handling to prevent query-level DB errors from crashing the service cycle
+- **Topic counts merge logic**: JSONB upsert now uses `UNION ALL + SUM` to preserve existing topic keys; previously dropped historical topics absent from the new batch. Values stored as native JSONB numbers (not text strings) to prevent lexicographic sorting
+- **BigBrotr/LilBrotr analytics parity**: ordered `tagvalues` are now treated as a real fallback substrate rather than an unordered set. Shared SQL logic now reconstructs `first p`, `first e`, `last e`, and addressable `d_tag` consistently across both deployments. LilBrotr keeps exact parity wherever metrics are derivable from `tagvalues`, and uses documented best-effort fallback for data that depends on non-persisted tag fields such as `amount` and `bolt11`
+- **Documentation topology**: service count, env var tables, architecture diagrams, test counts, and release target aligned across all 10+ documentation surfaces (README, PROJECT\_SPECIFICATION, docs site, quickstart, configuration, architecture guides)
+- **Self-hosting guide**: broken TOC anchors fixed, page added to mkdocs.yml navigation
+
 ## [6.6.9] - 2026-04-08
 
 ### Fixed
@@ -557,7 +587,7 @@ Minor release: two new services (Api and Dvm) bring read-only HTTP and Nostr int
 
 ### Documentation
 
-- **8-service architecture**: Updated all service counts (6 -> 8), architecture diagrams, service tables, and interaction maps across README, PROJECT_SPECIFICATION, CLAUDE.md, guides, and MkDocs
+- **8-service architecture**: Updated all service counts (6 -> 8), architecture diagrams, service tables, and interaction maps across README, project specification, local guides, and MkDocs
 - **Source docstrings**: Fixed cross-references (`utils.transport` -> `utils.protocol`), exception types (`ValueError` -> `CatalogError`), field references (`log_level` -> `metrics`), consumer lists, and column names across 11 source files
 - **Deployment configs**: LilBrotr composite index upgrade, missing metrics port variables, singular table names in README, proxy container clarification, postgres-exporter network enum cleanup, bigbrotr role verification in `99_verify.sql`
 - **Removed `aiomultiprocess`**: Dead runtime dependency never imported in source code
@@ -861,7 +891,7 @@ Major quality and operational hardening release: exception hierarchy replaces al
   - `docs/README.md` (~33 lines): Documentation index with quick links
 - **README.md** (~460 lines): Complete project overview rewritten with verified data from codebase
 - **Removed obsolete docs**: `OVERVIEW.md` (redundant with README), `TECHNICAL.md` (redundant with ARCHITECTURE), `V5_PLAN.md` (internal planning)
-- **CLAUDE.md**: Updated for v5.0.0 architecture, exception hierarchy, monitor split, ServiceState location
+- **Local contributor guidance**: Updated for v5.0.0 architecture, exception hierarchy, monitor split, ServiceState location
 
 ---
 
@@ -918,9 +948,9 @@ Major architectural restructuring: all code moved under `bigbrotr` namespace pac
 
 - **README.md**: Version badge, five-layer diamond DAG architecture diagram, updated all paths/commands/project structure tree, test count → 1896
 - **All docs/*.md**: Updated for new paths, imports, and architecture (ARCHITECTURE, CONFIGURATION, DATABASE, DEPLOYMENT, DEVELOPMENT, OVERVIEW, TECHNICAL)
-- **CLAUDE.md**: Rewritten for bigbrotr namespace and diamond DAG architecture
+- **Local contributor guidance**: Rewritten for bigbrotr namespace and diamond DAG architecture
 - **CONTRIBUTING.md**: Updated paths and install commands
-- **Agent knowledge base**: All 7 `.claude/agents/bigbrotr-expert/` files updated
+- **Contributor knowledge base**: Local engineering guide files updated
 
 ---
 
@@ -963,7 +993,7 @@ Architecture refinement release: domain logic extracted from core to `services/c
 
 ### Documentation
 - **Three-tier architecture**: Reframed documentation around Foundation (core + models), Active (services + utils), and Implementation tiers
-- **All docs updated**: `ARCHITECTURE.md`, `DEVELOPMENT.md`, `TECHNICAL.md`, `README.md`, `CLAUDE.md` reflect renamed files and `services/common/`
+- **All docs updated**: `ARCHITECTURE.md`, `DEVELOPMENT.md`, `TECHNICAL.md`, `README.md`, and local contributor guidance reflect renamed files and `services/common/`
 - **Agent knowledge base updated**: `AGENT.md`, `core-reference.md`, `architecture-index.md` aligned with new structure
 - **YAML template comments**: Fixed `BaseServiceConfig` file path references in all 4 service templates
 - Removed deprecated `test_nip11_nip66.ipynb` notebook

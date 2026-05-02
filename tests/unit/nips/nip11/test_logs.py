@@ -88,10 +88,11 @@ class TestNip11InfoLogsSemanticValidation:
         with pytest.raises(ValidationError, match="reason is required when success is False"):
             Nip11InfoLogs(success=False, reason=None)
 
-    def test_success_false_with_empty_string_reason_accepted(self):
-        """success=False with empty string reason is accepted (empty is not None)."""
-        logs = Nip11InfoLogs(success=False, reason="")
-        assert logs.reason == ""
+    @pytest.mark.parametrize("reason", ["", "   "])
+    def test_success_false_with_blank_reason_raises(self, reason: str):
+        """success=False with blank reason raises ValidationError."""
+        with pytest.raises(ValidationError, match="reason must be non-empty when success is False"):
+            Nip11InfoLogs(success=False, reason=reason)
 
 
 # =============================================================================
@@ -201,17 +202,6 @@ class TestNip11InfoLogsToDict:
         d = logs.to_dict()
         assert d == {"success": False, "reason": "timeout"}
 
-    def test_to_dict_empty_reason_accepted(self):
-        """Empty string reason is accepted at construction."""
-        logs = Nip11InfoLogs(success=False, reason="")
-        result = logs.to_dict()
-        assert result["reason"] == ""
-
-
-# =============================================================================
-# Roundtrip Tests
-# =============================================================================
-
 
 class TestNip11InfoLogsRoundtrip:
     """Test to_dict -> from_dict roundtrip serialization."""
@@ -227,17 +217,6 @@ class TestNip11InfoLogsRoundtrip:
         original = Nip11InfoLogs(success=False, reason="Connection refused")
         reconstructed = Nip11InfoLogs.from_dict(original.to_dict())
         assert reconstructed == original
-
-    def test_empty_reason_roundtrip_accepted(self):
-        """Empty string reason survives roundtrip."""
-        logs = Nip11InfoLogs(success=False, reason="")
-        roundtripped = Nip11InfoLogs.from_dict(logs.to_dict())
-        assert roundtripped.reason == ""
-
-
-# =============================================================================
-# Frozen Model Tests
-# =============================================================================
 
 
 class TestNip11InfoLogsFrozen:

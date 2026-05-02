@@ -8,6 +8,9 @@ Tests:
 - Filter parsing and sort parsing
 """
 
+import base64
+import json
+from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 
 import asyncpg
@@ -40,7 +43,7 @@ def sample_columns() -> tuple[ColumnSchema, ...]:
     return (
         ColumnSchema(name="url", pg_type="text", nullable=False),
         ColumnSchema(name="network", pg_type="text", nullable=False),
-        ColumnSchema(name="discovered_at", pg_type="bigint", nullable=False),
+        ColumnSchema(name="stored_at", pg_type="bigint", nullable=False),
     )
 
 
@@ -130,6 +133,7 @@ class TestQueryResult:
         assert result.total == 10
         assert result.limit == 5
         assert result.offset == 0
+        assert result.next_cursor is None
 
     def test_empty(self) -> None:
         result = QueryResult(rows=[], total=0, limit=100, offset=0)
@@ -325,10 +329,10 @@ class TestCatalogQuery:
         mock_row.items.return_value = [
             ("url", "wss://relay.example.com"),
             ("network", "clearnet"),
-            ("discovered_at", 100),
+            ("stored_at", 100),
         ]
         mock_row.__iter__ = lambda self: iter(self.items())
-        mock_row.keys.return_value = ["url", "network", "discovered_at"]
+        mock_row.keys.return_value = ["url", "network", "stored_at"]
         mock_row.__getitem__ = lambda self, key: dict(self.items())[key]
 
         catalog_brotr.fetchval = AsyncMock(return_value=1)  # type: ignore[method-assign]
@@ -426,7 +430,7 @@ class TestCatalogQuery:
             "relay",
             limit=10,
             offset=0,
-            filters={"network": "clearnet", "discovered_at": ">=:1000000"},
+            filters={"network": "clearnet", "stored_at": ">=:1000000"},
         )
 
         # Verify correct parameter indexing ($1, $2 for filters, $3/$4 for limit/offset)
@@ -476,11 +480,521 @@ class TestCatalogQuery:
             "relay",
             limit=10,
             offset=0,
-            sort="discovered_at:desc",
+            sort="stored_at:desc",
         )
 
         call_args = catalog_brotr.fetch.call_args
-        assert "ORDER BY discovered_at DESC" in call_args[0][0]
+        assert "ORDER BY stored_at DESC" in call_args[0][0]
+
+    async def test_query_accepts_equivalent_sort_casing_across_cursor_pages(
+        self, populated_catalog: Catalog, catalog_brotr: Brotr
+    ) -> None:
+        first = MagicMock()
+        first.items.return_value = [
+            ("url", "wss://relay-3.example.com"),
+            ("network", "clearnet"),
+            ("stored_at", 300),
+        ]
+        first.__iter__ = lambda self: iter(self.items())
+        first.keys.return_value = ["url", "network", "stored_at"]
+        first.__getitem__ = lambda self, key: dict(self.items())[key]
+
+        second = MagicMock()
+        second.items.return_value = [
+            ("url", "wss://relay-2.example.com"),
+            ("network", "clearnet"),
+            ("stored_at", 200),
+        ]
+        second.__iter__ = lambda self: iter(self.items())
+        second.keys.return_value = ["url", "network", "stored_at"]
+        second.__getitem__ = lambda self, key: dict(self.items())[key]
+
+        catalog_brotr.fetch = AsyncMock(return_value=[first, second])  # type: ignore[method-assign]
+        first_page = await populated_catalog.query(
+            catalog_brotr,
+            "relay",
+            limit=1,
+            offset=0,
+            sort="stored_at:desc",
+            prefer_keyset=True,
+            include_total=False,
+        )
+
+        next_row = MagicMock()
+        next_row.items.return_value = [
+            ("url", "wss://relay-2.example.com"),
+            ("network", "clearnet"),
+            ("stored_at", 200),
+        ]
+        next_row.__iter__ = lambda self: iter(self.items())
+        next_row.keys.return_value = ["url", "network", "stored_at"]
+        next_row.__getitem__ = lambda self, key: dict(self.items())[key]
+
+        catalog_brotr.fetch = AsyncMock(return_value=[next_row])  # type: ignore[method-assign]
+
+        result = await populated_catalog.query(
+            catalog_brotr,
+            "relay",
+            limit=1,
+            offset=0,
+            sort="stored_at:DESC",
+            cursor=first_page.next_cursor,
+            prefer_keyset=True,
+            include_total=False,
+        )
+
+        assert result.rows == [
+            {
+                "url": "wss://relay-2.example.com",
+                "network": "clearnet",
+                "stored_at": 200,
+            }
+        ]
+        call_args = catalog_brotr.fetch.call_args
+        assert "(stored_at, url) < ($1::bigint, $2)" in call_args[0][0]
+        assert call_args[0][1:] == (300, "wss://relay-3.example.com", 2)
+
+    async def test_query_uses_exact_numeric_cursor_values_for_follow_up_keyset_page(
+        self, populated_catalog: Catalog, catalog_brotr: Brotr
+    ) -> None:
+        populated_catalog._tables["relay_scores"] = TableSchema(
+            name="relay_scores",
+            columns=(
+                ColumnSchema(name="score", pg_type="numeric", nullable=False),
+                ColumnSchema(name="url", pg_type="text", nullable=False),
+            ),
+            primary_key=("score", "url"),
+            is_view=True,
+        )
+
+        first = MagicMock()
+        first.items.return_value = [
+            ("score", 0.12345678912345678),
+            ("url", "wss://relay-3.example.com"),
+            ("__cursor_score", "0.123456789123456789"),
+        ]
+        first.__iter__ = lambda self: iter(self.items())
+        first.keys.return_value = ["score", "url", "__cursor_score"]
+        first.__getitem__ = lambda self, key: dict(self.items())[key]
+
+        second = MagicMock()
+        second.items.return_value = [
+            ("score", 0.02345678912345678),
+            ("url", "wss://relay-2.example.com"),
+            ("__cursor_score", "0.023456789123456789"),
+        ]
+        second.__iter__ = lambda self: iter(self.items())
+        second.keys.return_value = ["score", "url", "__cursor_score"]
+        second.__getitem__ = lambda self, key: dict(self.items())[key]
+
+        catalog_brotr.fetch = AsyncMock(return_value=[first, second])  # type: ignore[method-assign]
+        first_page = await populated_catalog.query(
+            catalog_brotr,
+            "relay_scores",
+            limit=1,
+            offset=0,
+            sort="score:desc",
+            prefer_keyset=True,
+            include_total=False,
+        )
+
+        assert first_page.rows == [
+            {
+                "score": 0.12345678912345678,
+                "url": "wss://relay-3.example.com",
+            }
+        ]
+        assert "__cursor_score" not in first_page.rows[0]
+
+        next_row = MagicMock()
+        next_row.items.return_value = [
+            ("score", 0.02345678912345678),
+            ("url", "wss://relay-2.example.com"),
+            ("__cursor_score", "0.023456789123456789"),
+        ]
+        next_row.__iter__ = lambda self: iter(self.items())
+        next_row.keys.return_value = ["score", "url", "__cursor_score"]
+        next_row.__getitem__ = lambda self, key: dict(self.items())[key]
+
+        catalog_brotr.fetch = AsyncMock(return_value=[next_row])  # type: ignore[method-assign]
+
+        result = await populated_catalog.query(
+            catalog_brotr,
+            "relay_scores",
+            limit=1,
+            offset=0,
+            sort="score:desc",
+            cursor=first_page.next_cursor,
+            prefer_keyset=True,
+            include_total=False,
+        )
+
+        assert result.rows == [
+            {
+                "score": 0.02345678912345678,
+                "url": "wss://relay-2.example.com",
+            }
+        ]
+        call_args = catalog_brotr.fetch.call_args
+        assert "(score, url) < ($1::numeric, $2)" in call_args[0][0]
+        assert call_args[0][1] == Decimal("0.123456789123456789")
+        assert call_args[0][2:] == ("wss://relay-3.example.com", 2)
+
+    async def test_query_prefers_primary_key_keyset_when_requested(
+        self, populated_catalog: Catalog, catalog_brotr: Brotr
+    ) -> None:
+        first = MagicMock()
+        first.items.return_value = [("url", "wss://relay-1.example.com"), ("network", "clearnet")]
+        first.__iter__ = lambda self: iter(self.items())
+        first.keys.return_value = ["url", "network"]
+        first.__getitem__ = lambda self, key: dict(self.items())[key]
+
+        second = MagicMock()
+        second.items.return_value = [("url", "wss://relay-2.example.com"), ("network", "clearnet")]
+        second.__iter__ = lambda self: iter(self.items())
+        second.keys.return_value = ["url", "network"]
+        second.__getitem__ = lambda self, key: dict(self.items())[key]
+
+        trailing = MagicMock()
+        trailing.items.return_value = [
+            ("url", "wss://relay-3.example.com"),
+            ("network", "clearnet"),
+        ]
+        trailing.__iter__ = lambda self: iter(self.items())
+        trailing.keys.return_value = ["url", "network"]
+        trailing.__getitem__ = lambda self, key: dict(self.items())[key]
+
+        catalog_brotr.fetchval = AsyncMock(return_value=3)  # type: ignore[method-assign]
+        catalog_brotr.fetch = AsyncMock(return_value=[first, second, trailing])  # type: ignore[method-assign]
+
+        result = await populated_catalog.query(
+            catalog_brotr,
+            "relay",
+            limit=2,
+            offset=0,
+            prefer_keyset=True,
+        )
+
+        assert result.rows == [
+            {"url": "wss://relay-1.example.com", "network": "clearnet"},
+            {"url": "wss://relay-2.example.com", "network": "clearnet"},
+        ]
+        assert result.next_cursor is not None
+        call_args = catalog_brotr.fetch.call_args
+        assert "ORDER BY url ASC" in call_args[0][0]
+        assert "OFFSET" not in call_args[0][0]
+        assert call_args[0][1:] == (3,)
+
+    async def test_query_uses_cursor_for_follow_up_keyset_page(
+        self, populated_catalog: Catalog, catalog_brotr: Brotr
+    ) -> None:
+        first = MagicMock()
+        first.items.return_value = [("url", "wss://relay-1.example.com"), ("network", "clearnet")]
+        first.__iter__ = lambda self: iter(self.items())
+        first.keys.return_value = ["url", "network"]
+        first.__getitem__ = lambda self, key: dict(self.items())[key]
+
+        second = MagicMock()
+        second.items.return_value = [("url", "wss://relay-2.example.com"), ("network", "clearnet")]
+        second.__iter__ = lambda self: iter(self.items())
+        second.keys.return_value = ["url", "network"]
+        second.__getitem__ = lambda self, key: dict(self.items())[key]
+
+        catalog_brotr.fetch = AsyncMock(return_value=[first, second])  # type: ignore[method-assign]
+        first_page = await populated_catalog.query(
+            catalog_brotr,
+            "relay",
+            limit=1,
+            offset=0,
+            prefer_keyset=True,
+            include_total=False,
+        )
+
+        next_row = MagicMock()
+        next_row.items.return_value = [
+            ("url", "wss://relay-2.example.com"),
+            ("network", "clearnet"),
+        ]
+        next_row.__iter__ = lambda self: iter(self.items())
+        next_row.keys.return_value = ["url", "network"]
+        next_row.__getitem__ = lambda self, key: dict(self.items())[key]
+
+        catalog_brotr.fetch = AsyncMock(return_value=[next_row])  # type: ignore[method-assign]
+
+        result = await populated_catalog.query(
+            catalog_brotr,
+            "relay",
+            limit=1,
+            offset=0,
+            cursor=first_page.next_cursor,
+            prefer_keyset=True,
+            include_total=False,
+        )
+
+        assert result.rows == [{"url": "wss://relay-2.example.com", "network": "clearnet"}]
+        call_args = catalog_brotr.fetch.call_args
+        assert "(url) > ($1)" in call_args[0][0]
+        assert call_args[0][1:] == ("wss://relay-1.example.com", 2)
+
+    async def test_query_rejects_cursor_without_primary_key(
+        self, populated_catalog: Catalog, catalog_brotr: Brotr
+    ) -> None:
+        populated_catalog._tables["relay_stats"] = TableSchema(
+            name="relay_stats",
+            columns=(
+                ColumnSchema(name="url", pg_type="text", nullable=False),
+                ColumnSchema(name="event_count", pg_type="bigint", nullable=False),
+            ),
+            primary_key=(),
+            is_view=True,
+        )
+
+        with pytest.raises(CatalogError, match="stable primary key"):
+            await populated_catalog.query(
+                catalog_brotr,
+                "relay_stats",
+                limit=10,
+                offset=0,
+                cursor="opaque-token",
+                prefer_keyset=True,
+            )
+
+    async def test_query_rejects_cursor_with_offset(
+        self, populated_catalog: Catalog, catalog_brotr: Brotr
+    ) -> None:
+        with pytest.raises(CatalogError, match="cannot be combined with offset"):
+            await populated_catalog.query(
+                catalog_brotr,
+                "relay",
+                limit=10,
+                offset=1,
+                cursor="opaque-token",
+                prefer_keyset=True,
+            )
+
+    async def test_query_rejects_invalid_cursor(
+        self, populated_catalog: Catalog, catalog_brotr: Brotr
+    ) -> None:
+        with pytest.raises(CatalogError, match="Invalid cursor"):
+            await populated_catalog.query(
+                catalog_brotr,
+                "relay",
+                limit=10,
+                offset=0,
+                cursor="not-base64",
+                prefer_keyset=True,
+                include_total=False,
+            )
+
+    async def test_query_rejects_non_string_cursor(
+        self, populated_catalog: Catalog, catalog_brotr: Brotr
+    ) -> None:
+        with pytest.raises(CatalogError, match="Invalid cursor"):
+            await populated_catalog.query(  # type: ignore[arg-type]
+                catalog_brotr,
+                "relay",
+                limit=10,
+                offset=0,
+                cursor=123,
+                prefer_keyset=True,
+                include_total=False,
+            )
+
+    async def test_query_rejects_cursor_with_invalid_typed_values(
+        self, populated_catalog: Catalog, catalog_brotr: Brotr
+    ) -> None:
+        cursor = (
+            base64.urlsafe_b64encode(
+                json.dumps(
+                    {
+                        "v": 1,
+                        "sort": "",
+                        "values": {"url": 123},
+                    },
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ).encode()
+            )
+            .decode()
+            .rstrip("=")
+        )
+
+        with pytest.raises(CatalogError, match="Invalid cursor value for column url"):
+            await populated_catalog.query(
+                catalog_brotr,
+                "relay",
+                limit=10,
+                offset=0,
+                cursor=cursor,
+                prefer_keyset=True,
+                include_total=False,
+            )
+
+    async def test_query_rejects_cursor_with_boolean_version(
+        self, populated_catalog: Catalog, catalog_brotr: Brotr
+    ) -> None:
+        cursor = (
+            base64.urlsafe_b64encode(
+                json.dumps(
+                    {
+                        "v": True,
+                        "sort": "",
+                        "values": {"url": "wss://relay-1.example.com"},
+                    },
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ).encode()
+            )
+            .decode()
+            .rstrip("=")
+        )
+
+        with pytest.raises(CatalogError, match="Invalid cursor"):
+            await populated_catalog.query(
+                catalog_brotr,
+                "relay",
+                limit=10,
+                offset=0,
+                cursor=cursor,
+                prefer_keyset=True,
+                include_total=False,
+            )
+
+    async def test_query_rejects_cursor_with_invalid_timestamp_string(
+        self, populated_catalog: Catalog, catalog_brotr: Brotr
+    ) -> None:
+        populated_catalog._tables["daily_counts"] = TableSchema(
+            name="daily_counts",
+            columns=(
+                ColumnSchema(
+                    name="day",
+                    pg_type="timestamp with time zone",
+                    nullable=False,
+                ),
+                ColumnSchema(name="event_count", pg_type="bigint", nullable=False),
+            ),
+            primary_key=("day",),
+            is_view=True,
+        )
+        catalog_brotr.fetch = AsyncMock(return_value=[])  # type: ignore[method-assign]
+        cursor = (
+            base64.urlsafe_b64encode(
+                json.dumps(
+                    {
+                        "v": 1,
+                        "sort": "",
+                        "values": {"day": "not-a-timestamp"},
+                    },
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ).encode()
+            )
+            .decode()
+            .rstrip("=")
+        )
+
+        with pytest.raises(CatalogError, match="Invalid cursor value for column day"):
+            await populated_catalog.query(
+                catalog_brotr,
+                "daily_counts",
+                limit=10,
+                offset=0,
+                cursor=cursor,
+                prefer_keyset=True,
+                include_total=False,
+            )
+
+        catalog_brotr.fetch.assert_not_called()  # type: ignore[attr-defined]
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            float("nan"),
+            float("inf"),
+        ],
+        ids=[
+            "numeric_nan",
+            "numeric_infinity",
+        ],
+    )
+    async def test_query_rejects_cursor_with_non_finite_numeric_value(
+        self,
+        populated_catalog: Catalog,
+        catalog_brotr: Brotr,
+        value: float,
+    ) -> None:
+        populated_catalog._tables["relay_scores"] = TableSchema(
+            name="relay_scores",
+            columns=(
+                ColumnSchema(name="score", pg_type="numeric", nullable=False),
+                ColumnSchema(name="url", pg_type="text", nullable=False),
+            ),
+            primary_key=("score",),
+            is_view=True,
+        )
+        catalog_brotr.fetch = AsyncMock(return_value=[])  # type: ignore[method-assign]
+        cursor = (
+            base64.urlsafe_b64encode(
+                json.dumps(
+                    {
+                        "v": 1,
+                        "sort": "",
+                        "values": {"score": value},
+                    },
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ).encode()
+            )
+            .decode()
+            .rstrip("=")
+        )
+
+        with pytest.raises(CatalogError, match="Invalid cursor value for column score"):
+            await populated_catalog.query(
+                catalog_brotr,
+                "relay_scores",
+                limit=10,
+                offset=0,
+                cursor=cursor,
+                prefer_keyset=True,
+                include_total=False,
+            )
+
+        catalog_brotr.fetch.assert_not_called()  # type: ignore[attr-defined]
+
+    async def test_query_skips_total_when_not_requested(
+        self, populated_catalog: Catalog, catalog_brotr: Brotr
+    ) -> None:
+        catalog_brotr.fetchval = AsyncMock(return_value=999)  # type: ignore[method-assign]
+        catalog_brotr.fetch = AsyncMock(return_value=[])  # type: ignore[method-assign]
+
+        result = await populated_catalog.query(
+            catalog_brotr,
+            "relay",
+            limit=10,
+            offset=0,
+            include_total=False,
+        )
+
+        assert result.total is None
+        catalog_brotr.fetchval.assert_not_called()
+
+    async def test_query_includes_total_when_requested(
+        self, populated_catalog: Catalog, catalog_brotr: Brotr
+    ) -> None:
+        catalog_brotr.fetchval = AsyncMock(return_value=7)  # type: ignore[method-assign]
+        catalog_brotr.fetch = AsyncMock(return_value=[])  # type: ignore[method-assign]
+
+        result = await populated_catalog.query(
+            catalog_brotr,
+            "relay",
+            limit=10,
+            offset=0,
+            include_total=True,
+        )
+
+        assert result.total == 7
+        catalog_brotr.fetchval.assert_awaited_once()
 
     async def test_query_with_invalid_sort_column(
         self, populated_catalog: Catalog, catalog_brotr: Brotr
@@ -567,6 +1081,35 @@ class TestCatalogGetByPk:
         call_args = catalog_brotr.fetchrow.call_args
         assert call_args[0][1] == bytes.fromhex("abcd1234")
 
+    async def test_get_by_pk_rejects_invalid_timestamp_before_execution(
+        self,
+        populated_catalog: Catalog,
+        catalog_brotr: Brotr,
+    ) -> None:
+        populated_catalog._tables["daily_counts"] = TableSchema(
+            name="daily_counts",
+            columns=(
+                ColumnSchema(
+                    name="day",
+                    pg_type="timestamp with time zone",
+                    nullable=False,
+                ),
+                ColumnSchema(name="event_count", pg_type="bigint", nullable=False),
+            ),
+            primary_key=("day",),
+            is_view=True,
+        )
+        catalog_brotr.fetchrow = AsyncMock(return_value=None)  # type: ignore[method-assign]
+
+        with pytest.raises(CatalogError, match="Invalid parameter value for column day"):
+            await populated_catalog.get_by_pk(
+                catalog_brotr,
+                "daily_counts",
+                {"day": "not-a-timestamp"},
+            )
+
+        catalog_brotr.fetchrow.assert_not_called()  # type: ignore[attr-defined]
+
 
 # ============================================================================
 # Filter Parsing Tests
@@ -612,6 +1155,18 @@ class TestSortParsing:
     def test_invalid_direction(self) -> None:
         with pytest.raises(CatalogError, match="Invalid sort direction"):
             Catalog._parse_sort("name:invalid")
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("name", "name"),
+            ("name:asc", "name"),
+            ("name:ASC", "name"),
+            ("name:desc", "name:DESC"),
+        ],
+    )
+    def test_canonicalize_sort(self, raw: str, expected: str) -> None:
+        assert Catalog._canonicalize_sort(raw) == expected
 
 
 class TestSelectColumns:
@@ -747,13 +1302,13 @@ class TestByteaFilter:
 class TestDataErrorConversion:
     """Tests that asyncpg.DataError is converted to CatalogError."""
 
-    async def test_query_data_error_becomes_value_error(
+    async def test_query_count_data_error_becomes_value_error(
         self,
         populated_catalog: Catalog,
         catalog_brotr: Brotr,
     ) -> None:
         catalog_brotr.fetchval = AsyncMock(  # type: ignore[method-assign]
-            side_effect=asyncpg.DataError("invalid input syntax for type bigint"),
+            side_effect=asyncpg.DataError("driver-side count failure"),
         )
 
         with pytest.raises(CatalogError, match="Invalid filter value"):
@@ -762,7 +1317,7 @@ class TestDataErrorConversion:
                 "relay",
                 limit=10,
                 offset=0,
-                filters={"discovered_at": ">=:not_a_number"},
+                filters={"network": "clearnet"},
             )
 
     async def test_query_data_error_on_data_fetch(
@@ -799,6 +1354,141 @@ class TestDataErrorConversion:
                 "relay",
                 {"url": "wss://example.com"},
             )
+
+
+# ============================================================================
+# Typed Filter Validation Tests
+# ============================================================================
+
+
+class TestTypedFilterValidation:
+    """Tests that typed public filters fail at the planner boundary."""
+
+    async def test_query_rejects_non_string_filter_value_before_execution(
+        self,
+        populated_catalog: Catalog,
+        catalog_brotr: Brotr,
+    ) -> None:
+        catalog_brotr.fetchval = AsyncMock(return_value=0)  # type: ignore[method-assign]
+        catalog_brotr.fetch = AsyncMock(return_value=[])  # type: ignore[method-assign]
+
+        with pytest.raises(CatalogError, match="Invalid filter value for column network"):
+            await populated_catalog.query(
+                catalog_brotr,
+                "relay",
+                limit=10,
+                offset=0,
+                filters={"network": 123},  # type: ignore[dict-item]
+            )
+
+        catalog_brotr.fetchval.assert_not_called()  # type: ignore[attr-defined]
+        catalog_brotr.fetch.assert_not_called()  # type: ignore[attr-defined]
+
+    async def test_query_rejects_invalid_bigint_filter_before_execution(
+        self,
+        populated_catalog: Catalog,
+        catalog_brotr: Brotr,
+    ) -> None:
+        catalog_brotr.fetchval = AsyncMock(return_value=0)  # type: ignore[method-assign]
+        catalog_brotr.fetch = AsyncMock(return_value=[])  # type: ignore[method-assign]
+
+        with pytest.raises(CatalogError, match="Invalid filter value for column stored_at"):
+            await populated_catalog.query(
+                catalog_brotr,
+                "relay",
+                limit=10,
+                offset=0,
+                filters={"stored_at": ">=:not_a_number"},
+            )
+
+        catalog_brotr.fetchval.assert_not_called()  # type: ignore[attr-defined]
+        catalog_brotr.fetch.assert_not_called()  # type: ignore[attr-defined]
+
+    @pytest.mark.parametrize(
+        ("column", "pg_type", "value"),
+        [
+            ("enabled", "boolean", "maybe"),
+            ("day", "timestamp with time zone", "not-a-timestamp"),
+            ("score", "numeric", "not-a-decimal"),
+            ("score", "numeric", "NaN"),
+        ],
+        ids=[
+            "boolean",
+            "timestamp",
+            "numeric",
+            "numeric_non_finite",
+        ],
+    )
+    def test_direct_filter_coercion_rejects_invalid_typed_scalars(
+        self,
+        column: str,
+        pg_type: str,
+        value: str,
+    ) -> None:
+        with pytest.raises(CatalogError, match=f"Invalid filter value for column {column}"):
+            Catalog._coerce_parameter_value(column, pg_type, value, source="filter")
+
+
+class TestTypedParameterValidation:
+    """Tests that typed PK parameters fail at the shared lookup boundary."""
+
+    @pytest.mark.parametrize(
+        ("column", "pg_type", "value"),
+        [
+            ("kind", "integer", 1),
+            ("enabled", "boolean", "maybe"),
+            ("day", "timestamp with time zone", "not-a-timestamp"),
+            ("score", "numeric", "NaN"),
+        ],
+        ids=[
+            "non_string_integer",
+            "boolean",
+            "timestamp",
+            "numeric_non_finite",
+        ],
+    )
+    def test_direct_parameter_coercion_rejects_invalid_typed_scalars(
+        self,
+        column: str,
+        pg_type: str,
+        value: object,
+    ) -> None:
+        with pytest.raises(CatalogError, match=f"Invalid parameter value for column {column}"):
+            Catalog._coerce_parameter_value(column, pg_type, value, source="parameter")
+
+
+class TestTypedCursorValidation:
+    """Tests that typed cursor values fail at the shared keyset boundary."""
+
+    @pytest.mark.parametrize(
+        ("column", "pg_type", "value"),
+        [
+            ("kind", "integer", True),
+            ("enabled", "boolean", "true"),
+            ("score", "numeric", float("nan")),
+        ],
+        ids=[
+            "integer_bool_alias",
+            "boolean_string_alias",
+            "numeric_non_finite",
+        ],
+    )
+    def test_direct_cursor_coercion_rejects_invalid_typed_scalars(
+        self,
+        column: str,
+        pg_type: str,
+        value: object,
+    ) -> None:
+        with pytest.raises(CatalogError, match=f"Invalid cursor value for column {column}"):
+            Catalog._coerce_parameter_value(column, pg_type, value, source="cursor")
+
+    def test_direct_cursor_coercion_accepts_exact_numeric_strings(self) -> None:
+        assert Catalog._coerce_parameter_value(
+            "score",
+            "numeric",
+            "0.123456789123456789",
+            source="cursor",
+        ) == Decimal("0.123456789123456789")
 
 
 # ============================================================================
@@ -847,3 +1537,114 @@ class TestPartialIndexExclusion:
 
         # No PK discovered (only partial indexes existed)
         assert catalog.tables["relay_stats"].primary_key == ()
+
+
+# ============================================================================
+# Operator/Type Validation Tests (CR-001)
+# ============================================================================
+
+
+class TestOperatorTypeValidation:
+    """Tests that ILIKE is restricted to text-like columns."""
+
+    async def test_ilike_on_text_column_accepted(
+        self,
+        populated_catalog: Catalog,
+        catalog_brotr: Brotr,
+    ) -> None:
+        catalog_brotr.fetchval = AsyncMock(return_value=1)  # type: ignore[method-assign]
+        catalog_brotr.fetch = AsyncMock(return_value=[])  # type: ignore[method-assign]
+
+        result = await populated_catalog.query(
+            catalog_brotr,
+            "relay",
+            limit=10,
+            offset=0,
+            filters={"url": "ILIKE:%relay%"},
+        )
+        assert result.total == 1
+
+    async def test_ilike_on_bigint_column_rejected(
+        self,
+        populated_catalog: Catalog,
+        catalog_brotr: Brotr,
+    ) -> None:
+        with pytest.raises(CatalogError, match="ILIKE operator requires a text column"):
+            await populated_catalog.query(
+                catalog_brotr,
+                "relay",
+                limit=10,
+                offset=0,
+                filters={"stored_at": "ILIKE:%1%"},
+            )
+
+    async def test_ilike_on_bytea_column_rejected(
+        self,
+        populated_catalog: Catalog,
+        catalog_brotr: Brotr,
+    ) -> None:
+        with pytest.raises(CatalogError, match="ILIKE operator requires a text column"):
+            await populated_catalog.query(
+                catalog_brotr,
+                "event",
+                limit=10,
+                offset=0,
+                filters={"id": "ILIKE:%abc%"},
+            )
+
+    async def test_ilike_on_integer_column_rejected(
+        self,
+        populated_catalog: Catalog,
+        catalog_brotr: Brotr,
+    ) -> None:
+        with pytest.raises(CatalogError, match="ILIKE operator requires a text column"):
+            await populated_catalog.query(
+                catalog_brotr,
+                "event",
+                limit=10,
+                offset=0,
+                filters={"kind": "ILIKE:%1%"},
+            )
+
+
+# ============================================================================
+# PostgresError Conversion Tests (MED-007)
+# ============================================================================
+
+
+class TestPostgresErrorConversion:
+    """Tests that asyncpg.PostgresError (non-DataError) is converted to CatalogError."""
+
+    async def test_query_postgres_error_becomes_catalog_error(
+        self,
+        populated_catalog: Catalog,
+        catalog_brotr: Brotr,
+    ) -> None:
+        catalog_brotr.fetchval = AsyncMock(  # type: ignore[method-assign]
+            side_effect=asyncpg.PostgresError("operator does not exist"),
+        )
+
+        with pytest.raises(CatalogError, match="Query execution failed"):
+            await populated_catalog.query(
+                catalog_brotr,
+                "relay",
+                limit=10,
+                offset=0,
+                filters={"network": "clearnet"},
+            )
+
+    async def test_get_by_pk_postgres_error_becomes_catalog_error(
+        self,
+        populated_catalog: Catalog,
+        catalog_brotr: Brotr,
+    ) -> None:
+        catalog_brotr.fetchrow = AsyncMock(  # type: ignore[method-assign]
+            side_effect=asyncpg.PostgresError("undefined function"),
+        )
+
+        with pytest.raises(CatalogError, match="Query execution failed"):
+            await populated_catalog.get_by_pk(
+                catalog_brotr,
+                "relay",
+                {"url": "wss://example.com"},
+            )

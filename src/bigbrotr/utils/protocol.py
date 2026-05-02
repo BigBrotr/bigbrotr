@@ -7,9 +7,20 @@ WebSocket transport primitives in
 
 Attributes:
     create_client: Client factory with optional SOCKS5 proxy and SSL override.
+    create_connected_client: Convenience helper that builds one client,
+        registers clearnet relays, and returns the normalized connect result.
+    NostrClientManager: Shared manager for clearnet multi-relay sessions
+        and lazy per-relay clients.
     connect_relay: High-level helper with automatic SSL fallback.
     is_nostr_relay: Check whether a URL hosts a Nostr relay.
     broadcast_events: Sign and broadcast events to multiple relays.
+    broadcast_events_detailed: Detailed publish helper that preserves
+        per-client normalized relay outcomes for clients whose builder sends
+        complete with relay-level SDK results.
+    summarize_broadcast_results: Aggregate detailed publish results into
+        relay-level success/failure maps.
+    normalize_send_output: Normalize one nostr-sdk send or subscribe output
+        into relay-level outcomes.
 
 Note:
     The SSL fallback strategy for clearnet relays follows a two-phase
@@ -21,7 +32,8 @@ Note:
 
     Overlay networks (Tor, I2P, Lokinet) always use
     ``nostr_sdk.ConnectionMode.PROXY`` with a SOCKS5 proxy and do not
-    attempt SSL fallback, as the overlay itself provides encryption.
+    attempt SSL fallback, because the overlay transport already provides
+    its own privacy/security layer.
 
 See Also:
     [bigbrotr.utils.transport][bigbrotr.utils.transport]: WebSocket transport
@@ -42,46 +54,55 @@ Examples:
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
 import logging
-import os
-import socket
-import ssl
-import sys
-from datetime import timedelta
-from ipaddress import AddressValueError, IPv4Address, IPv6Address
-from typing import TYPE_CHECKING, TextIO
-from urllib.parse import urlparse
+from typing import TYPE_CHECKING
 
 from nostr_sdk import (
     Client,
-    ClientBuilder,
-    ClientOptions,
-    Connection,
-    ConnectionMode,
-    ConnectionTarget,
-    Filter,
-    Kind,
-    KindStandard,
-    NostrSigner,
     RelayUrl,
     uniffi_set_event_loop,
 )
 
-from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 
-from .transport import DEFAULT_TIMEOUT, InsecureWebSocketTransport
+from . import protocol_connections as _protocol_connections
+from . import protocol_factory as _protocol_factory
+from . import protocol_lifecycle as _protocol_lifecycle
+from . import protocol_manager as _protocol_manager
+from . import protocol_publish as _protocol_publish
+from . import protocol_sessions as _protocol_sessions
+from .protocol_validation import (
+    RelayValidationContext,
+    RelayValidationOptions,
+)
+from .protocol_validation import (
+    validate_relay_protocol as _validate_relay_protocol,
+)
+from .transport import (
+    DEFAULT_TIMEOUT,
+    install_nostr_sdk_stderr_filter,
+    suppress_nostr_sdk_stderr,
+)
 
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
-
-    from nostr_sdk import EventBuilder, Keys
+    from nostr_sdk import Keys
 
 
 logger = logging.getLogger(__name__)
+
+
+BroadcastClientResult = _protocol_publish.BroadcastClientResult
+broadcast_events = _protocol_publish.broadcast_events
+broadcast_events_detailed = _protocol_publish.broadcast_events_detailed
+summarize_broadcast_results = _protocol_publish.summarize_broadcast_results
+normalize_send_output = _protocol_publish.normalize_send_output
+shutdown_client = _protocol_lifecycle.shutdown_client
+ClientConnectResult = _protocol_sessions.ClientConnectResult
+ClientSession = _protocol_sessions.ClientSession
+SharedSessionDependencies = _protocol_sessions.SharedSessionDependencies
+_connect_client_relays = _protocol_sessions.connect_client_relays
+_create_connected_client = _protocol_sessions.create_connected_client
 
 
 # Multi-word patterns for SSL/TLS certificate errors in nostr-sdk messages.
@@ -91,8 +112,11 @@ _SSL_ERROR_PATTERNS: tuple[str, ...] = (
     "ssl certificate",
     "certificate verify",
     "certificate has expired",
+    "invalid peer certificate",
     "self signed certificate",
     "self-signed certificate",
+    "unknown issuer",
+    "unknownissuer",
     "unable to get local issuer",
     "x509",
     "tlsv1 alert",
@@ -106,82 +130,61 @@ _SSL_ERROR_PATTERNS: tuple[str, ...] = (
 )
 
 
+def _normalize_allow_insecure(allow_insecure: object) -> bool:
+    """Return one canonical insecure-transport toggle."""
+    if not isinstance(allow_insecure, bool):
+        raise ValueError("allow_insecure must be a bool")
+    return allow_insecure
+
+
 def _is_ssl_error(error_message: str) -> bool:
     """Check if an error message indicates an SSL/TLS certificate error."""
     error_lower = error_message.lower()
     return any(pattern in error_lower for pattern in _SSL_ERROR_PATTERNS)
 
 
-class _StderrSuppressor:
-    """Reference-counted stderr suppressor for async-safe batch suppression.
+class NostrClientManager(_protocol_manager.NostrClientManager):
+    """Public manager facade bound to the protocol module's dynamic helpers."""
 
-    nostr-sdk's Rust FFI layer writes diagnostic output directly to the
-    process stderr file descriptor from arbitrary native threads.  Because
-    these writes bypass Python's I/O stack and are not associated with any
-    Python thread, there is no way to selectively suppress only nostr-sdk
-    output while preserving stderr from other libraries.
+    def __init__(
+        self,
+        *,
+        keys: Keys | None = None,
+        networks: _protocol_manager.RelayNetworkPolicy | None = None,
+        allow_insecure: bool = False,
+    ) -> None:
+        normalized_allow_insecure = _normalize_allow_insecure(allow_insecure)
 
-    Trade-off: while the suppressor is active, ALL stderr output -- including
-    from unrelated libraries -- is redirected to ``/dev/null``.  This is an
-    intentional choice: the alternative (e.g. dup2 tricks or pty-based
-    filtering) would be significantly more complex and fragile for negligible
-    benefit.
+        async def _shutdown_client(client: Client) -> None:
+            await shutdown_client(client)
 
-    Mitigation: the suppression scope is deliberately narrow, wrapping only
-    the short ``is_nostr_relay`` validation window (connect + single event
-    fetch).  Any stderr produced outside that window is unaffected.
-
-    Multiple concurrent async tasks can enter suppression without blocking
-    the event loop.  A ``threading.Lock`` would deadlock here because the
-    context manager ``yield`` crosses ``await`` boundaries; instead, a
-    simple reference count tracks active suppressors.
-    """
-
-    __slots__ = ("_devnull", "_refcount", "_saved_stderr")
-
-    def __init__(self) -> None:
-        self._refcount = 0
-        self._saved_stderr: TextIO | None = None
-        self._devnull: TextIO | None = None
-
-    @contextlib.contextmanager
-    def __call__(self) -> Generator[None, None, None]:
-        if self._refcount == 0:
-            self._saved_stderr = sys.stderr
-            self._devnull = open(os.devnull, "w")  # noqa: PTH123, SIM115  # os.devnull requires built-in open()
-        self._refcount += 1
-        sys.stderr = self._devnull
-        try:
-            yield
-        finally:
-            self._refcount -= 1
-            if self._refcount == 0:
-                sys.stderr = self._saved_stderr
-                if self._devnull is not None:
-                    self._devnull.close()
-                self._saved_stderr = None
-                self._devnull = None
-
-
-_suppress_stderr = _StderrSuppressor()
-
-
-async def shutdown_client(client: Client) -> None:
-    """Fully release a nostr-sdk Client's resources before shutdown.
-
-    ``Client.shutdown()`` alone does not release the internal event
-    database, active subscriptions, or relay connection state on the
-    Rust side, causing monotonic RSS growth.  This helper performs a
-    full cleanup sequence before calling ``shutdown()``.
-    """
-    with contextlib.suppress(Exception):
-        await client.unsubscribe_all()
-    with contextlib.suppress(Exception):
-        await client.force_remove_all_relays()
-    with contextlib.suppress(Exception):
-        await client.database().wipe()
-    with contextlib.suppress(Exception):
-        await client.shutdown()
+        super().__init__(
+            dependencies=_protocol_manager.ProtocolManagerDependencies(
+                connect_relay=lambda relay, *, keys, proxy_url, timeout, allow_insecure: (
+                    connect_relay(
+                        relay,
+                        keys=keys,
+                        proxy_url=proxy_url,
+                        timeout=timeout,
+                        allow_insecure=allow_insecure,
+                    )
+                ),
+                create_client=lambda *, keys, allow_insecure: create_client(
+                    keys=keys,
+                    allow_insecure=allow_insecure,
+                ),
+                connect_client_relays=lambda client, relays, *, timeout: _connect_client_relays(
+                    client,
+                    relays,
+                    timeout=timeout,
+                ),
+                shutdown_client=_shutdown_client,
+                logger=logger,
+            ),
+            keys=keys,
+            networks=networks,
+            allow_insecure=normalized_allow_insecure,
+        )
 
 
 async def create_client(
@@ -207,8 +210,11 @@ async def create_client(
 
     Note:
         When a ``proxy_url`` hostname is not already an IP address, it is
-        resolved asynchronously via ``asyncio.to_thread(socket.gethostbyname)``
-        because nostr-sdk requires a numeric IP for the proxy connection.
+        resolved asynchronously to a numeric IPv4 or IPv6 address because
+        nostr-sdk requires a numeric IP for the proxy connection. Hostnames
+        first try ``socket.gethostbyname()`` and then fall back to
+        ``socket.getaddrinfo(..., AF_INET6)`` so IPv6-only proxy hosts still
+        work without forcing callers to pass bracketed literals.
 
     Warning:
         Setting ``allow_insecure=True`` bypasses all SSL/TLS certificate
@@ -219,38 +225,39 @@ async def create_client(
         [connect_relay][bigbrotr.utils.protocol.connect_relay]: Higher-level
             function that handles connection and automatic SSL fallback.
     """
-    builder = ClientBuilder()
+    install_nostr_sdk_stderr_filter()
+    normalized_allow_insecure = _normalize_allow_insecure(allow_insecure)
+    return await _protocol_factory.build_client(
+        keys=keys,
+        proxy_url=proxy_url,
+        allow_insecure=normalized_allow_insecure,
+    )
 
-    if keys is not None:
-        signer = NostrSigner.keys(keys)
-        builder = builder.signer(signer)
 
-    if allow_insecure:
-        transport = InsecureWebSocketTransport()
-        builder = builder.websocket_transport(transport)
+async def create_connected_client(
+    relays: list[Relay],
+    *,
+    keys: Keys | None = None,
+    timeout: float = DEFAULT_TIMEOUT,  # noqa: ASYNC109
+    allow_insecure: bool = False,
+) -> tuple[Client, ClientConnectResult]:
+    """Create one shared client, register direct relays, and normalize the result.
 
-    if proxy_url is not None:
-        parsed = urlparse(proxy_url)
-        proxy_host = parsed.hostname or "127.0.0.1"
-        proxy_port = parsed.port or 9050
-
-        # nostr-sdk requires an IP address, not a hostname
-        bare_host = proxy_host.strip("[]")
-        try:
-            IPv4Address(bare_host)
-        except (AddressValueError, ValueError):
-            try:
-                IPv6Address(bare_host)
-                proxy_host = bare_host
-            except (AddressValueError, ValueError):
-                proxy_host = await asyncio.to_thread(socket.gethostbyname, proxy_host)
-
-        proxy_mode = ConnectionMode.PROXY(proxy_host, proxy_port)
-        conn = Connection().mode(proxy_mode).target(ConnectionTarget.ONION)
-        opts = ClientOptions().connection(conn)
-        builder = builder.opts(opts)
-
-    return builder.build()
+    This helper is intentionally limited to direct relay sets
+    (clearnet/local). Overlay relays require per-network proxy policy and
+    therefore cannot share the same session-oriented client contract.
+    """
+    normalized_allow_insecure = _normalize_allow_insecure(allow_insecure)
+    return await _create_connected_client(
+        relays,
+        dependencies=SharedSessionDependencies(
+            create_client=create_client,
+            shutdown_client=shutdown_client,
+        ),
+        keys=keys,
+        timeout=timeout,
+        allow_insecure=normalized_allow_insecure,
+    )
 
 
 async def connect_relay(
@@ -264,7 +271,7 @@ async def connect_relay(
     """Connect to a relay with automatic SSL fallback for clearnet.
 
     For clearnet relays, tries SSL first and falls back to insecure if allowed.
-    Overlay networks (Tor/I2P/Loki) require a proxy and use no SSL fallback.
+    Overlay networks (Tor/I2P/Lokinet) require a proxy and use no SSL fallback.
 
     Args:
         relay: [Relay][bigbrotr.models.relay.Relay] to connect to.
@@ -294,96 +301,24 @@ async def connect_relay(
         [is_nostr_relay][bigbrotr.utils.protocol.is_nostr_relay]: Higher-level
             validation that uses this function internally.
     """
-    relay_url = RelayUrl.parse(relay.url)
-    is_overlay = relay.network in (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
-
-    if is_overlay:
-        if proxy_url is None:
-            raise ValueError(f"proxy_url required for {relay.network} relay: {relay.url}")
-
-        client = await create_client(keys, proxy_url)
-        await client.add_relay(relay_url)
-        await client.connect()
-        await client.wait_for_connection(timedelta(seconds=timeout))
-
-        relay_obj = await client.relay(relay_url)
-        if not relay_obj.is_connected():
-            await shutdown_client(client)
-            raise TimeoutError(f"Connection timeout: {relay.url}")
-
-        return client
-
-    # Clearnet: try SSL first, then fall back to insecure if allowed
-    logger.debug("ssl_connecting relay=%s", relay.url)
-
-    client = await create_client(keys)
-    await client.add_relay(relay_url)
-    output = await client.try_connect(timedelta(seconds=timeout))
-
-    if relay_url in output.success:
-        logger.debug("ssl_connected relay=%s", relay.url)
-        return client
-
-    await shutdown_client(client)
-    error_message = output.failed.get(relay_url, "Unknown error")
-    logger.debug("connect_failed relay=%s error=%s", relay.url, error_message)
-
-    if not _is_ssl_error(error_message):
-        raise OSError(f"Connection failed: {relay.url} ({error_message})")
-
-    if not allow_insecure:
-        raise ssl.SSLCertVerificationError(
-            f"SSL certificate verification failed for {relay.url}: {error_message}"
-        )
-
-    logger.debug("ssl_fallback_insecure relay=%s error=%s", relay.url, error_message)
-
-    # Required for custom WebSocket transport UniFFI callbacks
-    uniffi_set_event_loop(asyncio.get_running_loop())
-
-    client = await create_client(keys, allow_insecure=True)
-    await client.add_relay(relay_url)
-    output = await client.try_connect(timedelta(seconds=timeout))
-
-    if relay_url not in output.success:
-        error_message = output.failed.get(relay_url, "Unknown error")
-        await shutdown_client(client)
-        raise OSError(f"Connection failed (insecure): {relay.url} ({error_message})")
-
-    logger.debug("insecure_connected relay=%s", relay.url)
-    return client
-
-
-async def broadcast_events(
-    builders: list[EventBuilder],
-    clients: list[Client],
-) -> int:
-    """Broadcast Nostr events to pre-connected clients.
-
-    Each client must already be connected and configured with a signer.
-    The caller is responsible for creating, connecting, and shutting down
-    the clients.
-
-    Args:
-        builders: Event builders to sign and send.
-        clients: Pre-connected ``Client`` instances.
-
-    Returns:
-        Number of clients that successfully received all events.
-    """
-    if not builders or not clients:
-        return 0
-
-    success = 0
-    for client in clients:
-        try:
-            for builder in builders:
-                await client.send_event_builder(builder)
-            success += 1
-        except (OSError, TimeoutError) as e:
-            logger.warning("broadcast_send_failed error=%s", e)
-
-    return success
+    normalized_allow_insecure = _normalize_allow_insecure(allow_insecure)
+    return await _protocol_connections.connect_relay(
+        relay,
+        _protocol_connections.RelayConnectContext(
+            create_client=create_client,
+            shutdown_client=shutdown_client,
+            parse_relay_url=RelayUrl.parse,
+            set_event_loop=uniffi_set_event_loop,
+            is_ssl_error=_is_ssl_error,
+            logger=logger,
+        ),
+        _protocol_connections.RelayConnectOptions(
+            keys=keys,
+            proxy_url=proxy_url,
+            timeout=timeout,
+            allow_insecure=normalized_allow_insecure,
+        ),
+    )
 
 
 async def is_nostr_relay(
@@ -420,43 +355,19 @@ async def is_nostr_relay(
         [bigbrotr.services.validator.Validator][bigbrotr.services.validator.Validator]:
             Service that calls this function to promote candidates to relays.
     """
-    effective_overall = overall_timeout if overall_timeout is not None else timeout * 4
-
-    logger.debug("validation_started relay=%s timeout_s=%s", relay.url, timeout)
-
-    with _suppress_stderr():
-        client = None
-        try:
-            async with asyncio.timeout(effective_overall):
-                client = await connect_relay(
-                    relay=relay,
-                    proxy_url=proxy_url,
-                    timeout=timeout,
-                    allow_insecure=allow_insecure,
-                )
-
-                req_filter = Filter().kind(Kind.from_std(KindStandard.TEXT_NOTE)).limit(1)
-                await client.fetch_events(req_filter, timedelta(seconds=timeout))
-                logger.debug("validation_success relay=%s reason=%s", relay.url, "eose")
-                return True
-
-        except TimeoutError:
-            logger.debug("validation_timeout relay=%s", relay.url)
-            return False
-
-        except OSError as e:
-            # AUTH-required errors indicate a valid Nostr relay (NIP-42)
-            error_msg = str(e).lower()
-            if "auth-required" in error_msg:
-                logger.debug("validation_success relay=%s reason=%s", relay.url, "auth-required")
-                return True
-            logger.debug("validation_failed relay=%s error=%s", relay.url, str(e))
-            return False
-
-        finally:
-            if client is not None:
-                try:
-                    await asyncio.wait_for(shutdown_client(client), timeout=timeout)
-                except (OSError, RuntimeError, TimeoutError) as e:
-                    logger.debug("client_shutdown_error error=%s", e)
-                del client
+    normalized_allow_insecure = _normalize_allow_insecure(allow_insecure)
+    return await _validate_relay_protocol(
+        relay,
+        RelayValidationContext(
+            connect_relay=connect_relay,
+            shutdown_client=shutdown_client,
+            suppress_stderr=suppress_nostr_sdk_stderr,
+            logger=logger,
+        ),
+        RelayValidationOptions(
+            connect_timeout=timeout,
+            proxy_url=proxy_url,
+            overall_timeout=overall_timeout,
+            allow_insecure=normalized_allow_insecure,
+        ),
+    )

@@ -15,7 +15,7 @@ pytestmark = pytest.mark.integration
 class TestServiceStateUpsert:
     async def test_single_upsert(self, brotr: Brotr):
         state = ServiceState(
-            service_name=ServiceName.FINDER,
+            owner=ServiceName.FINDER,
             state_type=ServiceStateType.CURSOR,
             state_key="wss://relay.example.com",
             state_value={"timestamp": 1700000000},
@@ -31,7 +31,7 @@ class TestServiceStateUpsert:
     async def test_batch_upsert(self, brotr: Brotr):
         states = [
             ServiceState(
-                service_name=ServiceName.FINDER,
+                owner=ServiceName.FINDER,
                 state_type=ServiceStateType.CURSOR,
                 state_key=f"wss://relay{i}.example.com",
                 state_value={"ts": i},
@@ -53,7 +53,7 @@ class TestServiceStateUpsert:
 
     async def test_update_semantics(self, brotr: Brotr):
         original = ServiceState(
-            service_name=ServiceName.FINDER,
+            owner=ServiceName.FINDER,
             state_type=ServiceStateType.CURSOR,
             state_key="wss://relay.example.com",
             state_value={"timestamp": 1700000000},
@@ -61,7 +61,7 @@ class TestServiceStateUpsert:
         await brotr.upsert_service_state([original])
 
         updated = ServiceState(
-            service_name=ServiceName.FINDER,
+            owner=ServiceName.FINDER,
             state_type=ServiceStateType.CURSOR,
             state_key="wss://relay.example.com",
             state_value={"timestamp": 1700001000},
@@ -77,13 +77,13 @@ class TestServiceStateUpsert:
 
     async def test_within_batch_dedup(self, brotr: Brotr):
         first = ServiceState(
-            service_name=ServiceName.FINDER,
+            owner=ServiceName.FINDER,
             state_type=ServiceStateType.CURSOR,
             state_key="wss://relay.example.com",
             state_value={"version": 1},
         )
         second = ServiceState(
-            service_name=ServiceName.FINDER,
+            owner=ServiceName.FINDER,
             state_type=ServiceStateType.CURSOR,
             state_key="wss://relay.example.com",
             state_value={"version": 2},
@@ -99,7 +99,7 @@ class TestServiceStateUpsert:
 
     async def test_upsert_preserves_other_keys(self, brotr: Brotr):
         existing = ServiceState(
-            service_name=ServiceName.FINDER,
+            owner=ServiceName.FINDER,
             state_type=ServiceStateType.CURSOR,
             state_key="wss://existing.example.com",
             state_value={"keep": True},
@@ -107,7 +107,7 @@ class TestServiceStateUpsert:
         await brotr.upsert_service_state([existing])
 
         new = ServiceState(
-            service_name=ServiceName.FINDER,
+            owner=ServiceName.FINDER,
             state_type=ServiceStateType.CURSOR,
             state_key="wss://new.example.com",
             state_value={"added": True},
@@ -121,7 +121,7 @@ class TestServiceStateUpsert:
 
     async def test_mixed_insert_and_update_returns_correct_count(self, brotr: Brotr):
         existing = ServiceState(
-            service_name=ServiceName.FINDER,
+            owner=ServiceName.FINDER,
             state_type=ServiceStateType.CURSOR,
             state_key="wss://relay0.example.com",
             state_value={"v": 1},
@@ -130,13 +130,13 @@ class TestServiceStateUpsert:
 
         batch = [
             ServiceState(
-                service_name=ServiceName.FINDER,
+                owner=ServiceName.FINDER,
                 state_type=ServiceStateType.CURSOR,
                 state_key="wss://relay0.example.com",
                 state_value={"v": 2},
             ),
             ServiceState(
-                service_name=ServiceName.FINDER,
+                owner=ServiceName.FINDER,
                 state_type=ServiceStateType.CURSOR,
                 state_key="wss://relay1.example.com",
                 state_value={"v": 1},
@@ -153,7 +153,7 @@ class TestServiceStateGet:
     async def test_get_all_ordered_by_state_key(self, brotr: Brotr):
         states = [
             ServiceState(
-                service_name=ServiceName.SYNCHRONIZER,
+                owner=ServiceName.SYNCHRONIZER,
                 state_type=ServiceStateType.CURSOR,
                 state_key=f"wss://relay-{c}.example.com",
                 state_value={"idx": i},
@@ -171,7 +171,7 @@ class TestServiceStateGet:
     async def test_get_by_specific_key(self, brotr: Brotr):
         states = [
             ServiceState(
-                service_name=ServiceName.FINDER,
+                owner=ServiceName.FINDER,
                 state_type=ServiceStateType.CURSOR,
                 state_key=f"wss://relay{i}.example.com",
                 state_value={"ts": i},
@@ -195,7 +195,7 @@ class TestServiceStateGet:
 
     async def test_get_nonexistent_key(self, brotr: Brotr):
         state = ServiceState(
-            service_name=ServiceName.FINDER,
+            owner=ServiceName.FINDER,
             state_type=ServiceStateType.CURSOR,
             state_key="wss://exists.example.com",
             state_value={"data": 1},
@@ -209,7 +209,7 @@ class TestServiceStateGet:
 
     async def test_returned_fields_correct(self, brotr: Brotr):
         state = ServiceState(
-            service_name=ServiceName.MONITOR,
+            owner=ServiceName.MONITOR,
             state_type=ServiceStateType.CHECKPOINT,
             state_key="last_run",
             state_value={"ts": 1700000000, "count": 42},
@@ -222,7 +222,7 @@ class TestServiceStateGet:
         assert len(rows) == 1
         row = rows[0]
         assert isinstance(row, ServiceState)
-        assert row.service_name == ServiceName.MONITOR
+        assert row.owner == ServiceName.MONITOR
         assert row.state_type == ServiceStateType.CHECKPOINT
         assert row.state_key == "last_run"
         assert row.state_value["ts"] == 1700000000
@@ -235,7 +235,7 @@ class TestServiceStateGet:
             "stats": {"processed": 100, "failed": 3},
         }
         state = ServiceState(
-            service_name=ServiceName.SYNCHRONIZER,
+            owner=ServiceName.SYNCHRONIZER,
             state_type=ServiceStateType.CURSOR,
             state_key="window-state",
             state_value=nested,
@@ -256,7 +256,7 @@ class TestServiceStateGet:
 class TestServiceStateDelete:
     async def test_delete_single(self, brotr: Brotr):
         state = ServiceState(
-            service_name=ServiceName.FINDER,
+            owner=ServiceName.FINDER,
             state_type=ServiceStateType.CURSOR,
             state_key="wss://delete-me.example.com",
             state_value={"data": "value"},
@@ -276,7 +276,7 @@ class TestServiceStateDelete:
     async def test_delete_batch(self, brotr: Brotr):
         states = [
             ServiceState(
-                service_name=ServiceName.FINDER,
+                owner=ServiceName.FINDER,
                 state_type=ServiceStateType.CURSOR,
                 state_key=f"wss://del{i}.example.com",
                 state_value={"i": i},
@@ -317,7 +317,7 @@ class TestServiceStateDelete:
     async def test_delete_partial_match(self, brotr: Brotr):
         states = [
             ServiceState(
-                service_name=ServiceName.FINDER,
+                owner=ServiceName.FINDER,
                 state_type=ServiceStateType.CURSOR,
                 state_key=f"wss://relay{i}.example.com",
                 state_value={"i": i},
@@ -340,13 +340,13 @@ class TestServiceStateDelete:
 class TestServiceStateIsolation:
     async def test_different_services_same_key_isolated(self, brotr: Brotr):
         finder = ServiceState(
-            service_name=ServiceName.FINDER,
+            owner=ServiceName.FINDER,
             state_type=ServiceStateType.CURSOR,
             state_key="shared-key",
             state_value={"source": "finder"},
         )
         sync = ServiceState(
-            service_name=ServiceName.SYNCHRONIZER,
+            owner=ServiceName.SYNCHRONIZER,
             state_type=ServiceStateType.CURSOR,
             state_key="shared-key",
             state_value={"source": "synchronizer"},
@@ -362,13 +362,13 @@ class TestServiceStateIsolation:
 
     async def test_different_state_types_same_key_isolated(self, brotr: Brotr):
         cursor = ServiceState(
-            service_name=ServiceName.FINDER,
+            owner=ServiceName.FINDER,
             state_type=ServiceStateType.CURSOR,
             state_key="key1",
             state_value={"type": "cursor"},
         )
         checkpoint = ServiceState(
-            service_name=ServiceName.FINDER,
+            owner=ServiceName.FINDER,
             state_type=ServiceStateType.CHECKPOINT,
             state_key="key1",
             state_value={"type": "checkpoint"},
@@ -382,10 +382,10 @@ class TestServiceStateIsolation:
         assert len(cp_rows) == 1
         assert cp_rows[0].state_value["type"] == "checkpoint"
 
-    async def test_all_service_names_storable(self, brotr: Brotr):
+    async def test_all_service_owners_storable(self, brotr: Brotr):
         states = [
             ServiceState(
-                service_name=sn,
+                owner=sn,
                 state_type=ServiceStateType.CHECKPOINT,
                 state_key="health",
                 state_value={"service": sn.value},
@@ -401,7 +401,7 @@ class TestServiceStateIsolation:
     async def test_both_state_types_storable(self, brotr: Brotr):
         states = [
             ServiceState(
-                service_name=ServiceName.MONITOR,
+                owner=ServiceName.MONITOR,
                 state_type=st,
                 state_key="key",
                 state_value={"st": st.value},
@@ -413,7 +413,7 @@ class TestServiceStateIsolation:
 
     async def test_service_cannot_see_other_service_state(self, brotr: Brotr):
         state = ServiceState(
-            service_name=ServiceName.FINDER,
+            owner=ServiceName.FINDER,
             state_type=ServiceStateType.CURSOR,
             state_key="private-key",
             state_value={"secret": 42},
@@ -431,7 +431,7 @@ class TestServiceStateJsonRoundTrip:
     async def test_nested_dict(self, brotr: Brotr):
         value = {"cursor": {"timestamp": 1700000000, "event_id": "abc"}}
         state = ServiceState(
-            service_name=ServiceName.FINDER,
+            owner=ServiceName.FINDER,
             state_type=ServiceStateType.CURSOR,
             state_key="nested",
             state_value=value,
@@ -446,7 +446,7 @@ class TestServiceStateJsonRoundTrip:
 
     async def test_empty_dict(self, brotr: Brotr):
         state = ServiceState(
-            service_name=ServiceName.FINDER,
+            owner=ServiceName.FINDER,
             state_type=ServiceStateType.CURSOR,
             state_key="empty",
             state_value={},
@@ -462,7 +462,7 @@ class TestServiceStateJsonRoundTrip:
     async def test_list_values(self, brotr: Brotr):
         value = {"relays": ["wss://a.com", "wss://b.com"]}
         state = ServiceState(
-            service_name=ServiceName.FINDER,
+            owner=ServiceName.FINDER,
             state_type=ServiceStateType.CURSOR,
             state_key="lists",
             state_value=value,
@@ -482,7 +482,7 @@ class TestServiceStateJsonRoundTrip:
             "nested": {"inner_flag": False, "inner_int": 0},
         }
         state = ServiceState(
-            service_name=ServiceName.FINDER,
+            owner=ServiceName.FINDER,
             state_type=ServiceStateType.CURSOR,
             state_key="scalars",
             state_value=value,
@@ -498,3 +498,28 @@ class TestServiceStateJsonRoundTrip:
         assert val["ratio"] == 3.14
         assert val["nested"]["inner_flag"] is False
         assert val["nested"]["inner_int"] == 0
+
+    async def test_preserves_nulls_and_empty_containers(self, brotr: Brotr):
+        value = {
+            "nullable": None,
+            "empty_dict": {},
+            "empty_list": [],
+            "nested": {"inner_none": None, "inner_empty": []},
+        }
+        state = ServiceState(
+            owner=ServiceName.FINDER,
+            state_type=ServiceStateType.CURSOR,
+            state_key="preserved-json",
+            state_value=value,
+        )
+        await brotr.upsert_service_state([state])
+
+        rows = await brotr.get_service_state(
+            ServiceName.FINDER, ServiceStateType.CURSOR, key="preserved-json"
+        )
+        round_tripped = rows[0].state_value
+        assert round_tripped["nullable"] is None
+        assert dict(round_tripped["empty_dict"]) == {}
+        assert tuple(round_tripped["empty_list"]) == ()
+        assert round_tripped["nested"]["inner_none"] is None
+        assert tuple(round_tripped["nested"]["inner_empty"]) == ()

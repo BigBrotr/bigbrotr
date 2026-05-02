@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import asyncpg
 import pytest
 from nostr_sdk import Keys
+from pydantic import ValidationError
 
+from bigbrotr.core.base_service import BaseService
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.models import Relay
 from bigbrotr.models.constants import ServiceName
@@ -18,17 +24,26 @@ from bigbrotr.services.common.catalog import (
     QueryResult,
     TableSchema,
 )
-from bigbrotr.services.common.configs import TableConfig
+from bigbrotr.services.common.catalog_types import _MAX_OFFSET
+from bigbrotr.services.common.configs import ReadModelPolicy
+from bigbrotr.services.common.read_models import ReadCore, ReadModelQueryError
+from bigbrotr.services.common.state_store import ServiceStateStore
+from bigbrotr.services.common.types import DvmRequestCursor
 from bigbrotr.services.dvm.configs import DvmConfig
 from bigbrotr.services.dvm.service import Dvm
 from bigbrotr.services.dvm.utils import (
+    JobPreparationContext,
+    PreparedJobRequest,
+    RejectedJobRequest,
+    ResultEventRequest,
     build_announcement_event,
     build_error_event,
     build_payment_required_event,
     build_result_event,
     parse_job_params,
-    parse_query_filters,
+    prepare_job_request,
 )
+from bigbrotr.utils.protocol import ClientConnectResult, ClientSession, NostrClientManager
 
 
 # Valid secp256k1 test key (DO NOT USE IN PRODUCTION)
@@ -44,7 +59,7 @@ VALID_HEX_KEY = (
 
 @pytest.fixture(autouse=True)
 def _set_private_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("NOSTR_PRIVATE_KEY", VALID_HEX_KEY)
+    monkeypatch.setenv("NOSTR_PRIVATE_KEY_DVM", VALID_HEX_KEY)
 
 
 @pytest.fixture
@@ -54,9 +69,9 @@ def dvm_config() -> DvmConfig:
         relays=["wss://relay.example.com"],
         kind=5050,
         max_page_size=100,
-        tables={
-            "relay": TableConfig(enabled=True),
-            "premium_data": TableConfig(enabled=True, price=5000),
+        read_models={
+            "relays": ReadModelPolicy(enabled=True),
+            "events": ReadModelPolicy(enabled=True, price=5000),
         },
     )
 
@@ -76,13 +91,13 @@ def sample_dvm_catalog() -> Catalog:
         ),
         "service_state": TableSchema(
             name="service_state",
-            columns=(ColumnSchema(name="service_name", pg_type="text", nullable=False),),
-            primary_key=("service_name",),
+            columns=(ColumnSchema(name="owner", pg_type="text", nullable=False),),
+            primary_key=("owner",),
             is_view=False,
         ),
-        "premium_data": TableSchema(
-            name="premium_data",
-            columns=(ColumnSchema(name="id", pg_type="integer", nullable=False),),
+        "event": TableSchema(
+            name="event",
+            columns=(ColumnSchema(name="id", pg_type="text", nullable=False),),
             primary_key=("id",),
             is_view=False,
         ),
@@ -93,22 +108,33 @@ def sample_dvm_catalog() -> Catalog:
 @pytest.fixture
 def dvm_service(mock_brotr: Brotr, dvm_config: DvmConfig, sample_dvm_catalog: Catalog) -> Dvm:
     service = Dvm(brotr=mock_brotr, config=dvm_config)
-    service._catalog = sample_dvm_catalog
+    service._read_core.catalog = sample_dvm_catalog
     return service
+
+
+def _build_dvm_read_core(
+    sample_dvm_catalog: Catalog,
+    exposure_policy: dict[str, ReadModelPolicy],
+) -> ReadCore:
+    read_core = ReadCore(policy_source=lambda: exposure_policy)
+    read_core.catalog = sample_dvm_catalog
+    return read_core
 
 
 def _make_mock_event(
     event_id: str = "abc123",
     author_hex: str = "author_pubkey_hex",
     tags: list[list[str]] | None = None,
+    created_at: int = 1234,
 ) -> MagicMock:
     event = MagicMock()
-    event.id.return_value.to_hex.return_value = event_id
+    event.id.return_value.to_hex.return_value = _canonical_test_event_id(event_id)
     event.author.return_value.to_hex.return_value = author_hex
+    event.created_at.return_value.as_secs.return_value = created_at
 
     if tags is None:
         tags = [
-            ["param", "table", "relay"],
+            ["param", "read_model", "relays"],
             ["param", "limit", "10"],
         ]
 
@@ -125,13 +151,45 @@ def _make_mock_event(
     return event
 
 
+def _canonical_test_event_id(value: str) -> str:
+    try:
+        normalized = bytes.fromhex(value).hex()
+    except ValueError:
+        return hashlib.sha256(value.encode("utf-8")).hexdigest()
+    if len(normalized) <= 64:
+        return normalized.rjust(64, "0")
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
 def _make_client_with_events(events: list[MagicMock]) -> MagicMock:
     mock_client = MagicMock()
-    mock_client.send_event_builder = AsyncMock()
-    events_obj = MagicMock()
-    events_obj.to_vec.return_value = events
-    mock_client.fetch_events = AsyncMock(return_value=events_obj)
+    mock_client.send_event_builder = AsyncMock(return_value=_make_send_output())
+    mock_client.subscribe_to = AsyncMock(
+        return_value=SimpleNamespace(
+            id="sub-1",
+            success=["wss://relay.example.com"],
+            failed={},
+        )
+    )
+    mock_client.handle_notifications = AsyncMock()
     return mock_client
+
+
+async def _seed_request_events(service: Dvm, events: list[MagicMock]) -> None:
+    service._request_events = asyncio.Queue()
+    for event in events:
+        service._request_events.put_nowait(event)
+
+
+def _make_send_output(
+    success_relays: tuple[str, ...] = ("wss://relay.example.com",),
+    failed_relays: dict[str, str] | None = None,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        id="event-id",
+        success=list(success_relays),
+        failed=failed_relays or {},
+    )
 
 
 # ============================================================================
@@ -142,6 +200,8 @@ def _make_client_with_events(events: list[MagicMock]) -> MagicMock:
 class TestDvmConfig:
     def test_default_values(self) -> None:
         config = DvmConfig(relays=["wss://relay.example.com"])
+        assert config.keys.keys_env == "NOSTR_PRIVATE_KEY_DVM"
+        assert config.keys.keys is not None
         assert config.name == "BigBrotr DVM"
         assert config.about == "Read-only access to BigBrotr relay monitoring data"
         assert config.d_tag == "bigbrotr-dvm"
@@ -149,9 +209,31 @@ class TestDvmConfig:
         assert config.default_page_size == 100
         assert config.max_page_size == 1000
         assert config.announce is True
-        assert config.tables == {}
+        assert config.read_models == {}
         assert config.fetch_timeout == 30.0
         assert config.allow_insecure is False
+
+    def test_nested_keys_env_is_trimmed(self) -> None:
+        config = DvmConfig(
+            relays=["wss://relay.example.com"],
+            keys={"keys_env": " NOSTR_PRIVATE_KEY_DVM "},
+        )
+        assert config.keys.keys_env == "NOSTR_PRIVATE_KEY_DVM"
+        assert config.keys.keys.secret_key().to_hex() == VALID_HEX_KEY
+
+    def test_nested_keys_env_rejects_non_string_alias(self) -> None:
+        with pytest.raises(ValidationError, match=r"keys_env: expected string, got bytes"):
+            DvmConfig(
+                relays=["wss://relay.example.com"],
+                keys={"keys_env": b"NOSTR_PRIVATE_KEY_DVM"},
+            )
+
+    def test_nested_keys_reject_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            DvmConfig(
+                relays=["wss://relay.example.com"],
+                keys={b"keys_env": "NOSTR_PRIVATE_KEY_DVM"},
+            )
 
     def test_custom_branding(self) -> None:
         config = DvmConfig(
@@ -164,9 +246,30 @@ class TestDvmConfig:
         assert config.about == "LilBrotr relay data"
         assert config.d_tag == "lilbrotr-dvm"
 
+    def test_canonicalizes_announcement_text_fields(self) -> None:
+        config = DvmConfig(
+            relays=["wss://relay.example.com"],
+            name="  LilBrotr DVM  ",
+            about="  LilBrotr relay data  ",
+            d_tag="  lilbrotr-dvm  ",
+        )
+        assert config.name == "LilBrotr DVM"
+        assert config.about == "LilBrotr relay data"
+        assert config.d_tag == "lilbrotr-dvm"
+
     def test_custom_fetch_timeout(self) -> None:
         config = DvmConfig(relays=["wss://relay.example.com"], fetch_timeout=60.0)
         assert config.fetch_timeout == 60.0
+
+    def test_accepts_local_runtime_relay_urls(self) -> None:
+        config = DvmConfig(relays=["ws://172.31.0.10:8080"])
+
+        assert [relay.url for relay in config.relays] == ["ws://172.31.0.10:8080"]
+
+    @pytest.mark.parametrize("field_name", ["name", "about", "d_tag"])
+    def test_rejects_blank_announcement_text_fields(self, field_name: str) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name} must not be blank"):
+            DvmConfig(relays=["wss://relay.example.com"], **{field_name: "   "})
 
     def test_requires_relays(self) -> None:
         with pytest.raises(ValueError):
@@ -176,13 +279,65 @@ class TestDvmConfig:
         with pytest.raises(ValueError):
             DvmConfig(relays=["wss://relay.example.com"], kind=4000)
 
-    def test_custom_tables(self) -> None:
+    @pytest.mark.parametrize("value", ["5050", 5050.0])
+    def test_rejects_non_integer_kind_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"kind: expected integer, got"):
+            DvmConfig(relays=["wss://relay.example.com"], kind=value)
+
+    def test_custom_read_models(self) -> None:
         config = DvmConfig(
             relays=["wss://relay.example.com"],
-            tables={"relay": TableConfig(enabled=True, price=1000)},
+            read_models={"relays": ReadModelPolicy(enabled=True, price=1000)},
         )
-        assert config.tables["relay"].price == 1000
-        assert config.tables["relay"].enabled is True
+        assert config.read_models["relays"].price == 1000
+        assert config.read_models["relays"].enabled is True
+
+    def test_exposure_policy_aliases_read_models(self) -> None:
+        config = DvmConfig(
+            relays=["wss://relay.example.com"],
+            read_models={"relays": ReadModelPolicy(enabled=True, price=1000)},
+        )
+        assert config.exposure_policy == config.read_models
+
+    @pytest.mark.parametrize("value", ["true", 1])
+    def test_rejects_boolean_read_model_enabled_aliases(self, value: object) -> None:
+        with pytest.raises(ValidationError, match=r"enabled: expected boolean, got"):
+            DvmConfig(
+                relays=["wss://relay.example.com"], read_models={"relays": {"enabled": value}}
+            )
+
+    @pytest.mark.parametrize("value", ["1000", 1000.0, 0.0])
+    def test_rejects_non_integer_read_model_price_aliases(self, value: object) -> None:
+        with pytest.raises(ValidationError, match=r"price: expected integer, got"):
+            DvmConfig(
+                relays=["wss://relay.example.com"],
+                read_models={"relays": {"enabled": True, "price": value}},
+            )
+
+    def test_read_models_require_canonical_names(self) -> None:
+        with pytest.raises(
+            ValueError,
+            match=r"read_models contains non-public DVM read models: relay",
+        ):
+            DvmConfig(
+                relays=["wss://relay.example.com"],
+                read_models={"relay": ReadModelPolicy(enabled=True, price=1000)},
+            )
+
+    def test_tables_key_rejected(self) -> None:
+        with pytest.raises(ValueError, match="Use read_models instead of tables"):
+            DvmConfig(
+                relays=["wss://relay.example.com"],
+                tables={"relay": ReadModelPolicy(enabled=True)},
+            )
+
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            DvmConfig.model_validate({"page_limits": {"default_page_size": 10}})
+
+    def test_extra_fields_forbidden(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            DvmConfig(relays=["wss://relay.example.com"], extra_field="value")
 
     def test_inherits_base_service_config(self) -> None:
         config = DvmConfig(relays=["wss://relay.example.com"], interval=120.0)
@@ -196,6 +351,34 @@ class TestDvmConfig:
         config = DvmConfig(relays=["wss://relay.damus.io", "wss://nos.lol"])
         assert len(config.relays) == 2
         assert all(isinstance(r, Relay) for r in config.relays)
+
+    def test_rejects_non_string_relay_aliases(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"relays\[1\]: expected string or Relay, got bytes",
+        ):
+            DvmConfig(relays=["wss://relay.example.com", b"wss://relay.damus.io"])
+
+    def test_root_level_parse_rejects_non_string_relay_aliases(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"relays\[1\]: expected string or Relay, got bytes",
+        ):
+            DvmConfig.model_validate(
+                {"relays": ["wss://relay.example.com", b"wss://relay.damus.io"]}
+            )
+
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            DvmConfig.model_validate(
+                {b"name": "LilBrotr DVM", "relays": ["wss://relay.example.com"]}
+            )
+
+    def test_model_validate_rejects_unknown_keys_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            DvmConfig.model_validate(
+                {"keys": {"private_key_env": "NOSTR_PRIVATE_KEY_DVM"}}  # pragma: allowlist secret
+            )
 
     def test_default_page_size_exceeds_max_rejected(self) -> None:
         with pytest.raises(ValueError, match="default_page_size"):
@@ -213,6 +396,53 @@ class TestDvmConfig:
         )
         assert config.default_page_size == config.max_page_size
 
+    def test_rejects_boolean_default_page_size_alias(self) -> None:
+        with pytest.raises(ValueError, match="default_page_size: expected integer, got bool"):
+            DvmConfig(relays=["wss://relay.example.com"], default_page_size=True)
+
+    @pytest.mark.parametrize("value", ["100", 100.0])
+    def test_rejects_non_integer_default_page_size_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"default_page_size: expected integer, got"):
+            DvmConfig(relays=["wss://relay.example.com"], default_page_size=value)
+
+    def test_rejects_boolean_max_page_size_alias(self) -> None:
+        with pytest.raises(ValueError, match="max_page_size: expected integer, got bool"):
+            DvmConfig(relays=["wss://relay.example.com"], max_page_size=True)
+
+    @pytest.mark.parametrize("value", ["1000", 1000.0])
+    def test_rejects_non_integer_max_page_size_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"max_page_size: expected integer, got"):
+            DvmConfig(relays=["wss://relay.example.com"], max_page_size=value)
+
+    def test_rejects_boolean_fetch_timeout_alias(self) -> None:
+        with pytest.raises(ValueError, match="fetch_timeout: expected number, got bool"):
+            DvmConfig(relays=["wss://relay.example.com"], fetch_timeout=True)
+
+    @pytest.mark.parametrize("value", ["30", "30.0"])
+    def test_rejects_non_numeric_fetch_timeout_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"fetch_timeout: expected number, got"):
+            DvmConfig(relays=["wss://relay.example.com"], fetch_timeout=value)
+
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("announce", "true"),
+            ("announce", 1),
+            ("allow_insecure", "false"),
+            ("allow_insecure", 0),
+        ],
+    )
+    def test_rejects_boolean_flag_aliases(self, field_name: str, value: object) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected bool, got"):
+            DvmConfig(relays=["wss://relay.example.com"], **{field_name: value})
+
+    def test_internal_read_model_rejected(self) -> None:
+        with pytest.raises(ValueError, match=r"non-public DVM read models: service_state"):
+            DvmConfig(
+                relays=["wss://relay.example.com"],
+                read_models={"service_state": ReadModelPolicy(enabled=True)},
+            )
+
 
 # ============================================================================
 # Service Init
@@ -228,33 +458,286 @@ class TestDvm:
 
     def test_init(self, dvm_service: Dvm) -> None:
         assert dvm_service._client is None
+        assert isinstance(dvm_service._client_manager, NostrClientManager)
+        assert dvm_service._notification_task is None
+        assert dvm_service._request_events is None
+        assert dvm_service._request_subscription_id is None
         assert dvm_service._last_fetch_ts == 0
+        assert dvm_service._last_fetch_id == "0" * 64
         assert dvm_service._processed_ids == set()
 
 
 # ============================================================================
-# Table Access Policy
+# Read Model Access Policy
 # ============================================================================
 
 
-class TestDvmTableAccessPolicy:
+class TestDvmReadModelAccessPolicy:
     def test_enabled_in_config(self, dvm_service: Dvm) -> None:
-        assert dvm_service._is_table_enabled("relay") is True
+        assert dvm_service._read_core.resolve_resource("dvm", "relays") is not None
 
     def test_not_in_config_disabled(self, dvm_service: Dvm) -> None:
-        assert dvm_service._is_table_enabled("service_state") is False
+        assert dvm_service._read_core.resolve_resource("dvm", "service_state") is None
 
-    def test_unknown_table_disabled(self, dvm_service: Dvm) -> None:
-        assert dvm_service._is_table_enabled("nonexistent") is False
+    def test_configured_internal_read_model_still_disabled(self, mock_brotr: Brotr) -> None:
+        with pytest.raises(ValueError, match=r"non-public DVM read models: service_state"):
+            DvmConfig(
+                interval=60.0,
+                relays=["wss://relay.example.com"],
+                read_models={
+                    "relays": ReadModelPolicy(enabled=True),
+                    "service_state": ReadModelPolicy(enabled=True),
+                },
+            )
+
+    def test_unknown_read_model_disabled(self, dvm_service: Dvm) -> None:
+        assert dvm_service._read_core.resolve_resource("dvm", "nonexistent") is None
 
     def test_free_price_default(self, dvm_service: Dvm) -> None:
-        assert dvm_service._get_table_price("relay") == 0
+        assert dvm_service._config.read_models["relays"].price == 0
 
     def test_paid_price(self, dvm_service: Dvm) -> None:
-        assert dvm_service._get_table_price("premium_data") == 5000
+        assert dvm_service._config.read_models["events"].price == 5000
 
-    def test_unknown_table_price_returns_zero(self, dvm_service: Dvm) -> None:
-        assert dvm_service._get_table_price("nonexistent_table") == 0
+    def test_unknown_read_model_price_returns_zero(self, dvm_service: Dvm) -> None:
+        assert (
+            dvm_service._config.read_models.get("nonexistent-read-model", ReadModelPolicy()).price
+            == 0
+        )
+
+
+class TestPrepareJobRequest:
+    def test_accepts_canonical_read_model(
+        self,
+        dvm_config: DvmConfig,
+        sample_dvm_catalog: Catalog,
+    ) -> None:
+        prepared = prepare_job_request(
+            "relays",
+            {"limit": "5"},
+            context=JobPreparationContext(
+                read_core=_build_dvm_read_core(sample_dvm_catalog, dvm_config.exposure_policy),
+                exposure_policy=dvm_config.exposure_policy,
+                default_page_size=dvm_config.default_page_size,
+                max_page_size=dvm_config.max_page_size,
+            ),
+        )
+
+        assert isinstance(prepared, PreparedJobRequest)
+        assert prepared.resource_id == "relays"
+        assert prepared.resource.resource_id == "relays"
+        assert prepared.query.limit == 5
+        assert prepared.price == 0
+
+    def test_trims_whitespace_around_requested_read_model(
+        self,
+        dvm_config: DvmConfig,
+        sample_dvm_catalog: Catalog,
+    ) -> None:
+        prepared = prepare_job_request(
+            "  relays  ",
+            {"limit": "5"},
+            context=JobPreparationContext(
+                read_core=_build_dvm_read_core(sample_dvm_catalog, dvm_config.exposure_policy),
+                exposure_policy=dvm_config.exposure_policy,
+                default_page_size=dvm_config.default_page_size,
+                max_page_size=dvm_config.max_page_size,
+            ),
+        )
+
+        assert isinstance(prepared, PreparedJobRequest)
+        assert prepared.resource_id == "relays"
+        assert prepared.resource.resource_id == "relays"
+        assert prepared.query.limit == 5
+        assert prepared.price == 0
+
+    def test_rejects_disabled_read_model(
+        self, dvm_config: DvmConfig, sample_dvm_catalog: Catalog
+    ) -> None:
+        rejected = prepare_job_request(
+            "service_state",
+            {},
+            context=JobPreparationContext(
+                read_core=_build_dvm_read_core(sample_dvm_catalog, dvm_config.exposure_policy),
+                exposure_policy=dvm_config.exposure_policy,
+                default_page_size=dvm_config.default_page_size,
+                max_page_size=dvm_config.max_page_size,
+            ),
+        )
+
+        assert isinstance(rejected, RejectedJobRequest)
+        assert rejected.error_message == "Invalid or disabled read model: service_state"
+        assert rejected.required_price is None
+
+    def test_rejects_non_string_read_model_with_client_safe_error(
+        self,
+        dvm_config: DvmConfig,
+        sample_dvm_catalog: Catalog,
+    ) -> None:
+        rejected = prepare_job_request(
+            123,
+            {},
+            context=JobPreparationContext(
+                read_core=_build_dvm_read_core(sample_dvm_catalog, dvm_config.exposure_policy),
+                exposure_policy=dvm_config.exposure_policy,
+                default_page_size=dvm_config.default_page_size,
+                max_page_size=dvm_config.max_page_size,
+            ),
+        )
+
+        assert isinstance(rejected, RejectedJobRequest)
+        assert rejected.error_message == "Invalid query parameter"
+        assert rejected.required_price is None
+
+    def test_requires_payment_when_bid_too_low(
+        self, dvm_config: DvmConfig, sample_dvm_catalog: Catalog
+    ) -> None:
+        rejected = prepare_job_request(
+            "events",
+            {"bid": 1000},
+            context=JobPreparationContext(
+                read_core=_build_dvm_read_core(sample_dvm_catalog, dvm_config.exposure_policy),
+                exposure_policy=dvm_config.exposure_policy,
+                default_page_size=dvm_config.default_page_size,
+                max_page_size=dvm_config.max_page_size,
+            ),
+        )
+
+        assert isinstance(rejected, RejectedJobRequest)
+        assert rejected.required_price == 5000
+        assert rejected.bid == 1000
+        assert rejected.error_message is None
+
+    def test_boolean_bid_is_ignored_instead_of_becoming_one_millisat(
+        self,
+        dvm_config: DvmConfig,
+        sample_dvm_catalog: Catalog,
+    ) -> None:
+        rejected = prepare_job_request(
+            "events",
+            {"bid": True},
+            context=JobPreparationContext(
+                read_core=_build_dvm_read_core(sample_dvm_catalog, dvm_config.exposure_policy),
+                exposure_policy=dvm_config.exposure_policy,
+                default_page_size=dvm_config.default_page_size,
+                max_page_size=dvm_config.max_page_size,
+            ),
+        )
+
+        assert isinstance(rejected, RejectedJobRequest)
+        assert rejected.required_price == 5000
+        assert rejected.bid == 0
+        assert rejected.error_message is None
+
+    def test_string_bid_is_normalized_like_live_transport(
+        self,
+        dvm_config: DvmConfig,
+        sample_dvm_catalog: Catalog,
+    ) -> None:
+        prepared = prepare_job_request(
+            "events",
+            {"bid": " 5000 "},
+            context=JobPreparationContext(
+                read_core=_build_dvm_read_core(sample_dvm_catalog, dvm_config.exposure_policy),
+                exposure_policy=dvm_config.exposure_policy,
+                default_page_size=dvm_config.default_page_size,
+                max_page_size=dvm_config.max_page_size,
+            ),
+        )
+
+        assert isinstance(prepared, PreparedJobRequest)
+        assert prepared.resource_id == "events"
+        assert prepared.price == 5000
+
+    def test_returns_client_error_for_invalid_query(
+        self, dvm_config: DvmConfig, sample_dvm_catalog: Catalog
+    ) -> None:
+        rejected = prepare_job_request(
+            "relays",
+            {"limit": "not-a-number"},
+            context=JobPreparationContext(
+                read_core=_build_dvm_read_core(sample_dvm_catalog, dvm_config.exposure_policy),
+                exposure_policy=dvm_config.exposure_policy,
+                default_page_size=dvm_config.default_page_size,
+                max_page_size=dvm_config.max_page_size,
+            ),
+        )
+
+        assert isinstance(rejected, RejectedJobRequest)
+        assert rejected.error_message == "Invalid limit or offset value"
+        assert rejected.required_price is None
+
+    def test_rejects_offset_above_public_max(
+        self, dvm_config: DvmConfig, sample_dvm_catalog: Catalog
+    ) -> None:
+        rejected = prepare_job_request(
+            "relays",
+            {"offset": str(_MAX_OFFSET + 1)},
+            context=JobPreparationContext(
+                read_core=_build_dvm_read_core(sample_dvm_catalog, dvm_config.exposure_policy),
+                exposure_policy=dvm_config.exposure_policy,
+                default_page_size=dvm_config.default_page_size,
+                max_page_size=dvm_config.max_page_size,
+            ),
+        )
+
+        assert isinstance(rejected, RejectedJobRequest)
+        assert rejected.error_message == "Invalid limit or offset value"
+        assert rejected.required_price is None
+
+    def test_rejects_limit_above_public_max_page_size(
+        self, dvm_config: DvmConfig, sample_dvm_catalog: Catalog
+    ) -> None:
+        rejected = prepare_job_request(
+            "relays",
+            {"limit": str(dvm_config.max_page_size + 1)},
+            context=JobPreparationContext(
+                read_core=_build_dvm_read_core(sample_dvm_catalog, dvm_config.exposure_policy),
+                exposure_policy=dvm_config.exposure_policy,
+                default_page_size=dvm_config.default_page_size,
+                max_page_size=dvm_config.max_page_size,
+            ),
+        )
+
+        assert isinstance(rejected, RejectedJobRequest)
+        assert rejected.error_message == "Invalid limit or offset value"
+        assert rejected.required_price is None
+
+    def test_normalizes_whitespace_padded_preparsed_query_keys(
+        self, dvm_config: DvmConfig, sample_dvm_catalog: Catalog
+    ) -> None:
+        prepared = prepare_job_request(
+            "relays",
+            {" limit ": "5", " include_total ": True},
+            context=JobPreparationContext(
+                read_core=_build_dvm_read_core(sample_dvm_catalog, dvm_config.exposure_policy),
+                exposure_policy=dvm_config.exposure_policy,
+                default_page_size=dvm_config.default_page_size,
+                max_page_size=dvm_config.max_page_size,
+            ),
+        )
+
+        assert isinstance(prepared, PreparedJobRequest)
+        assert prepared.query.limit == 5
+        assert prepared.query.include_total is True
+
+    def test_rejects_duplicate_normalized_preparsed_param_keys(
+        self, dvm_config: DvmConfig, sample_dvm_catalog: Catalog
+    ) -> None:
+        rejected = prepare_job_request(
+            "events",
+            {" bid ": "1000", "bid": "5000"},
+            context=JobPreparationContext(
+                read_core=_build_dvm_read_core(sample_dvm_catalog, dvm_config.exposure_policy),
+                exposure_policy=dvm_config.exposure_policy,
+                default_page_size=dvm_config.default_page_size,
+                max_page_size=dvm_config.max_page_size,
+            ),
+        )
+
+        assert isinstance(rejected, RejectedJobRequest)
+        assert rejected.error_message == "Invalid query parameter"
+        assert rejected.required_price is None
 
 
 # ============================================================================
@@ -265,37 +748,90 @@ class TestDvmTableAccessPolicy:
 class TestDvmLifecycle:
     async def test_aenter_creates_client_and_connects(self, dvm_service: Dvm) -> None:
         mock_client = MagicMock()
-        mock_client.add_relay = AsyncMock()
-        mock_client.connect = AsyncMock()
-        mock_client.send_event_builder = AsyncMock()
+        mock_client.send_event_builder = AsyncMock(return_value=_make_send_output())
+        mock_manager = MagicMock()
+        mock_manager.connect_session = AsyncMock(
+            return_value=ClientSession(
+                session_id="dvm-read-relays",
+                client=mock_client,
+                relay_urls=("wss://relay.example.com",),
+                connect_result=ClientConnectResult(
+                    connected=("wss://relay.example.com",),
+                    failed={},
+                ),
+            )
+        )
+        mock_state_store = MagicMock()
+        mock_state_store.fetch_cursors = AsyncMock(
+            return_value=[DvmRequestCursor(key="job_requests", timestamp=1234, id="ab" * 32)]
+        )
+        dvm_service._client_manager = mock_manager
+        dvm_service._state_store = mock_state_store
 
         with (
-            patch(
-                "bigbrotr.services.dvm.service.create_client",
-                new_callable=AsyncMock,
-                return_value=mock_client,
-            ),
+            patch.object(dvm_service, "_start_request_subscription", new_callable=AsyncMock),
             patch.object(dvm_service, "set_gauge"),
             patch.object(type(dvm_service), "__aexit__", new_callable=AsyncMock),
         ):
             await dvm_service.__aenter__()
 
             assert dvm_service._client is mock_client
-            assert dvm_service._last_fetch_ts > 0
-            mock_client.add_relay.assert_called_once()
-            mock_client.connect.assert_called_once()
+            assert dvm_service._client_manager is mock_manager
+            assert dvm_service._last_fetch_ts == 1234
+            assert dvm_service._last_fetch_id == "ab" * 32
+            mock_manager.connect_session.assert_awaited_once_with(
+                "dvm-read-relays",
+                dvm_service._config.relays,
+                timeout=dvm_service._config.fetch_timeout,
+            )
             mock_client.send_event_builder.assert_called_once()
+
+    async def test_aenter_initializes_request_cursor_when_missing(self, dvm_service: Dvm) -> None:
+        mock_client = MagicMock()
+        mock_client.send_event_builder = AsyncMock(return_value=_make_send_output())
+        mock_manager = MagicMock()
+        mock_manager.connect_session = AsyncMock(
+            return_value=ClientSession(
+                session_id="dvm-read-relays",
+                client=mock_client,
+                relay_urls=("wss://relay.example.com",),
+                connect_result=ClientConnectResult(
+                    connected=("wss://relay.example.com",),
+                    failed={},
+                ),
+            )
+        )
+        mock_state_store = MagicMock()
+        mock_state_store.fetch_cursors = AsyncMock(
+            return_value=[DvmRequestCursor(key="job_requests")]
+        )
+        mock_state_store.upsert_cursors = AsyncMock(return_value=1)
+        dvm_service._client_manager = mock_manager
+        dvm_service._state_store = mock_state_store
+
+        with (
+            patch.object(dvm_service, "_start_request_subscription", new_callable=AsyncMock),
+            patch("bigbrotr.services.dvm.service.time") as mock_time,
+            patch.object(dvm_service, "set_gauge"),
+            patch.object(type(dvm_service), "__aexit__", new_callable=AsyncMock),
+        ):
+            mock_time.time.return_value = 4321
+            await dvm_service.__aenter__()
+
+        assert dvm_service._last_fetch_ts == 4321
+        assert dvm_service._last_fetch_id == "0" * 64
+        mock_state_store.upsert_cursors.assert_awaited_once()
 
     async def test_aenter_skips_announcement_when_disabled(self, mock_brotr: Brotr) -> None:
         config = DvmConfig(
             interval=60.0,
             relays=["wss://relay.example.com"],
             announce=False,
-            tables={"relay": TableConfig(enabled=True)},
+            read_models={"relays": ReadModelPolicy(enabled=True)},
         )
         service = Dvm(brotr=mock_brotr, config=config)
-        service._catalog = Catalog()
-        service._catalog._tables = {
+        service._read_core.catalog = Catalog()
+        service._read_core.catalog._tables = {
             "relay": TableSchema(
                 name="relay",
                 columns=(ColumnSchema(name="url", pg_type="text", nullable=False),),
@@ -305,16 +841,23 @@ class TestDvmLifecycle:
         }
 
         mock_client = MagicMock()
-        mock_client.add_relay = AsyncMock()
-        mock_client.connect = AsyncMock()
-        mock_client.send_event_builder = AsyncMock()
+        mock_client.send_event_builder = AsyncMock(return_value=_make_send_output())
+        mock_manager = MagicMock()
+        mock_manager.connect_session = AsyncMock(
+            return_value=ClientSession(
+                session_id="dvm-read-relays",
+                client=mock_client,
+                relay_urls=("wss://relay.example.com",),
+                connect_result=ClientConnectResult(
+                    connected=("wss://relay.example.com",),
+                    failed={},
+                ),
+            )
+        )
+        service._client_manager = mock_manager
 
         with (
-            patch(
-                "bigbrotr.services.dvm.service.create_client",
-                new_callable=AsyncMock,
-                return_value=mock_client,
-            ),
+            patch.object(service, "_start_request_subscription", new_callable=AsyncMock),
             patch.object(service, "set_gauge"),
             patch.object(type(service), "__aexit__", new_callable=AsyncMock),
         ):
@@ -322,36 +865,132 @@ class TestDvmLifecycle:
 
             mock_client.send_event_builder.assert_not_called()
 
+    async def test_aenter_fails_fast_when_no_relays_connect(self, dvm_service: Dvm) -> None:
+        mock_client = MagicMock()
+        mock_manager = MagicMock()
+        mock_manager.connect_session = AsyncMock(
+            return_value=ClientSession(
+                session_id="dvm-read-relays",
+                client=mock_client,
+                relay_urls=("wss://relay.example.com",),
+                connect_result=ClientConnectResult(
+                    connected=(),
+                    failed={"wss://relay.example.com": "timeout"},
+                ),
+            )
+        )
+        mock_manager.disconnect = AsyncMock()
+        mock_state_store = MagicMock()
+        mock_state_store.fetch_cursors = AsyncMock(
+            return_value=[DvmRequestCursor(key="job_requests", timestamp=1234, id="ab" * 32)]
+        )
+        dvm_service._client_manager = mock_manager
+        dvm_service._state_store = mock_state_store
+
+        with (
+            patch.object(dvm_service, "_start_request_subscription", new_callable=AsyncMock),
+            patch.object(dvm_service, "set_gauge"),
+            patch.object(type(dvm_service), "__aexit__", new_callable=AsyncMock),
+            pytest.raises(TimeoutError, match="dvm could not connect to any relay"),
+        ):
+            await dvm_service.__aenter__()
+
+        mock_manager.disconnect.assert_awaited_once()
+        assert dvm_service._client is None
+
+    async def test_aenter_disconnects_if_announcement_fails_after_subscription_start(
+        self, dvm_service: Dvm
+    ) -> None:
+        mock_client = MagicMock()
+        mock_manager = MagicMock()
+        mock_manager.connect_session = AsyncMock(
+            return_value=ClientSession(
+                session_id="dvm-read-relays",
+                client=mock_client,
+                relay_urls=("wss://relay.example.com",),
+                connect_result=ClientConnectResult(
+                    connected=("wss://relay.example.com",),
+                    failed={},
+                ),
+            )
+        )
+        mock_manager.disconnect = AsyncMock()
+        mock_state_store = MagicMock()
+        mock_state_store.fetch_cursors = AsyncMock(
+            return_value=[DvmRequestCursor(key="job_requests", timestamp=1234, id="ab" * 32)]
+        )
+        dvm_service._stop_request_subscription = AsyncMock()  # type: ignore[method-assign]
+        dvm_service._client_manager = mock_manager
+        dvm_service._state_store = mock_state_store
+
+        with (
+            patch.object(dvm_service, "_start_request_subscription", new_callable=AsyncMock),
+            patch.object(dvm_service, "_publish_announcement", new_callable=AsyncMock) as announce,
+            patch.object(dvm_service, "set_gauge"),
+            patch.object(type(dvm_service), "__aexit__", new_callable=AsyncMock),
+            pytest.raises(OSError, match="announce failed"),
+        ):
+            announce.side_effect = OSError("announce failed")
+            await dvm_service.__aenter__()
+
+        dvm_service._stop_request_subscription.assert_awaited_once()  # type: ignore[attr-defined]
+        mock_manager.disconnect.assert_awaited_once()
+        assert dvm_service._client is None
+
     async def test_aexit_shuts_down_client(self, dvm_service: Dvm) -> None:
         mock_client = MagicMock()
-        mock_client.shutdown = AsyncMock()
+        dvm_service._client_manager = MagicMock(disconnect=AsyncMock())
+        dvm_service._stop_request_subscription = AsyncMock()  # type: ignore[method-assign]
         dvm_service._client = mock_client
 
-        with patch.object(type(dvm_service).__mro__[2], "__aexit__", new_callable=AsyncMock):
+        with patch.object(BaseService, "__aexit__", new_callable=AsyncMock):
             await dvm_service.__aexit__(None, None, None)
 
-        mock_client.shutdown.assert_awaited_once()
+        dvm_service._stop_request_subscription.assert_awaited_once()  # type: ignore[attr-defined]
+        dvm_service._client_manager.disconnect.assert_awaited_once()
         assert dvm_service._client is None
 
     async def test_aexit_handles_shutdown_error(self, dvm_service: Dvm) -> None:
         mock_client = MagicMock()
-        mock_client.shutdown = AsyncMock(side_effect=RuntimeError("FFI error"))
+        dvm_service._client_manager = NostrClientManager(keys=dvm_service._keys)
+        dvm_service._client_manager._sessions["dvm-read-relays"] = ClientSession(
+            session_id="dvm-read-relays",
+            client=mock_client,
+            relay_urls=("wss://relay.example.com",),
+            connect_result=ClientConnectResult(
+                connected=("wss://relay.example.com",),
+                failed={},
+            ),
+        )
         dvm_service._client = mock_client
+        dvm_service._stop_request_subscription = AsyncMock()  # type: ignore[method-assign]
 
-        with patch.object(type(dvm_service).__mro__[2], "__aexit__", new_callable=AsyncMock):
+        with (
+            patch.object(BaseService, "__aexit__", new_callable=AsyncMock),
+            patch(
+                "bigbrotr.utils.protocol.shutdown_client",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("FFI"),
+            ),
+        ):
             await dvm_service.__aexit__(None, None, None)
 
+        dvm_service._stop_request_subscription.assert_awaited_once()  # type: ignore[attr-defined]
         assert dvm_service._client is None
 
     async def test_aexit_noop_when_no_client(self, dvm_service: Dvm) -> None:
         dvm_service._client = None
 
-        with patch.object(type(dvm_service).__mro__[2], "__aexit__", new_callable=AsyncMock):
+        with patch.object(BaseService, "__aexit__", new_callable=AsyncMock):
             await dvm_service.__aexit__(None, None, None)
 
     async def test_cleanup_returns_zero(self, dvm_service: Dvm) -> None:
         result = await dvm_service.cleanup()
         assert result == 0
+
+    def test_state_store_is_initialized_once(self, dvm_service: Dvm) -> None:
+        assert isinstance(dvm_service._state_store, ServiceStateStore)
+        assert dvm_service._state_store._brotr is dvm_service._brotr
 
 
 # ============================================================================
@@ -366,6 +1005,7 @@ class TestDvmRun:
     async def test_run_no_events(self, dvm_service: Dvm) -> None:
         mock_client = _make_client_with_events([])
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [])
 
         with (
             patch.object(dvm_service, "set_gauge") as mock_gauge,
@@ -374,28 +1014,38 @@ class TestDvmRun:
             await dvm_service.run()
 
         mock_gauge.assert_any_call(
-            "tables_exposed",
-            sum(1 for n in dvm_service._catalog.tables if dvm_service._is_table_enabled(n)),
+            "readable_resources_exposed",
+            len(dvm_service._read_core.enabled_resource_ids("dvm")),
         )
 
-    async def test_run_no_events_updates_fetch_ts(self, dvm_service: Dvm) -> None:
+    async def test_run_no_events_does_not_advance_cursor(self, dvm_service: Dvm) -> None:
         mock_client = _make_client_with_events([])
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [])
+        mock_state_store = MagicMock()
+        mock_state_store.upsert_cursors = AsyncMock(return_value=1)
+        dvm_service._state_store = mock_state_store
 
         with (
             patch.object(dvm_service, "set_gauge"),
             patch.object(dvm_service, "inc_counter"),
-            patch("bigbrotr.services.dvm.service.time") as mock_time,
         ):
-            mock_time.time.return_value = 5000
             await dvm_service.run()
 
-        assert dvm_service._last_fetch_ts == 5000
+        assert dvm_service._last_fetch_ts == 0
+        assert dvm_service._last_fetch_id == "0" * 64
+        mock_state_store.upsert_cursors.assert_not_awaited()
 
     async def test_run_processes_job(self, dvm_service: Dvm) -> None:
-        event = _make_mock_event(tags=[["param", "table", "relay"], ["param", "limit", "10"]])
+        event = _make_mock_event(
+            tags=[["param", "read_model", "relays"], ["param", "limit", "10"]],
+            created_at=2000,
+        )
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
+        mock_state_store = MagicMock()
+        mock_state_store.upsert_cursors = AsyncMock(return_value=1)
 
         mock_result = QueryResult(
             rows=[{"url": "wss://x", "network": "clearnet"}],
@@ -403,9 +1053,13 @@ class TestDvmRun:
             limit=10,
             offset=0,
         )
+        dvm_service._state_store = mock_state_store
         with (
             patch.object(
-                dvm_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
+                dvm_service._read_core.catalog,
+                "query",
+                new_callable=AsyncMock,
+                return_value=mock_result,
             ),
             patch.object(dvm_service, "set_gauge"),
             patch.object(dvm_service, "inc_counter"),
@@ -413,45 +1067,55 @@ class TestDvmRun:
             await dvm_service.run()
 
         mock_client.send_event_builder.assert_called_once()
+        builder = mock_client.send_event_builder.await_args.args[0]
+        published = builder.sign_with_keys(_KEYS)
+        assert json.loads(published.content())["meta"]["read_model"] == "relays"
+        assert dvm_service._last_fetch_ts == 2000
+        assert dvm_service._last_fetch_id == _canonical_test_event_id("abc123")
+        mock_state_store.upsert_cursors.assert_awaited_once()
 
     async def test_run_dedup(self, dvm_service: Dvm) -> None:
         event = _make_mock_event(
             event_id="dedup_id",
-            tags=[["param", "table", "relay"]],
+            tags=[["param", "read_model", "relays"]],
         )
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
-        dvm_service._processed_ids.add("dedup_id")
+        await _seed_request_events(dvm_service, [event])
+        dvm_service._processed_ids.add(_canonical_test_event_id("dedup_id"))
 
         with patch.object(dvm_service, "set_gauge"), patch.object(dvm_service, "inc_counter"):
             await dvm_service.run()
 
         mock_client.send_event_builder.assert_not_called()
 
-    async def test_run_disabled_table(self, dvm_service: Dvm) -> None:
-        event = _make_mock_event(tags=[["param", "table", "service_state"]])
+    async def test_run_disabled_read_model(self, dvm_service: Dvm) -> None:
+        event = _make_mock_event(tags=[["param", "read_model", "service_state"]])
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
 
         with patch.object(dvm_service, "set_gauge"), patch.object(dvm_service, "inc_counter"):
             await dvm_service.run()
 
         mock_client.send_event_builder.assert_called_once()
 
-    async def test_run_empty_table_name(self, dvm_service: Dvm) -> None:
-        event = _make_mock_event(tags=[["param", "table", ""]])
+    async def test_run_empty_read_model_name(self, dvm_service: Dvm) -> None:
+        event = _make_mock_event(tags=[["param", "read_model", ""]])
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
 
         with patch.object(dvm_service, "set_gauge"), patch.object(dvm_service, "inc_counter"):
             await dvm_service.run()
 
         mock_client.send_event_builder.assert_called_once()
 
-    async def test_run_missing_table_param(self, dvm_service: Dvm) -> None:
+    async def test_run_missing_read_model_param(self, dvm_service: Dvm) -> None:
         event = _make_mock_event(tags=[["param", "limit", "10"]])
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
 
         with patch.object(dvm_service, "set_gauge"), patch.object(dvm_service, "inc_counter"):
             await dvm_service.run()
@@ -459,9 +1123,10 @@ class TestDvmRun:
         mock_client.send_event_builder.assert_called_once()
 
     async def test_run_payment_required(self, dvm_service: Dvm) -> None:
-        event = _make_mock_event(tags=[["param", "table", "premium_data"]])
+        event = _make_mock_event(tags=[["param", "read_model", "events"]])
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
 
         with patch.object(dvm_service, "set_gauge"), patch.object(dvm_service, "inc_counter"):
             await dvm_service.run()
@@ -469,77 +1134,180 @@ class TestDvmRun:
         mock_client.send_event_builder.assert_called_once()
 
     async def test_run_sufficient_bid(self, dvm_service: Dvm) -> None:
-        event = _make_mock_event(tags=[["param", "table", "premium_data"], ["bid", "10000"]])
+        event = _make_mock_event(tags=[["param", "read_model", "events"], ["bid", "10000"]])
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
 
         mock_result = QueryResult(rows=[], total=0, limit=100, offset=0)
         with (
             patch.object(
-                dvm_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
-            ),
+                dvm_service._read_core.catalog,
+                "query",
+                new_callable=AsyncMock,
+                return_value=mock_result,
+            ) as mock_query,
             patch.object(dvm_service, "set_gauge"),
             patch.object(dvm_service, "inc_counter"),
         ):
             await dvm_service.run()
 
         mock_client.send_event_builder.assert_called_once()
+        _, kwargs = mock_query.call_args
+        assert kwargs["include_total"] is False
 
-    async def test_run_invalid_limit(self, dvm_service: Dvm) -> None:
+    async def test_run_include_total_opt_in(self, dvm_service: Dvm) -> None:
         event = _make_mock_event(
-            tags=[["param", "table", "relay"], ["param", "limit", "not_a_number"]]
+            tags=[["param", "read_model", "relays"], ["param", "include_total", "true"]]
         )
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
+
+        mock_result = QueryResult(rows=[], total=1, limit=100, offset=0)
+        with (
+            patch.object(
+                dvm_service._read_core.catalog,
+                "query",
+                new_callable=AsyncMock,
+                return_value=mock_result,
+            ) as mock_query,
+            patch.object(dvm_service, "set_gauge"),
+            patch.object(dvm_service, "inc_counter"),
+        ):
+            await dvm_service.run()
+
+        _, kwargs = mock_query.call_args
+        assert kwargs["include_total"] is True
+
+    async def test_run_cursor_opt_in(self, dvm_service: Dvm) -> None:
+        event = _make_mock_event(
+            tags=[["param", "read_model", "relays"], ["param", "cursor", "opaque-token"]]
+        )
+        mock_client = _make_client_with_events([event])
+        dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
+
+        mock_result = QueryResult(rows=[], total=None, limit=100, offset=0)
+        with (
+            patch.object(
+                dvm_service._read_core.catalog,
+                "query",
+                new_callable=AsyncMock,
+                return_value=mock_result,
+            ) as mock_query,
+            patch.object(dvm_service, "set_gauge"),
+            patch.object(dvm_service, "inc_counter"),
+        ):
+            await dvm_service.run()
+
+        _, kwargs = mock_query.call_args
+        assert kwargs["cursor"] == "opaque-token"
+
+    async def test_run_rejects_cursor_with_offset(self, dvm_service: Dvm) -> None:
+        event = _make_mock_event(
+            tags=[
+                ["param", "read_model", "relays"],
+                ["param", "cursor", "opaque-token"],
+                ["param", "offset", "1"],
+            ]
+        )
+        mock_client = _make_client_with_events([event])
+        dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
 
         with patch.object(dvm_service, "set_gauge"), patch.object(dvm_service, "inc_counter"):
             await dvm_service.run()
 
         mock_client.send_event_builder.assert_called_once()
 
-    async def test_run_updates_fetch_ts_before_processing(self, dvm_service: Dvm) -> None:
-        event = _make_mock_event(tags=[["param", "table", "relay"]])
+    async def test_run_invalid_limit(self, dvm_service: Dvm) -> None:
+        event = _make_mock_event(
+            tags=[["param", "read_model", "relays"], ["param", "limit", "not_a_number"]]
+        )
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
+
+        with patch.object(dvm_service, "set_gauge"), patch.object(dvm_service, "inc_counter"):
+            await dvm_service.run()
+
+        mock_client.send_event_builder.assert_called_once()
+
+    async def test_run_rejects_zero_limit(self, dvm_service: Dvm) -> None:
+        event = _make_mock_event(tags=[["param", "read_model", "relays"], ["param", "limit", "0"]])
+        mock_client = _make_client_with_events([event])
+        dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
+
+        with patch.object(dvm_service, "set_gauge"), patch.object(dvm_service, "inc_counter"):
+            await dvm_service.run()
+
+        mock_client.send_event_builder.assert_called_once()
+
+    async def test_run_rejects_negative_offset(self, dvm_service: Dvm) -> None:
+        event = _make_mock_event(
+            tags=[["param", "read_model", "relays"], ["param", "offset", "-1"]]
+        )
+        mock_client = _make_client_with_events([event])
+        dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
+
+        with patch.object(dvm_service, "set_gauge"), patch.object(dvm_service, "inc_counter"):
+            await dvm_service.run()
+
+        mock_client.send_event_builder.assert_called_once()
+
+    async def test_run_updates_request_cursor_after_processing(self, dvm_service: Dvm) -> None:
+        event = _make_mock_event(tags=[["param", "read_model", "relays"]], created_at=1000)
+        mock_client = _make_client_with_events([event])
+        dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
+        mock_state_store = MagicMock()
+        mock_state_store.upsert_cursors = AsyncMock(return_value=1)
 
         mock_result = QueryResult(rows=[], total=0, limit=100, offset=0)
+        dvm_service._state_store = mock_state_store
         with (
             patch.object(
-                dvm_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
+                dvm_service._read_core.catalog,
+                "query",
+                new_callable=AsyncMock,
+                return_value=mock_result,
             ),
             patch.object(dvm_service, "set_gauge"),
             patch.object(dvm_service, "inc_counter"),
-            patch("bigbrotr.services.dvm.service.time") as mock_time,
         ):
-            mock_time.time.side_effect = [1000, 2000]
-            mock_time.monotonic.return_value = 0.0
             await dvm_service.run()
 
         assert dvm_service._last_fetch_ts == 1000
+        assert dvm_service._last_fetch_id == _canonical_test_event_id("abc123")
+        mock_state_store.upsert_cursors.assert_awaited_once()
 
     async def test_run_publish_error_failure_does_not_abort_batch(self, dvm_service: Dvm) -> None:
         mock_client = MagicMock()
         mock_client.send_event_builder = AsyncMock(
-            side_effect=[OSError("relay offline"), None, None],
+            side_effect=[OSError("relay offline"), _make_send_output(), _make_send_output()],
         )
 
         event1 = _make_mock_event(
             event_id="fail_pub",
-            tags=[["param", "table", "service_state"]],
+            tags=[["param", "read_model", "service_state"]],
         )
         event2 = _make_mock_event(
             event_id="ok_pub",
-            tags=[["param", "table", "relay"]],
+            tags=[["param", "read_model", "relays"]],
         )
-        events_obj = MagicMock()
-        events_obj.to_vec.return_value = [event1, event2]
-        mock_client.fetch_events = AsyncMock(return_value=events_obj)
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event1, event2])
 
         mock_result = QueryResult(rows=[], total=0, limit=100, offset=0)
         with (
             patch.object(
-                dvm_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
+                dvm_service._read_core.catalog,
+                "query",
+                new_callable=AsyncMock,
+                return_value=mock_result,
             ),
             patch.object(dvm_service, "set_gauge"),
             patch.object(dvm_service, "inc_counter"),
@@ -551,17 +1319,21 @@ class TestDvmRun:
     async def test_processed_ids_reset(self, dvm_service: Dvm) -> None:
         event = _make_mock_event(
             event_id="trigger",
-            tags=[["param", "table", "relay"]],
+            tags=[["param", "read_model", "relays"]],
         )
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
 
         dvm_service._processed_ids = {str(i) for i in range(10_001)}
 
         mock_result = QueryResult(rows=[], total=0, limit=100, offset=0)
         with (
             patch.object(
-                dvm_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
+                dvm_service._read_core.catalog,
+                "query",
+                new_callable=AsyncMock,
+                return_value=mock_result,
             ),
             patch.object(dvm_service, "set_gauge"),
             patch.object(dvm_service, "inc_counter"),
@@ -578,9 +1350,12 @@ class TestDvmRun:
 
 class TestDvmPtagTargeting:
     async def test_p_tag_for_other_pubkey_skips_event(self, dvm_service: Dvm) -> None:
-        event = _make_mock_event(tags=[["p", "other_pubkey_hex"], ["param", "table", "relay"]])
+        event = _make_mock_event(
+            tags=[["p", "other_pubkey_hex"], ["param", "read_model", "relays"]]
+        )
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
 
         with patch.object(dvm_service, "set_gauge"), patch.object(dvm_service, "inc_counter"):
             await dvm_service.run()
@@ -588,14 +1363,18 @@ class TestDvmPtagTargeting:
         mock_client.send_event_builder.assert_not_called()
 
     async def test_no_p_tag_processes_event(self, dvm_service: Dvm) -> None:
-        event = _make_mock_event(tags=[["param", "table", "relay"]])
+        event = _make_mock_event(tags=[["param", "read_model", "relays"]])
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
 
         mock_result = QueryResult(rows=[], total=0, limit=100, offset=0)
         with (
             patch.object(
-                dvm_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
+                dvm_service._read_core.catalog,
+                "query",
+                new_callable=AsyncMock,
+                return_value=mock_result,
             ),
             patch.object(dvm_service, "set_gauge"),
             patch.object(dvm_service, "inc_counter"),
@@ -617,19 +1396,21 @@ class TestDvmJobErrorHandling:
             CatalogError("query failed"),
             OSError("network error"),
             TimeoutError("timed out"),
+            asyncpg.PostgresError("operator does not exist"),
         ],
-        ids=["CatalogError", "OSError", "TimeoutError"],
+        ids=["CatalogError", "OSError", "TimeoutError", "PostgresError"],
     )
     async def test_caught_error_publishes_error_and_increments_failed(
         self, dvm_service: Dvm, error: Exception
     ) -> None:
-        event = _make_mock_event(tags=[["param", "table", "relay"]])
+        event = _make_mock_event(tags=[["param", "read_model", "relays"]])
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
 
         with (
             patch.object(
-                dvm_service._catalog,
+                dvm_service._read_core.catalog,
                 "query",
                 new_callable=AsyncMock,
                 side_effect=error,
@@ -642,15 +1423,47 @@ class TestDvmJobErrorHandling:
         mock_counter.assert_any_call("requests_failed", 1)
         mock_client.send_event_builder.assert_called_once()
 
+    async def test_result_publish_without_success_counts_as_failed(self, dvm_service: Dvm) -> None:
+        event = _make_mock_event(tags=[["param", "read_model", "relays"]])
+        mock_client = _make_client_with_events([event])
+        mock_client.send_event_builder = AsyncMock(
+            side_effect=[
+                _make_send_output(
+                    success_relays=(),
+                    failed_relays={"wss://relay.example.com": "rejected"},
+                ),
+                _make_send_output(),
+            ]
+        )
+        dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
+
+        mock_result = QueryResult(rows=[], total=0, limit=100, offset=0)
+        with (
+            patch.object(
+                dvm_service._read_core.catalog,
+                "query",
+                new_callable=AsyncMock,
+                return_value=mock_result,
+            ),
+            patch.object(dvm_service, "set_gauge"),
+            patch.object(dvm_service, "inc_counter") as mock_counter,
+        ):
+            await dvm_service.run()
+
+        mock_counter.assert_any_call("requests_failed", 1)
+        assert mock_client.send_event_builder.call_count == 2
+
     async def test_error_event_publish_failure_suppressed(self, dvm_service: Dvm) -> None:
-        event = _make_mock_event(tags=[["param", "table", "relay"]])
+        event = _make_mock_event(tags=[["param", "read_model", "relays"]])
         mock_client = _make_client_with_events([event])
         mock_client.send_event_builder = AsyncMock(side_effect=OSError("relay down"))
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
 
         with (
             patch.object(
-                dvm_service._catalog,
+                dvm_service._read_core.catalog,
                 "query",
                 new_callable=AsyncMock,
                 side_effect=CatalogError("query failed"),
@@ -670,9 +1483,10 @@ class TestDvmJobErrorHandling:
 
 class TestDvmMetrics:
     async def test_report_metrics_emits_requests_total(self, dvm_service: Dvm) -> None:
-        event = _make_mock_event(tags=[["param", "table", "relay"], ["param", "limit", "5"]])
+        event = _make_mock_event(tags=[["param", "read_model", "relays"], ["param", "limit", "5"]])
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
 
         mock_result = QueryResult(
             rows=[{"url": "wss://x", "network": "clearnet"}],
@@ -683,7 +1497,10 @@ class TestDvmMetrics:
 
         with (
             patch.object(
-                dvm_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
+                dvm_service._read_core.catalog,
+                "query",
+                new_callable=AsyncMock,
+                return_value=mock_result,
             ),
             patch.object(dvm_service, "set_gauge"),
             patch.object(dvm_service, "inc_counter") as mock_counter,
@@ -699,14 +1516,9 @@ class TestDvmMetrics:
 
 
 class TestDvmPublishingGuards:
-    async def test_fetch_job_requests_no_client(self, dvm_service: Dvm) -> None:
-        dvm_service._client = None
-        result = await dvm_service._fetch_job_requests()
-        assert result == []
-
     async def test_send_event_no_client(self, dvm_service: Dvm) -> None:
         dvm_service._client = None
-        await dvm_service._send_event(build_error_event("eid", "pk", "err"))
+        assert await dvm_service._send_event(build_error_event("eid", "pk", "err")) == ((), {})
 
     async def test_publish_announcement_no_client(self, dvm_service: Dvm) -> None:
         dvm_service._client = None
@@ -714,12 +1526,122 @@ class TestDvmPublishingGuards:
 
     async def test_publish_announcement_sends_event(self, dvm_service: Dvm) -> None:
         mock_client = MagicMock()
-        mock_client.send_event_builder = AsyncMock()
+        mock_client.send_event_builder = AsyncMock(return_value=_make_send_output())
         dvm_service._client = mock_client
 
         await dvm_service._publish_announcement()
 
         mock_client.send_event_builder.assert_called_once()
+
+    async def test_publish_announcement_uses_canonicalized_config_text(
+        self,
+        mock_brotr: Brotr,
+        sample_dvm_catalog: Catalog,
+    ) -> None:
+        service = Dvm(
+            brotr=mock_brotr,
+            config=DvmConfig(
+                relays=["wss://relay.example.com"],
+                name="  My DVM  ",
+                about="  Read-only relay data  ",
+                d_tag="  my-dvm  ",
+                read_models={"relays": ReadModelPolicy(enabled=True)},
+            ),
+        )
+        service._read_core.catalog = sample_dvm_catalog
+        mock_client = MagicMock()
+        mock_client.send_event_builder = AsyncMock(return_value=_make_send_output())
+        service._client = mock_client
+
+        await service._publish_announcement()
+
+        builder = mock_client.send_event_builder.await_args.args[0]
+        published = builder.sign_with_keys(_KEYS)
+        content = json.loads(published.content())
+        assert content["name"] == "My DVM"
+        assert content["about"] == "Read-only relay data"
+        assert _tags_dict(published)["d"] == [["d", "my-dvm"]]
+
+    def test_enabled_read_model_names_follow_registry(self, dvm_service: Dvm) -> None:
+        assert dvm_service._read_core.enabled_resource_ids("dvm") == ["events", "relays"]
+
+    async def test_publish_announcement_logs_warning_when_unaccepted(
+        self, dvm_service: Dvm
+    ) -> None:
+        mock_client = MagicMock()
+        mock_client.send_event_builder = AsyncMock(
+            return_value=_make_send_output(
+                success_relays=(),
+                failed_relays={"wss://relay.example.com": "rejected"},
+            )
+        )
+        dvm_service._client = mock_client
+
+        with patch.object(dvm_service._logger, "warning") as mock_warning:
+            await dvm_service._publish_announcement()
+
+        mock_warning.assert_called_once_with(
+            "announcement_publish_failed",
+            kind=31990,
+            error="no relays accepted announcement",
+            failed_relays={"wss://relay.example.com": "rejected"},
+        )
+
+    async def test_run_skips_events_at_or_before_persisted_cursor(self, dvm_service: Dvm) -> None:
+        older = _make_mock_event(event_id="aa", created_at=900)
+        same_position = _make_mock_event(event_id="bb", created_at=1000)
+        newer = _make_mock_event(event_id="cc", created_at=1000)
+        mock_client = _make_client_with_events([older, same_position, newer])
+        dvm_service._client = mock_client
+        dvm_service._last_fetch_ts = 1000
+        dvm_service._last_fetch_id = _canonical_test_event_id("bb")
+        await _seed_request_events(dvm_service, [newer, older, same_position])
+
+        mock_result = QueryResult(rows=[], total=0, limit=100, offset=0)
+        with (
+            patch.object(
+                dvm_service._read_core.catalog,
+                "query",
+                new_callable=AsyncMock,
+                return_value=mock_result,
+            ),
+            patch.object(dvm_service, "set_gauge"),
+            patch.object(dvm_service, "inc_counter"),
+        ):
+            await dvm_service.run()
+
+        mock_client.send_event_builder.assert_called_once()
+        assert dvm_service._last_fetch_id == _canonical_test_event_id("cc")
+
+    async def test_run_processes_buffered_events_in_cursor_order(self, dvm_service: Dvm) -> None:
+        older = _make_mock_event(event_id="bb", created_at=1000)
+        newer = _make_mock_event(event_id="aa", created_at=2000)
+        same_ts_lower_id = _make_mock_event(event_id="aa", created_at=1000)
+        dvm_service._client = _make_client_with_events([])
+        await _seed_request_events(dvm_service, [newer, older, same_ts_lower_id])
+
+        processed_ids: list[str] = []
+        mock_state_store = MagicMock()
+        mock_state_store.upsert_cursors = AsyncMock(return_value=1)
+        dvm_service._state_store = mock_state_store
+
+        async def process_event(event: MagicMock, _pubkey_hex: str) -> tuple[int, int, int, int]:
+            processed_ids.append(event.id().to_hex())
+            return 1, 1, 0, 0
+
+        with (
+            patch.object(dvm_service, "_process_event", side_effect=process_event),
+            patch.object(dvm_service, "set_gauge"),
+            patch.object(dvm_service, "inc_counter"),
+        ):
+            await dvm_service.run()
+
+        assert processed_ids == [
+            _canonical_test_event_id("aa"),
+            _canonical_test_event_id("bb"),
+            _canonical_test_event_id("aa"),
+        ]
+        mock_state_store.upsert_cursors.assert_awaited_once()
 
 
 # ============================================================================
@@ -754,20 +1676,20 @@ class TestParseJobParams:
     def test_basic_params(self) -> None:
         event = _make_utils_mock_event(
             tags=[
-                ["param", "table", "relay"],
+                ["param", "read_model", "relays"],
                 ["param", "limit", "50"],
                 ["param", "offset", "10"],
             ]
         )
         params = parse_job_params(event)
-        assert params["table"] == "relay"
+        assert params["read_model"] == "relays"
         assert params["limit"] == "50"
         assert params["offset"] == "10"
 
     def test_bid_tag(self) -> None:
         event = _make_utils_mock_event(
             tags=[
-                ["param", "table", "relay"],
+                ["param", "read_model", "relays"],
                 ["bid", "5000"],
             ]
         )
@@ -777,7 +1699,7 @@ class TestParseJobParams:
     def test_invalid_bid_ignored(self) -> None:
         event = _make_utils_mock_event(
             tags=[
-                ["param", "table", "relay"],
+                ["param", "read_model", "relays"],
                 ["bid", "not_a_number"],
             ]
         )
@@ -791,7 +1713,7 @@ class TestParseJobParams:
     def test_filter_and_sort(self) -> None:
         event = _make_utils_mock_event(
             tags=[
-                ["param", "table", "relay"],
+                ["param", "read_model", "relays"],
                 ["param", "filter", "network=clearnet"],
                 ["param", "sort", "url:asc"],
             ]
@@ -800,43 +1722,50 @@ class TestParseJobParams:
         assert params["filter"] == "network=clearnet"
         assert params["sort"] == "url:asc"
 
+    def test_param_keys_are_trimmed(self) -> None:
+        event = _make_utils_mock_event(
+            tags=[
+                ["param", " read_model ", "relays"],
+                ["param", " limit ", "50"],
+            ]
+        )
+        params = parse_job_params(event)
+        assert params["read_model"] == "relays"
+        assert params["limit"] == "50"
+
     def test_short_tags_ignored(self) -> None:
         event = _make_utils_mock_event(tags=[["param"], ["bid"], ["x"]])
         assert parse_job_params(event) == {}
 
     def test_param_with_only_two_elements_ignored(self) -> None:
-        event = _make_utils_mock_event(tags=[["param", "table"]])
+        event = _make_utils_mock_event(tags=[["param", "read_model"]])
         assert parse_job_params(event) == {}
 
+    def test_blank_param_keys_are_ignored(self) -> None:
+        event = _make_utils_mock_event(tags=[["param", "   ", "relays"]])
+        assert parse_job_params(event) == {}
 
-# ============================================================================
-# Parse Query Filters
-# ============================================================================
+    def test_rejects_duplicate_normalized_param_keys(self) -> None:
+        event = _make_utils_mock_event(
+            tags=[
+                ["param", " read_model ", "relays"],
+                ["param", "read_model", "events"],
+            ]
+        )
 
+        with pytest.raises(ReadModelQueryError, match="Invalid query parameter"):
+            parse_job_params(event)
 
-class TestParseQueryFilters:
-    def test_empty_string(self) -> None:
-        assert parse_query_filters("") is None
+    def test_rejects_duplicate_bid_tags(self) -> None:
+        event = _make_utils_mock_event(
+            tags=[
+                ["bid", "1000"],
+                ["bid", "5000"],
+            ]
+        )
 
-    def test_single_filter(self) -> None:
-        assert parse_query_filters("network=clearnet") == {"network": "clearnet"}
-
-    def test_multiple_filters(self) -> None:
-        result = parse_query_filters("network=clearnet,kind=>:100")
-        assert result is not None
-        assert result["network"] == "clearnet"
-        assert result["kind"] == ">:100"
-
-    def test_no_equals(self) -> None:
-        assert parse_query_filters("invalid") is None
-
-    def test_whitespace_trimmed(self) -> None:
-        result = parse_query_filters(" network = clearnet , kind = 1 ")
-        assert result == {"network": "clearnet", "kind": "1"}
-
-    def test_mixed_valid_and_invalid_parts(self) -> None:
-        result = parse_query_filters("network=clearnet,invalid,kind=1")
-        assert result == {"network": "clearnet", "kind": "1"}
+        with pytest.raises(ReadModelQueryError, match="Invalid query parameter"):
+            parse_job_params(event)
 
 
 # ============================================================================
@@ -847,25 +1776,67 @@ class TestParseQueryFilters:
 class TestBuildResultEvent:
     def test_result_kind_is_request_plus_1000(self) -> None:
         result = QueryResult(rows=[], total=0, limit=10, offset=0)
-        event = build_result_event(5050, "eid", "pk", result, 0).sign_with_keys(_KEYS)
+        event = build_result_event(
+            ResultEventRequest(5050, "eid", "pk", "relays"),
+            result,
+            0,
+        ).sign_with_keys(_KEYS)
         assert event.kind().as_u16() == 6050
 
     def test_content_contains_data_and_meta(self) -> None:
-        result = QueryResult(rows=[{"url": "wss://r.io"}], total=1, limit=10, offset=0)
-        event = build_result_event(5050, "eid", "pk", result, 0).sign_with_keys(_KEYS)
+        result = QueryResult(
+            rows=[{"url": "wss://r.io"}],
+            total=1,
+            limit=10,
+            offset=0,
+            next_cursor="opaque-token",
+        )
+        event = build_result_event(
+            ResultEventRequest(5050, "eid", "pk", "relays"),
+            result,
+            0,
+        ).sign_with_keys(_KEYS)
         content = json.loads(event.content())
         assert content["data"] == [{"url": "wss://r.io"}]
-        assert content["meta"] == {"total": 1, "limit": 10, "offset": 0}
+        assert content["meta"] == {
+            "total": 1,
+            "limit": 10,
+            "offset": 0,
+            "next_cursor": "opaque-token",
+            "read_model": "relays",
+        }
+
+    def test_content_omits_total_when_not_requested(self) -> None:
+        result = QueryResult(rows=[{"url": "wss://r.io"}], total=None, limit=10, offset=0)
+        event = build_result_event(
+            ResultEventRequest(5050, "eid", "pk", "relays"),
+            result,
+            0,
+        ).sign_with_keys(_KEYS)
+        content = json.loads(event.content())
+        assert content["meta"] == {
+            "limit": 10,
+            "offset": 0,
+            "read_model": "relays",
+        }
 
     def test_amount_tag_included_when_price_positive(self) -> None:
         result = QueryResult(rows=[], total=0, limit=10, offset=0)
-        event = build_result_event(5050, "eid", "pk", result, 500).sign_with_keys(_KEYS)
+        event = build_result_event(
+            ResultEventRequest(5050, "eid", "pk", "relays"),
+            result,
+            500,
+        ).sign_with_keys(_KEYS)
         tags = _tags_dict(event)
         assert tags["amount"] == [["amount", "500"]]
 
     def test_no_amount_tag_when_price_zero(self) -> None:
         result = QueryResult(rows=[], total=0, limit=10, offset=0)
-        event = build_result_event(5050, "eid", "pk", result, 0).sign_with_keys(_KEYS)
+        event = build_result_event(
+            ResultEventRequest(5050, "eid", "pk", "relays"),
+            result,
+            0,
+        ).sign_with_keys(_KEYS)
         tags = _tags_dict(event)
         assert "amount" not in tags
 
@@ -915,19 +1886,19 @@ class TestBuildPaymentRequiredEvent:
 
 class TestBuildAnnouncementEvent:
     def test_kind_31990(self) -> None:
-        event = build_announcement_event("dtag", 5050, "DVM", "about", ["relay"]).sign_with_keys(
+        event = build_announcement_event("dtag", 5050, "DVM", "about", ["relays"]).sign_with_keys(
             _KEYS
         )
         assert event.kind().as_u16() == 31990
 
-    def test_content_contains_name_about_tables(self) -> None:
+    def test_content_contains_name_about_read_models(self) -> None:
         event = build_announcement_event("dtag", 5050, "MyDVM", "desc", ["a", "b"]).sign_with_keys(
             _KEYS
         )
         content = json.loads(event.content())
         assert content["name"] == "MyDVM"
         assert content["about"] == "desc"
-        assert content["tables"] == ["a", "b"]
+        assert content["read_models"] == ["a", "b"]
 
     def test_d_and_k_tags(self) -> None:
         event = build_announcement_event("my-d", 5050, "n", "a", []).sign_with_keys(_KEYS)

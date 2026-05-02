@@ -1,12 +1,21 @@
 # Creating a Custom Deployment
 
-Create a new deployment from the `bigbrotr` base with custom configuration, schema, and Docker settings.
+Create a new deployment from one of the built-in reference deployments with
+custom configuration, schema, and Docker settings.
 
 ---
 
 ## Overview
 
-BigBrotr ships with two deployments: `bigbrotr` (full event archive) and `lilbrotr` (lightweight, tags/content/sig present but NULL). To create your own, copy `bigbrotr` and customize. Each deployment is a self-contained directory with configuration, SQL schema, Docker Compose, and monitoring files.
+BigBrotr ships with two reference deployments:
+
+- `bigbrotr` for the full archive profile
+- `lilbrotr` for the lightweight archive profile
+
+To create your own, copy the reference deployment that is closest to the shape
+you want and customize it. Each deployment is a self-contained directory with
+configuration, generated PostgreSQL init files, Docker Compose, and local
+operator assets.
 
 ## Step 1: Copy the Template
 
@@ -14,6 +23,13 @@ BigBrotr ships with two deployments: `bigbrotr` (full event archive) and `lilbro
 cp -r deployments/bigbrotr deployments/myproject
 cd deployments/myproject
 ```
+
+If you want the lightweight storage profile instead, start from
+`deployments/lilbrotr`.
+
+The copied reference deployment is governed by the canonical deployment docs in
+this site. Keep those docs honest if your custom deployment changes a maintained
+contract rather than creating deployment-local documentation fragments.
 
 ## Step 2: Configure Docker Compose
 
@@ -42,7 +58,7 @@ Edit `config/brotr.yaml` with shared connection settings:
 pool:
   database:
     host: pgbouncer       # Use 'localhost' for manual deployment
-    database: myproject    # Your database name
+    database: myproject   # Your database name
 ```
 
 Per-service pool settings (user, password, pool sizing) are configured in each service's YAML file. See Step 4.
@@ -69,24 +85,68 @@ Service files to customize:
 - `validator.yaml` -- validation interval, network settings
 - `monitor.yaml` -- health check settings, publishing relays
 - `synchronizer.yaml` -- sync interval, concurrency, event filters
-- `refresher.yaml` -- materialized view refresh interval and view list
-- `api.yaml` -- REST API host, port, table access policies
-- `dvm.yaml` -- Nostr relays, table policies, NIP-90 kind
+- `refresher.yaml` -- current-state, analytics, periodic refresh targets, and cycle budgets
+- `api.yaml` -- REST API host, port, and protocol exposure policy for public readable resources
+- `dvm.yaml` -- Nostr relays, protocol exposure policy with pricing, and NIP-90 kind
 
 !!! tip
     See the [Configuration](../user-guide/configuration.md) reference for all available fields and their defaults.
 
-## Step 5: Choose a Schema
+!!! note
+    The built-in CLI `--profile` flag only knows the shipped `bigbrotr` and
+    `lilbrotr` deployments. For a custom deployment like `myproject`, run
+    services with explicit config paths:
 
-Edit `postgres/init/02_tables.sql` to select which schema to use:
+    ```bash
+    python -m bigbrotr finder \
+      --brotr-config deployments/myproject/config/brotr.yaml \
+      --config deployments/myproject/config/services/finder.yaml
+    ```
 
-=== "BigBrotr (full archive)"
+## Step 5: Choose and Maintain the SQL Package
 
-    Keep the full event table with all columns (`tags`, `content`, `sig`). This stores complete Nostr events and enables the 11 materialized views.
+The files in `postgres/init/` are generated deployment artifacts. Do **not**
+hand-edit `02_tables_core.sql` or the other generated `.sql` files and expect
+those changes to survive regeneration.
 
-=== "LilBrotr (lightweight)"
+For most custom deployments, the right move is simply:
 
-    Use the lightweight event table with all 8 columns where `tags`, `content`, and `sig` are nullable and always NULL. This provides approximately 60% disk savings since NULL values do not occupy storage. All 11 materialized views are still available.
+- start from `deployments/bigbrotr` if you want the full archive profile;
+- start from `deployments/lilbrotr` if you want the lightweight archive profile;
+- keep the copied `postgres/init/` package as your deployment's SQL package.
+
+If you need to customize the schema itself, you are no longer just maintaining
+an operator-local deployment copy. At that point, either keep a manually
+maintained `postgres/init/` package in your custom deployment, or extend the
+repository's built-in SQL generation contract:
+
+1. add or update shared templates under `tools/templates/sql/base/`, plus a
+   storage-profile override namespace such as
+   `tools/templates/sql/<sql_template_namespace>/` when a profile needs one;
+2. register the built-in deployment/storage-profile contract in
+   `src/bigbrotr/core/deployments.py`;
+3. add deployment-local skip/rename entries to `OUTPUT_OVERRIDES` in
+   `tools/generate_sql.py` only if the generated file map must diverge;
+4. regenerate the built-in SQL packages with:
+
+```bash
+python tools/generate_sql.py
+```
+
+The generator only renders built-in deployment packages such as:
+
+- `deployments/bigbrotr/postgres/init/*.sql`
+- `deployments/lilbrotr/postgres/init/*.sql`
+
+This keeps the checked-in SQL package aligned with the actual template source
+of truth.
+
+!!! note
+    A copied custom deployment like `deployments/myproject/` is not a first-class
+    SQL generation target. If you need generated SQL for a new built-in
+    deployment, add the canonical deployment/storage-profile metadata in
+    `bigbrotr.core.deployments` and then let `tools/generate_sql.py` pick it up
+    through `GENERATED_DEPLOYMENTS`.
 
 ## Step 6: Set Up the Seed File
 
@@ -102,7 +162,10 @@ wss://nos.lol
 
 ```bash
 cp .env.example .env
-# Edit .env: set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_REFRESHER_PASSWORD, DB_READER_PASSWORD, NOSTR_PRIVATE_KEY, GRAFANA_PASSWORD
+# Edit .env: set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_REFRESHER_PASSWORD,
+# DB_READER_PASSWORD, GRAFANA_PASSWORD, and optionally the per-service
+# Nostr keys NOSTR_PRIVATE_KEY_MONITOR, NOSTR_PRIVATE_KEY_SYNCHRONIZER,
+# NOSTR_PRIVATE_KEY_DVM, NOSTR_PRIVATE_KEY_ASSERTOR
 chmod 600 .env
 ```
 
@@ -139,6 +202,21 @@ docker compose ps
 
 !!! note
     If you need to reset and start fresh, run `docker compose down -v` to remove all containers and volumes, then `docker compose up -d` again.
+
+## Step 10: Document Operator Differences
+
+Document the custom deployment's operator differences in the canonical docs or
+in your own external runbook. At minimum, explain:
+
+- what this deployment is for;
+- which reference deployment it started from;
+- whether it uses the full or lightweight storage profile;
+- any custom SQL-template overrides, protocol-exposure limits, or operational
+  differences.
+
+If the custom deployment becomes part of the maintained repository, update
+[Deployments](../user-guide/deployments.md), [Configuration](../user-guide/configuration.md),
+and the relevant operator how-to pages in the same change.
 
 ---
 

@@ -2,7 +2,9 @@
 
 Standalone functions for constructing Nostr events from typed NIP data
 models. Used by the Monitor service for publishing profile (Kind 0),
-monitor announcement (Kind 10166), and relay discovery (Kind 30166) events.
+monitor announcement (Kind 10166), and relay discovery (Kind 30166) events,
+and for NIP-85 trusted provider lists (Kind 10040) plus trusted assertions
+(Kind 30382-30385).
 
 See Also:
     [bigbrotr.nips.nip66.data][bigbrotr.nips.nip66.data]: Typed data models
@@ -15,18 +17,24 @@ See Also:
 
 from __future__ import annotations
 
+import importlib
 import json
-from typing import TYPE_CHECKING, NamedTuple
+from collections.abc import Iterable as IterableABC
+from collections.abc import Mapping as MappingABC
+from typing import TYPE_CHECKING, NamedTuple, cast
 
 from nostr_sdk import EventBuilder, Kind, Tag
 from nostr_sdk import Metadata as NostrMetadata
 
+from bigbrotr.models._validation import normalize_json_data
 from bigbrotr.models.constants import EventKind, NetworkType
-from bigbrotr.models.metadata import Metadata, MetadataType
+from bigbrotr.models.document import Document, DocumentType
+from bigbrotr.models.relay import Relay
 
 
 if TYPE_CHECKING:
-    from bigbrotr.models.relay import Relay
+    from collections.abc import Mapping, Sequence
+
     from bigbrotr.nips.nip11.data import Nip11InfoData
     from bigbrotr.nips.nip11.nip11 import Nip11, Nip11Selection
     from bigbrotr.nips.nip66.data import (
@@ -39,6 +47,13 @@ if TYPE_CHECKING:
     )
     from bigbrotr.nips.nip66.logs import Nip66RttMultiPhaseLogs
     from bigbrotr.nips.nip66.nip66 import Nip66, Nip66Selection
+    from bigbrotr.nips.nip85.data import (
+        AddressableAssertion,
+        EventAssertion,
+        IdentifierAssertion,
+        TrustedProviderDeclaration,
+        UserAssertion,
+    )
 
 
 _ISO_639_1_LENGTH = 2
@@ -57,6 +72,312 @@ class AccessFlags(NamedTuple):
     read_auth: bool
 
 
+def _normalize_optional_profile_text(value: object, field_name: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string")
+    normalized = value.strip()
+    return normalized or None
+
+
+def _normalize_extra_profile_fields(extra_fields: object) -> dict[str, object]:
+    if extra_fields is None:
+        return {}
+    if not isinstance(extra_fields, MappingABC):
+        raise ValueError("extra_fields must be a mapping")
+
+    normalized: dict[str, object] = {}
+    for key, value in extra_fields.items():
+        if not isinstance(key, str):
+            raise ValueError("extra_fields keys must be strings")
+        canonical_key = key.strip()
+        if not canonical_key or value is None:
+            continue
+        if canonical_key in normalized:
+            raise ValueError("extra_fields contains duplicate normalized keys")
+        try:
+            normalized[canonical_key] = normalize_json_data(
+                value,
+                f"extra_fields[{canonical_key!r}]",
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError(str(exc)) from exc
+    return normalized
+
+
+def _normalize_positive_int(value: object, field_name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field_name} must be a positive integer")
+    if value <= 0:
+        raise ValueError(f"{field_name} must be a positive integer")
+    return value
+
+
+def _normalize_geohash(geohash: object) -> str | None:
+    if geohash is None:
+        return None
+    if not isinstance(geohash, str):
+        raise ValueError("geohash must be a non-empty string")
+    normalized = geohash.strip()
+    if not normalized:
+        raise ValueError("geohash must be a non-empty string")
+    return normalized
+
+
+def _normalize_trusted_provider_list_content(content: object) -> str:
+    if not isinstance(content, str):
+        raise ValueError("content must be a string")
+    return content
+
+
+def _normalize_relay_list_relays(relays: object) -> tuple[Relay, ...]:
+    if isinstance(relays, MappingABC | str | bytes):
+        raise ValueError("relays must be an iterable of Relay")
+    if not isinstance(relays, IterableABC):
+        raise ValueError("relays must be an iterable of Relay")
+    items = tuple(relays)
+    for relay in items:
+        if not isinstance(relay, Relay):
+            raise ValueError("relays must contain only Relay items")
+    return items
+
+
+def _normalize_discovery_relay(relay: object) -> Relay:
+    if not isinstance(relay, Relay):
+        raise ValueError("relay must be a Relay")
+    return relay
+
+
+def _normalize_identifier_assertion(assertion: object) -> IdentifierAssertion:
+    identifier_assertion_type = importlib.import_module(
+        "bigbrotr.nips.nip85.data"
+    ).IdentifierAssertion
+    if not isinstance(assertion, identifier_assertion_type):
+        raise ValueError("assertion must be an IdentifierAssertion")
+    return cast("IdentifierAssertion", assertion)
+
+
+def _normalize_event_assertion(assertion: object) -> EventAssertion:
+    event_assertion_type = importlib.import_module("bigbrotr.nips.nip85.data").EventAssertion
+    if not isinstance(assertion, event_assertion_type):
+        raise ValueError("assertion must be an EventAssertion")
+    return cast("EventAssertion", assertion)
+
+
+def _normalize_addressable_assertion(assertion: object) -> AddressableAssertion:
+    addressable_assertion_type = importlib.import_module(
+        "bigbrotr.nips.nip85.data"
+    ).AddressableAssertion
+    if not isinstance(assertion, addressable_assertion_type):
+        raise ValueError("assertion must be an AddressableAssertion")
+    return cast("AddressableAssertion", assertion)
+
+
+def _normalize_user_assertion(assertion: object) -> UserAssertion:
+    user_assertion_type = importlib.import_module("bigbrotr.nips.nip85.data").UserAssertion
+    if not isinstance(assertion, user_assertion_type):
+        raise ValueError("assertion must be a UserAssertion")
+    return cast("UserAssertion", assertion)
+
+
+def _normalize_optional_nip11(nip11: object, relay: Relay) -> Nip11 | None:
+    if nip11 is None:
+        return None
+    nip11_type = importlib.import_module("bigbrotr.nips.nip11.nip11").Nip11
+    if not isinstance(nip11, nip11_type):
+        raise ValueError("nip11 must be a Nip11 or None")
+    if nip11.relay != relay:
+        raise ValueError("nip11 relay must match relay")
+    return cast("Nip11", nip11)
+
+
+def _normalize_optional_nip66(nip66: object, relay: Relay) -> Nip66 | None:
+    if nip66 is None:
+        return None
+    nip66_type = importlib.import_module("bigbrotr.nips.nip66.nip66").Nip66
+    if not isinstance(nip66, nip66_type):
+        raise ValueError("nip66 must be a Nip66 or None")
+    if nip66.relay != relay:
+        raise ValueError("nip66 relay must match relay")
+    return cast("Nip66", nip66)
+
+
+def _normalize_nip11_selection(selection: object) -> Nip11Selection:
+    nip11_selection_type = importlib.import_module("bigbrotr.nips.nip11.nip11").Nip11Selection
+    if not isinstance(selection, nip11_selection_type):
+        raise ValueError("nip11_selection must be a Nip11Selection")
+    return cast("Nip11Selection", selection)
+
+
+def _normalize_nip66_selection(selection: object) -> Nip66Selection:
+    nip66_selection_type = importlib.import_module("bigbrotr.nips.nip66.nip66").Nip66Selection
+    if not isinstance(selection, nip66_selection_type):
+        raise ValueError("nip66_selection must be a Nip66Selection")
+    return cast("Nip66Selection", selection)
+
+
+def _normalize_optional_nip11_data(nip11_data: object) -> Nip11InfoData | None:
+    if nip11_data is None:
+        return None
+    nip11_data_type = importlib.import_module("bigbrotr.nips.nip11.data").Nip11InfoData
+    if not isinstance(nip11_data, nip11_data_type):
+        raise ValueError("nip11_data must be a Nip11InfoData or None")
+    return cast("Nip11InfoData", nip11_data)
+
+
+def _normalize_required_nip11_data(nip11_data: object) -> Nip11InfoData:
+    nip11_data_type = importlib.import_module("bigbrotr.nips.nip11.data").Nip11InfoData
+    if not isinstance(nip11_data, nip11_data_type):
+        raise ValueError("nip11_data must be a Nip11InfoData")
+    return cast("Nip11InfoData", nip11_data)
+
+
+def _normalize_optional_rtt_logs(rtt_logs: object) -> Nip66RttMultiPhaseLogs | None:
+    if rtt_logs is None:
+        return None
+    rtt_logs_type = importlib.import_module("bigbrotr.nips.nip66.logs").Nip66RttMultiPhaseLogs
+    if not isinstance(rtt_logs, rtt_logs_type):
+        raise ValueError("rtt_logs must be a Nip66RttMultiPhaseLogs or None")
+    return cast("Nip66RttMultiPhaseLogs", rtt_logs)
+
+
+def _normalize_optional_nip66_rtt_data(rtt_data: object) -> Nip66RttData | None:
+    if rtt_data is None:
+        return None
+    rtt_data_type = importlib.import_module("bigbrotr.nips.nip66.data").Nip66RttData
+    if not isinstance(rtt_data, rtt_data_type):
+        raise ValueError("rtt_data must be a Nip66RttData or None")
+    return cast("Nip66RttData", rtt_data)
+
+
+def _normalize_optional_nip66_ssl_data(ssl_data: object) -> Nip66SslData | None:
+    if ssl_data is None:
+        return None
+    ssl_data_type = importlib.import_module("bigbrotr.nips.nip66.data").Nip66SslData
+    if not isinstance(ssl_data, ssl_data_type):
+        raise ValueError("ssl_data must be a Nip66SslData or None")
+    return cast("Nip66SslData", ssl_data)
+
+
+def _normalize_optional_nip66_net_data(net_data: object) -> Nip66NetData | None:
+    if net_data is None:
+        return None
+    net_data_type = importlib.import_module("bigbrotr.nips.nip66.data").Nip66NetData
+    if not isinstance(net_data, net_data_type):
+        raise ValueError("net_data must be a Nip66NetData or None")
+    return cast("Nip66NetData", net_data)
+
+
+def _normalize_optional_nip66_geo_data(geo_data: object) -> Nip66GeoData | None:
+    if geo_data is None:
+        return None
+    geo_data_type = importlib.import_module("bigbrotr.nips.nip66.data").Nip66GeoData
+    if not isinstance(geo_data, geo_data_type):
+        raise ValueError("geo_data must be a Nip66GeoData or None")
+    return cast("Nip66GeoData", geo_data)
+
+
+def _normalize_optional_nip66_dns_data(dns_data: object) -> Nip66DnsData | None:
+    if dns_data is None:
+        return None
+    dns_data_type = importlib.import_module("bigbrotr.nips.nip66.data").Nip66DnsData
+    if not isinstance(dns_data, dns_data_type):
+        raise ValueError("dns_data must be a Nip66DnsData or None")
+    return cast("Nip66DnsData", dns_data)
+
+
+def _normalize_optional_nip66_http_data(http_data: object) -> Nip66HttpData | None:
+    if http_data is None:
+        return None
+    http_data_type = importlib.import_module("bigbrotr.nips.nip66.data").Nip66HttpData
+    if not isinstance(http_data, http_data_type):
+        raise ValueError("http_data must be a Nip66HttpData or None")
+    return cast("Nip66HttpData", http_data)
+
+
+def _normalize_supported_nips_for_type_tags(supported_nips: object) -> tuple[int, ...] | None:
+    if supported_nips is None:
+        return None
+    if isinstance(supported_nips, MappingABC | str | bytes) or not isinstance(
+        supported_nips, IterableABC
+    ):
+        raise ValueError("supported_nips must be an iterable of integers or None")
+
+    items = tuple(supported_nips)
+    for nip in items:
+        if isinstance(nip, bool) or not isinstance(nip, int):
+            raise ValueError("supported_nips must contain only integers")
+    return items
+
+
+def _normalize_access_flags(access: object) -> AccessFlags:
+    if not isinstance(access, AccessFlags):
+        raise ValueError("access must be an AccessFlags")
+    return access
+
+
+def _normalize_relay_list_urls(relays: Sequence[Relay]) -> tuple[str, ...]:
+    """Return a stable deduplicated relay-url ordering for set-like relay lists."""
+    return tuple(sorted({relay.url for relay in relays}))
+
+
+def _provider_declaration_sort_key(
+    declaration: TrustedProviderDeclaration,
+) -> tuple[int, str, str, str]:
+    """Return the canonical ordering key for trusted provider declarations."""
+    return (
+        int(declaration.result_kind),
+        declaration.tag_name,
+        declaration.service_pubkey,
+        declaration.relay_hint,
+    )
+
+
+def canonicalize_trusted_provider_declarations(
+    declarations: Sequence[TrustedProviderDeclaration],
+) -> tuple[TrustedProviderDeclaration, ...]:
+    """Return a stable deduplicated ordering for trusted provider declarations."""
+    return tuple(sorted(set(declarations), key=_provider_declaration_sort_key))
+
+
+def _normalize_trusted_provider_declaration(value: object) -> TrustedProviderDeclaration:
+    declaration_type = importlib.import_module(
+        "bigbrotr.nips.nip85.data"
+    ).TrustedProviderDeclaration
+    if not isinstance(value, declaration_type):
+        raise ValueError("declarations must contain only TrustedProviderDeclaration items")
+    return cast("TrustedProviderDeclaration", value)
+
+
+def _normalize_trusted_provider_declarations(
+    declarations: object,
+) -> tuple[TrustedProviderDeclaration, ...]:
+    if isinstance(declarations, MappingABC | str | bytes):
+        raise ValueError("declarations must be an iterable of TrustedProviderDeclaration")
+    if not isinstance(declarations, IterableABC):
+        raise ValueError("declarations must be an iterable of TrustedProviderDeclaration")
+    items = tuple(
+        _normalize_trusted_provider_declaration(declaration) for declaration in declarations
+    )
+    return canonicalize_trusted_provider_declarations(items)
+
+
+def _normalize_networks(enabled_networks: object) -> tuple[NetworkType, ...]:
+    """Return a stable deduplicated ordering for network capability tags."""
+    if isinstance(enabled_networks, MappingABC | str | bytes):
+        raise ValueError("enabled_networks must be an iterable of NetworkType")
+    if not isinstance(enabled_networks, IterableABC):
+        raise ValueError("enabled_networks must be an iterable of NetworkType")
+
+    items = tuple(enabled_networks)
+    for network in items:
+        if not isinstance(network, NetworkType):
+            raise ValueError("enabled_networks must contain only NetworkType items")
+
+    return tuple(sorted(set(items), key=lambda network: network.value))
+
+
 def build_profile_event(  # noqa: PLR0913
     *,
     name: str | None = None,
@@ -66,9 +387,19 @@ def build_profile_event(  # noqa: PLR0913
     website: str | None = None,
     banner: str | None = None,
     lud16: str | None = None,
+    extra_fields: Mapping[str, object] | None = None,
 ) -> EventBuilder:
     """Build a Kind 0 profile metadata event per NIP-01."""
-    profile_data: dict[str, str] = {}
+    name = _normalize_optional_profile_text(name, "name")
+    about = _normalize_optional_profile_text(about, "about")
+    picture = _normalize_optional_profile_text(picture, "picture")
+    nip05 = _normalize_optional_profile_text(nip05, "nip05")
+    website = _normalize_optional_profile_text(website, "website")
+    banner = _normalize_optional_profile_text(banner, "banner")
+    lud16 = _normalize_optional_profile_text(lud16, "lud16")
+    normalized_extra_fields = _normalize_extra_profile_fields(extra_fields)
+
+    profile_data: dict[str, object] = {}
     if name:
         profile_data["name"] = name
     if about:
@@ -83,13 +414,42 @@ def build_profile_event(  # noqa: PLR0913
         profile_data["banner"] = banner
     if lud16:
         profile_data["lud16"] = lud16
+    if normalized_extra_fields:
+        for key, value in normalized_extra_fields.items():
+            if key not in profile_data:
+                profile_data[key] = value
     return EventBuilder.metadata(NostrMetadata.from_json(json.dumps(profile_data)))
 
 
 def build_relay_list_event(relays: list[Relay]) -> EventBuilder:
-    """Build a Kind 10002 relay list metadata event per NIP-65."""
-    tags = [Tag.parse(["r", relay.url, "write"]) for relay in relays]
+    """Build a Kind 10002 relay list metadata event per NIP-65.
+
+    Relay URLs are emitted in stable deduplicated order because the list is a
+    set-like public declaration, not an order-sensitive payload.
+    """
+    normalized_relays = _normalize_relay_list_relays(relays)
+    tags = [
+        Tag.parse(["r", relay_url, "write"])
+        for relay_url in _normalize_relay_list_urls(normalized_relays)
+    ]
     return EventBuilder(Kind(EventKind.RELAY_LIST), "").tags(tags)
+
+
+def build_trusted_provider_list(
+    declarations: Sequence[TrustedProviderDeclaration],
+    *,
+    content: str = "",
+) -> EventBuilder:
+    """Build a Kind 10040 NIP-85 trusted service provider list event.
+
+    ``content`` may carry a caller-provided NIP-44 encrypted JSON tag list for
+    private declarations. Public declarations are emitted as ``<kind:tag>``,
+    service pubkey, and relay hint tag vectors in stable deduplicated order.
+    """
+    content = _normalize_trusted_provider_list_content(content)
+    normalized_declarations = _normalize_trusted_provider_declarations(declarations)
+    tags = [Tag.parse(declaration.as_tag()) for declaration in normalized_declarations]
+    return EventBuilder(Kind(EventKind.NIP85_TRUSTED_PROVIDER_LIST), content).tags(tags)
 
 
 def build_monitor_announcement(  # noqa: PLR0913
@@ -102,10 +462,17 @@ def build_monitor_announcement(  # noqa: PLR0913
     geohash: str | None = None,
 ) -> EventBuilder:
     """Build a Kind 10166 monitor announcement event per NIP-66."""
+    interval = _normalize_positive_int(interval, "interval")
+    timeout_ms = _normalize_positive_int(timeout_ms, "timeout_ms")
+    nip11_selection = _normalize_nip11_selection(nip11_selection)
+    nip66_selection = _normalize_nip66_selection(nip66_selection)
+    normalized_networks = _normalize_networks(enabled_networks)
+    geohash = _normalize_geohash(geohash)
+
     tags = [Tag.parse(["frequency", str(interval)])]
     if geohash:
         tags.append(Tag.parse(["g", geohash]))
-    tags.extend(Tag.parse(["n", network.value]) for network in enabled_networks)
+    tags.extend(Tag.parse(["n", network.value]) for network in normalized_networks)
 
     ms = str(timeout_ms)
 
@@ -135,6 +502,7 @@ def build_monitor_announcement(  # noqa: PLR0913
 
 def add_rtt_tags(tags: list[Tag], rtt_data: Nip66RttData | None) -> None:
     """Add round-trip time tags: ``rtt-open``, ``rtt-read``, ``rtt-write``."""
+    rtt_data = _normalize_optional_nip66_rtt_data(rtt_data)
     if rtt_data is None:
         return
     if rtt_data.rtt_open is not None:
@@ -147,6 +515,7 @@ def add_rtt_tags(tags: list[Tag], rtt_data: Nip66RttData | None) -> None:
 
 def add_ssl_tags(tags: list[Tag], ssl_data: Nip66SslData | None) -> None:
     """Add SSL certificate tags: ``ssl``, ``ssl-expires``, ``ssl-issuer``."""
+    ssl_data = _normalize_optional_nip66_ssl_data(ssl_data)
     if ssl_data is None:
         return
     if ssl_data.ssl_valid is not None:
@@ -163,6 +532,7 @@ def add_net_tags(tags: list[Tag], net_data: Nip66NetData | None) -> None:
     Also emits NIP-32 ``l`` labels for ASN and ASN org, making them
     relay-filterable via ``#l`` subscription filters.
     """
+    net_data = _normalize_optional_nip66_net_data(net_data)
     if net_data is None:
         return
     if net_data.net_ip:
@@ -187,6 +557,7 @@ def add_geo_tags(tags: list[Tag], geo_data: Nip66GeoData | None) -> None:
     - city    → ``["l", "<city>", "nip66.label.city"]``  (no recognized standard)
     - timezone → ``["l", "<tz>", "IANA-tz"]``
     """
+    geo_data = _normalize_optional_nip66_geo_data(geo_data)
     if geo_data is None:
         return
     if geo_data.geo_hash:
@@ -208,6 +579,7 @@ def add_geo_tags(tags: list[Tag], geo_data: Nip66GeoData | None) -> None:
 
 def add_dns_tags(tags: list[Tag], dns_data: Nip66DnsData | None) -> None:
     """Add DNS resolution tags: ``dns-ip``, ``dns-ip6``, ``dns-cname``, ``dns-ttl``."""
+    dns_data = _normalize_optional_nip66_dns_data(dns_data)
     if dns_data is None:
         return
     if dns_data.dns_ips:
@@ -222,6 +594,7 @@ def add_dns_tags(tags: list[Tag], dns_data: Nip66DnsData | None) -> None:
 
 def add_http_tags(tags: list[Tag], http_data: Nip66HttpData | None) -> None:
     """Add HTTP server header tags: ``http-server``, ``http-powered-by``."""
+    http_data = _normalize_optional_nip66_http_data(http_data)
     if http_data is None:
         return
     if http_data.http_server:
@@ -232,6 +605,7 @@ def add_http_tags(tags: list[Tag], http_data: Nip66HttpData | None) -> None:
 
 def add_attributes_tags(tags: list[Tag], nip11_data: Nip11InfoData) -> None:
     """Add relay attribute tags (``W``) from NIP-11 ``attributes`` field."""
+    nip11_data = _normalize_required_nip11_data(nip11_data)
     attributes = nip11_data.attributes
     if not attributes:
         return
@@ -240,6 +614,7 @@ def add_attributes_tags(tags: list[Tag], nip11_data: Nip11InfoData) -> None:
 
 def add_language_tags(tags: list[Tag], nip11_data: Nip11InfoData) -> None:
     """Add ISO 639-1 language tags derived from NIP-11 ``language_tags`` field."""
+    nip11_data = _normalize_required_nip11_data(nip11_data)
     language_tags = nip11_data.language_tags
     if not language_tags or "*" in language_tags:
         return
@@ -257,6 +632,8 @@ def add_requirement_and_type_tags(
     rtt_logs: Nip66RttMultiPhaseLogs | None,
 ) -> None:
     """Add ``R`` (requirement) and ``T`` (type) tags from NIP-11 data and RTT probe logs."""
+    nip11_data = _normalize_required_nip11_data(nip11_data)
+    rtt_logs = _normalize_optional_rtt_logs(rtt_logs)
     limitation = nip11_data.limitation
     nip11_auth = limitation.auth_required or False
     nip11_payment = limitation.payment_required or False
@@ -311,7 +688,9 @@ def add_type_tags(
     access: AccessFlags,
 ) -> None:
     """Add ``T`` (type) tags classifying the relay based on NIPs and access restrictions."""
-    nips = set(supported_nips) if supported_nips else set()
+    normalized_supported_nips = _normalize_supported_nips_for_type_tags(supported_nips)
+    access = _normalize_access_flags(access)
+    nips = set(normalized_supported_nips) if normalized_supported_nips else set()
 
     if _NIP_CAP_SEARCH in nips:
         tags.append(Tag.parse(["T", "Search"]))
@@ -340,8 +719,10 @@ def add_nip11_tags(
     rtt_logs: Nip66RttMultiPhaseLogs | None = None,
 ) -> None:
     """Add NIP-11-derived tags: ``N``, ``t``, ``l``, ``R``, ``T``, ``W``."""
+    nip11_data = _normalize_optional_nip11_data(nip11_data)
     if nip11_data is None:
         return
+    rtt_logs = _normalize_optional_rtt_logs(rtt_logs)
 
     if nip11_data.supported_nips:
         tags.extend(Tag.parse(["N", str(nip)]) for nip in nip11_data.supported_nips)
@@ -369,10 +750,13 @@ def build_relay_discovery(
     Returns:
         A signed-ready ``EventBuilder`` for Kind 30166.
     """
+    relay = _normalize_discovery_relay(relay)
+    nip11 = _normalize_optional_nip11(nip11, relay)
+    nip66 = _normalize_optional_nip66(nip66, relay)
     nip11_canonical_json = ""
     nip11_data = None
     if nip11 and nip11.info:
-        meta = Metadata(type=MetadataType.NIP11_INFO, data=nip11.info.to_dict())
+        meta = Document(type=DocumentType.NIP11_INFO, data=nip11.info.to_dict())
         nip11_canonical_json = meta.canonical_json
         nip11_data = nip11.info.data
 
@@ -395,6 +779,112 @@ def build_relay_discovery(
     return EventBuilder(Kind(EventKind.RELAY_DISCOVERY), nip11_canonical_json).tags(tags)
 
 
+def build_user_assertion(assertion: UserAssertion) -> EventBuilder:
+    """Build a Kind 30382 NIP-85 user trusted assertion event.
+
+    The ``d`` tag identifies the subject pubkey. All NIP-85 result tags are
+    included. Zap amounts are converted from millisats to sats.
+
+    Args:
+        assertion: Per-pubkey social metrics.
+
+    Returns:
+        An unsigned ``EventBuilder`` ready for signing by the service key.
+    """
+    assertion = _normalize_user_assertion(assertion)
+    tags: list[Tag] = [
+        Tag.identifier(assertion.pubkey),
+        Tag.parse(["p", assertion.pubkey]),
+        Tag.parse(["rank", str(assertion.score)]),
+        Tag.parse(["followers", str(assertion.follower_count)]),
+        Tag.parse(["post_cnt", str(assertion.post_count)]),
+        Tag.parse(["reply_cnt", str(assertion.reply_count)]),
+        Tag.parse(["reactions_cnt", str(assertion.reaction_count_recd)]),
+        Tag.parse(["zap_amt_recd", str(assertion.zap_amount_recd_sats)]),
+        Tag.parse(["zap_amt_sent", str(assertion.zap_amount_sent_sats)]),
+        Tag.parse(["zap_cnt_recd", str(assertion.zap_count_recd)]),
+        Tag.parse(["zap_cnt_sent", str(assertion.zap_count_sent)]),
+        Tag.parse(["zap_avg_amt_day_recd", str(assertion.zap_avg_amt_day_recd_sats)]),
+        Tag.parse(["zap_avg_amt_day_sent", str(assertion.zap_avg_amt_day_sent_sats)]),
+        Tag.parse(["reports_cnt_recd", str(assertion.report_count_recd)]),
+        Tag.parse(["reports_cnt_sent", str(assertion.report_count_sent)]),
+        Tag.parse(["active_hours_start", str(assertion.active_hours_start)]),
+        Tag.parse(["active_hours_end", str(assertion.active_hours_end)]),
+    ]
+
+    if assertion.first_created_at is not None:
+        tags.append(Tag.parse(["first_created_at", str(assertion.first_created_at)]))
+
+    tags.extend(Tag.parse(["t", topic]) for topic in assertion.top_topics)
+
+    return EventBuilder(Kind(EventKind.NIP85_USER_ASSERTION), "").tags(tags)
+
+
+def build_event_assertion(assertion: EventAssertion) -> EventBuilder:
+    """Build a Kind 30383 NIP-85 event trusted assertion event.
+
+    The ``d`` tag identifies the subject event id. Zap amounts are converted
+    from millisats to sats.
+
+    Args:
+        assertion: Per-event engagement metrics.
+
+    Returns:
+        An unsigned ``EventBuilder`` ready for signing by the service key.
+    """
+    assertion = _normalize_event_assertion(assertion)
+    tags: list[Tag] = [
+        Tag.identifier(assertion.event_id),
+        Tag.parse(["e", assertion.event_id]),
+        Tag.parse(["rank", str(assertion.score)]),
+        Tag.parse(["comment_cnt", str(assertion.comment_count)]),
+        Tag.parse(["quote_cnt", str(assertion.quote_count)]),
+        Tag.parse(["repost_cnt", str(assertion.repost_count)]),
+        Tag.parse(["reaction_cnt", str(assertion.reaction_count)]),
+        Tag.parse(["zap_cnt", str(assertion.zap_count)]),
+        Tag.parse(["zap_amount", str(assertion.zap_amount_sats)]),
+    ]
+    if assertion.author_pubkey:
+        tags.append(Tag.parse(["p", assertion.author_pubkey]))
+
+    return EventBuilder(Kind(EventKind.NIP85_EVENT_ASSERTION), "").tags(tags)
+
+
+def build_addressable_assertion(assertion: AddressableAssertion) -> EventBuilder:
+    """Build a Kind 30384 NIP-85 addressable trusted assertion event."""
+    assertion = _normalize_addressable_assertion(assertion)
+    tags: list[Tag] = [
+        Tag.identifier(assertion.event_address),
+        Tag.parse(["a", assertion.event_address]),
+        Tag.parse(["rank", str(assertion.score)]),
+        Tag.parse(["comment_cnt", str(assertion.comment_count)]),
+        Tag.parse(["quote_cnt", str(assertion.quote_count)]),
+        Tag.parse(["repost_cnt", str(assertion.repost_count)]),
+        Tag.parse(["reaction_cnt", str(assertion.reaction_count)]),
+        Tag.parse(["zap_cnt", str(assertion.zap_count)]),
+        Tag.parse(["zap_amount", str(assertion.zap_amount_sats)]),
+    ]
+    if assertion.author_pubkey:
+        tags.append(Tag.parse(["p", assertion.author_pubkey]))
+
+    return EventBuilder(Kind(EventKind.NIP85_ADDRESSABLE_ASSERTION), "").tags(tags)
+
+
+def build_identifier_assertion(assertion: IdentifierAssertion) -> EventBuilder:
+    """Build a Kind 30385 NIP-85 identifier trusted assertion event."""
+    assertion = _normalize_identifier_assertion(assertion)
+    tags: list[Tag] = [
+        Tag.identifier(assertion.identifier),
+        Tag.parse(["i", assertion.identifier]),
+        Tag.parse(["rank", str(assertion.score)]),
+        Tag.parse(["comment_cnt", str(assertion.comment_count)]),
+        Tag.parse(["reaction_cnt", str(assertion.reaction_count)]),
+    ]
+    tags.extend(Tag.parse(["k", tag]) for tag in assertion.k_tags)
+
+    return EventBuilder(Kind(EventKind.NIP85_IDENTIFIER_ASSERTION), "").tags(tags)
+
+
 __all__ = [
     "AccessFlags",
     "add_attributes_tags",
@@ -408,8 +898,13 @@ __all__ = [
     "add_rtt_tags",
     "add_ssl_tags",
     "add_type_tags",
+    "build_addressable_assertion",
+    "build_event_assertion",
+    "build_identifier_assertion",
     "build_monitor_announcement",
     "build_profile_event",
     "build_relay_discovery",
     "build_relay_list_event",
+    "build_trusted_provider_list",
+    "build_user_assertion",
 ]

@@ -1,7 +1,16 @@
-"""Monitor service package.
+"""Relay monitoring service for NIP-11/NIP-66 collection and publication.
 
-Re-exports all public symbols so that ``from bigbrotr.services.monitor import …``
-continues to work after the single-file → package conversion.
+Exports the package-level monitoring surface:
+
+- [Monitor][bigbrotr.services.monitor.service.Monitor]: Cycle orchestration for
+  document collection, probe execution, and publication.
+- [MonitorConfig][bigbrotr.services.monitor.configs.MonitorConfig] plus the
+  nested publishing, metadata, discovery, and geo config models: policy
+  surface for monitor execution.
+- [CheckResult][bigbrotr.services.monitor.utils.CheckResult]: Typed result
+  wrapper for one monitor probe execution.
+
+This package owns relay-document collection and monitor-side publication.
 """
 
 from .configs import (

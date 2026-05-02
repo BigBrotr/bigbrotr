@@ -1,9 +1,9 @@
 """Monitor service for relay health monitoring with NIP-66 compliance.
 
 Performs comprehensive health checks on relays and stores results as
-content-addressed [Metadata][bigbrotr.models.metadata.Metadata]. Optionally
-publishes Kind 30166 relay discovery events and Kind 10166 monitor
-announcements to the Nostr network.
+content-addressed [Document][bigbrotr.models.document.Document]. Optionally
+publishes control-plane events (Kinds 0/10002/10166) and best-effort
+Kind 30166 relay discovery events to the Nostr network.
 
 Health checks include:
 
@@ -26,8 +26,10 @@ Note:
     Event building is delegated to [bigbrotr.nips.event_builders][bigbrotr.nips.event_builders]
     and broadcasting to [bigbrotr.utils.protocol][bigbrotr.utils.protocol]. The Monitor handles
     orchestration: when to publish, which data to extract from
-    [CheckResult][bigbrotr.services.monitor.CheckResult], and lifecycle
-    management of publishing intervals via service state markers.
+    [CheckResult][bigbrotr.services.monitor.CheckResult], lifecycle
+    management of publishing intervals via service state markers, and
+    the separation between probing, persistence, and best-effort
+    publication phases.
 
 See Also:
     [MonitorConfig][bigbrotr.services.monitor.MonitorConfig]: Configuration
@@ -44,8 +46,11 @@ Examples:
     from bigbrotr.core import Brotr
     from bigbrotr.services import Monitor
 
-    brotr = Brotr.from_yaml("config/brotr.yaml")
-    monitor = Monitor.from_yaml("config/services/monitor.yaml", brotr=brotr)
+    brotr = Brotr.from_yaml("deployments/bigbrotr/config/brotr.yaml")
+    monitor = Monitor.from_yaml(
+        "deployments/bigbrotr/config/services/monitor.yaml",
+        brotr=brotr,
+    )
 
     async with brotr:
         async with monitor:
@@ -55,91 +60,127 @@ Examples:
 
 from __future__ import annotations
 
-import asyncio
+import math
 import time
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from nostr_sdk import EventBuilder, Filter, Kind, Tag
-
 from bigbrotr.core.base_service import BaseService
-from bigbrotr.models.constants import EventKind, NetworkType, ServiceName
+from bigbrotr.models.constants import ServiceName
 from bigbrotr.nips.event_builders import (
     build_monitor_announcement,
     build_profile_event,
     build_relay_discovery,
     build_relay_list_event,
 )
-from bigbrotr.nips.nip11 import Nip11, Nip11Options, Nip11Selection
+from bigbrotr.nips.nip11 import Nip11
 from bigbrotr.nips.nip66 import (
-    Nip66,
     Nip66DnsMetadata,
     Nip66GeoMetadata,
     Nip66HttpMetadata,
     Nip66NetMetadata,
-    Nip66RttDependencies,
     Nip66RttMetadata,
-    Nip66Selection,
     Nip66SslMetadata,
 )
-from bigbrotr.services.common.mixins import (
-    Clients,
-    ClientsMixin,
-    ConcurrentStreamMixin,
-    GeoReaderMixin,
-    NetworkSemaphoresMixin,
-)
+from bigbrotr.services.common.mixins import ConcurrentStreamMixin, NetworkSemaphoresMixin
 from bigbrotr.utils.http import download_bounded_file
-from bigbrotr.utils.protocol import broadcast_events
+from bigbrotr.utils.protocol import NostrClientManager, broadcast_events_detailed
 
+from .checks import (
+    MonitorCheckContext,
+    MonitorCheckDependencies,
+)
+from .checks import (
+    build_check_context as build_monitor_check_context,
+)
+from .checks import (
+    build_check_dependencies as build_monitor_check_dependencies,
+)
+from .checks import (
+    build_parallel_checks as build_monitor_parallel_checks,
+)
+from .checks import (
+    check_relay as run_monitor_check_relay,
+)
 from .configs import MetadataFlags, MonitorConfig
+from .geo import update_geo_databases as update_monitor_geo_databases
+from .processing import (
+    MonitorChunkContext,
+    MonitorChunkPersistence,
+    MonitorWorkerContext,
+    log_chunk_outcome,
+    monitor_chunk,
+    monitor_worker,
+    persist_chunk_outcome,
+    start_monitor_progress,
+)
+from .publishing import (
+    DiscoveryContext,
+    PublishContext,
+)
+from .publishing import (
+    publish_announcement as publish_monitor_announcement,
+)
+from .publishing import (
+    publish_discovery as publish_monitor_discovery,
+)
+from .publishing import (
+    publish_profile as publish_monitor_profile,
+)
+from .publishing import (
+    publish_relay_list as publish_monitor_relay_list,
+)
 from .queries import (
+    count_relays_to_monitor,
     delete_stale_checkpoints,
-    fetch_relays_to_monitor,
-    insert_relay_metadata,
+    insert_relay_document,
     is_publish_due,
+    iter_relays_to_monitor_pages,
     upsert_monitor_checkpoints,
     upsert_publish_checkpoints,
 )
+from .resources import GeoReaders
+from .runtime import (
+    build_monitor_cycle_plan,
+    close_cycle_resources,
+    open_cycle_resources,
+)
 from .utils import (
     CheckResult,
-    collect_metadata,
-    extract_result,
+    MonitorChunkOutcome,
+    MonitorCyclePlan,
+    MonitorProgress,
     retry_fetch,
 )
 
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
+    from collections.abc import AsyncGenerator, AsyncIterator
+
+    from nostr_sdk import Keys
 
     from bigbrotr.core.brotr import Brotr
     from bigbrotr.models import Relay
-    from bigbrotr.nips.nip11.info import Nip11InfoMetadata
-
-_SECONDS_PER_DAY = 86_400
 
 
 class Monitor(
     ConcurrentStreamMixin,
     NetworkSemaphoresMixin,
-    GeoReaderMixin,
-    ClientsMixin,
     BaseService[MonitorConfig],
 ):
     """Relay health monitoring service with NIP-66 compliance.
 
     Performs comprehensive health checks on relays and stores results as
-    content-addressed [Metadata][bigbrotr.models.metadata.Metadata].
+    content-addressed [Document][bigbrotr.models.document.Document].
     Optionally publishes NIP-66 events:
 
     - **Kind 10166**: Monitor announcement (capabilities, frequency, timeouts).
     - **Kind 30166**: Per-relay discovery event (RTT, SSL, geo, NIP-11 tags).
 
-    Each cycle updates GeoLite2 databases, publishes profile/announcement
-    events if due, fetches relays needing checks, processes them in chunks
-    with per-network semaphores, persists metadata results, and publishes
-    Kind 30166 discovery events. Supports clearnet (direct), Tor, I2P,
-    and Lokinet (via SOCKS5 proxy).
+    Each cycle updates GeoLite2 databases, publishes control-plane events
+    if due, fetches relays needing checks, processes them in chunks with
+    per-network semaphores, persists document results, and then publishes
+    Kind 30166 discovery events as a best-effort follow-up phase.
+    Supports clearnet (direct), Tor, I2P, and Lokinet (via SOCKS5 proxy).
 
     Event building is delegated to [bigbrotr.nips.event_builders][bigbrotr.nips.event_builders]
     and broadcasting to [bigbrotr.utils.protocol][bigbrotr.utils.protocol].
@@ -158,46 +199,58 @@ class Monitor(
 
     def __init__(self, brotr: Brotr, config: MonitorConfig | None = None) -> None:
         config = config or MonitorConfig()
+        resolved_keys = config.keys.keys
         super().__init__(
             brotr=brotr,
             config=config,
             networks=config.networks,
-            clients=Clients(
-                keys=config.keys.keys,
-                networks=config.networks,
-                allow_insecure=config.processing.allow_insecure,
-            ),
         )
         self._config: MonitorConfig
-        self._keys = self._config.keys.keys
+        self._keys: Keys = resolved_keys
+        self.clients = NostrClientManager(
+            keys=resolved_keys,
+            networks=config.networks,
+            allow_insecure=config.processing.allow_insecure,
+        )
+
+        async def publish_is_due(brotr: Brotr, key: str, interval: float) -> bool:
+            return await is_publish_due(brotr, key, interval)
+
+        async def publish_broadcast(events: list[Any], clients: list[Any]) -> list[Any]:
+            return await broadcast_events_detailed(events, clients)
+
+        async def publish_save_checkpoints(brotr: Brotr, keys: list[str]) -> None:
+            await upsert_publish_checkpoints(brotr, keys)
+
+        self._publish_context = PublishContext(
+            brotr=self._brotr,
+            config=self._config,
+            clients=self.clients,
+            logger=self._logger,
+            is_due=publish_is_due,
+            broadcast=publish_broadcast,
+            save_checkpoints=publish_save_checkpoints,
+        )
+        self.geo_readers = GeoReaders()
 
     async def run(self) -> None:
         """Execute one complete monitoring cycle.
 
-        Orchestrates setup, publishing, monitoring, and cleanup.
+        Orchestrates setup, control-plane publication, probing, and cleanup.
         Delegates the core work to ``update_geo_databases``,
-        ``publish_profile``, ``publish_announcement``, and ``monitor``.
+        ``_run_publication_phase()``, and ``monitor()``.
 
         Publish relay connections are established lazily on first use
-        via ``clients.get()`` and torn down in the ``finally``
+        via ``clients.get_relay_client()`` and torn down in the ``finally``
         block.
         """
-        await self.update_geo_databases()
-
-        compute = self._config.processing.compute
-        await self.geo_readers.open(
-            city_path=self._config.geo.city_database_path if compute.nip66_geo else None,
-            asn_path=self._config.geo.asn_database_path if compute.nip66_net else None,
-        )
+        await self._open_cycle_resources()
 
         try:
-            await self.publish_profile()
-            await self.publish_relay_list()
-            await self.publish_announcement()
+            await self._run_publication_phase()
             await self.monitor()
         finally:
-            await self.clients.disconnect()
-            self.geo_readers.close()
+            await self._close_cycle_resources()
 
     async def cleanup(self) -> int:
         """Remove stale relay checkpoints and orphaned publishing state."""
@@ -217,199 +270,77 @@ class Monitor(
         network error does not prevent the monitor cycle from proceeding
         with a stale (or missing) database.
         """
-        compute = self._config.processing.compute
-        geo = self._config.geo
-        max_age_days = geo.max_age_days
+        await update_monitor_geo_databases(
+            config=self._config,
+            logger=self._logger,
+            download=download_bounded_file,
+        )
 
-        updates: list[tuple[Path, str, str]] = []
-        if compute.nip66_geo:
-            updates.append((Path(geo.city_database_path), geo.city_download_url, "city"))
-        if compute.nip66_net:
-            updates.append((Path(geo.asn_database_path), geo.asn_download_url, "asn"))
+    async def _open_cycle_resources(self) -> None:
+        """Prepare shared resources needed for one monitor cycle."""
+        await open_cycle_resources(
+            config=self._config,
+            geo_readers=self.geo_readers,
+            update_geo_databases_fn=self.update_geo_databases,
+            open_geo_readers_fn=self.geo_readers.open,
+        )
 
-        for path, url, name in updates:
-            try:
-                if await asyncio.to_thread(path.exists):
-                    if max_age_days is None:
-                        continue
-                    age = time.time() - (await asyncio.to_thread(path.stat)).st_mtime
-                    if age <= max_age_days * _SECONDS_PER_DAY:
-                        continue
-                    self._logger.info(
-                        "updating_geo_db",
-                        db=name,
-                        age_days=round(age / _SECONDS_PER_DAY, 1),
-                    )
-                else:
-                    self._logger.info("downloading_geo_db", db=name)
-                await download_bounded_file(url, path, geo.max_download_size)
-            except (OSError, ValueError) as e:
-                self._logger.warning("geo_db_update_failed", db=name, error=str(e))
+    async def _close_cycle_resources(self) -> None:
+        """Release shared resources owned by one monitor cycle."""
+        await close_cycle_resources(
+            clients_disconnect_fn=self.clients.disconnect,
+            geo_readers=self.geo_readers,
+            close_geo_readers_fn=self.geo_readers.close,
+        )
+
+    async def _run_publication_phase(self) -> None:
+        """Run the control-plane publication phase for one monitor cycle."""
+        await self.publish_profile()
+        await self.publish_relay_list()
+        await self.publish_announcement()
 
     async def publish_profile(self) -> None:
         """Publish Kind 0 profile metadata if the configured interval has elapsed."""
-        cfg = self._config.profile
-        if not cfg.enabled:
-            return
-
-        relays = cfg.relays if cfg.relays is not None else self._config.publishing.relays
-        if not relays:
-            return
-
-        if not await is_publish_due(self._brotr, "profile", cfg.interval):
-            return
-
-        clients = await self.clients.get_many(relays)
-        if not clients:
-            self._logger.warning("publish_failed", event="profile", error="no relays reachable")
-            return
-
-        sent = await broadcast_events(
-            [
-                build_profile_event(
-                    name=cfg.name,
-                    about=cfg.about,
-                    picture=cfg.picture,
-                    nip05=cfg.nip05,
-                    website=cfg.website,
-                    banner=cfg.banner,
-                    lud16=cfg.lud16,
-                ),
-            ],
-            clients,
+        await publish_monitor_profile(
+            context=self._publish_context,
+            build_profile=build_profile_event,
         )
-        if not sent:
-            self._logger.warning("publish_failed", event="profile", error="no relays reachable")
-            return
-
-        self._logger.info("publish_completed", event="profile", relays=sent)
-        await upsert_publish_checkpoints(self._brotr, ["profile"])
 
     async def publish_relay_list(self) -> None:
         """Publish Kind 10002 relay list metadata if the configured interval has elapsed."""
-        cfg = self._config.relay_list
-        if not cfg.enabled:
-            return
-
-        relays = cfg.relays if cfg.relays is not None else self._config.publishing.relays
-        if not relays:
-            return
-
-        if not await is_publish_due(self._brotr, "relay_list", cfg.interval):
-            return
-
-        clients = await self.clients.get_many(relays)
-        if not clients:
-            self._logger.warning("publish_failed", event="relay_list", error="no relays reachable")
-            return
-
-        sent = await broadcast_events([build_relay_list_event(relays)], clients)
-        if not sent:
-            self._logger.warning("publish_failed", event="relay_list", error="no relays reachable")
-            return
-
-        self._logger.info("publish_completed", event="relay_list", relays=sent)
-        await upsert_publish_checkpoints(self._brotr, ["relay_list"])
+        await publish_monitor_relay_list(
+            context=self._publish_context,
+            build_relay_list=build_relay_list_event,
+        )
 
     async def publish_announcement(self) -> None:
         """Publish Kind 10166 monitor announcement if the configured interval has elapsed."""
-        cfg = self._config.announcement
-        if not cfg.enabled:
-            return
-
-        relays = cfg.relays if cfg.relays is not None else self._config.publishing.relays
-        if not relays:
-            return
-
-        if not await is_publish_due(self._brotr, "announcement", cfg.interval):
-            return
-
-        include = cfg.include
-        enabled_networks = self._config.networks.get_enabled_networks()
-        first_network = enabled_networks[0] if enabled_networks else NetworkType.CLEARNET
-        timeout_ms = int(self._config.networks.get(first_network).timeout * 1000)
-
-        clients = await self.clients.get_many(relays)
-        if not clients:
-            self._logger.warning(
-                "publish_failed", event="announcement", error="no relays reachable"
-            )
-            return
-
-        sent = await broadcast_events(
-            [
-                build_monitor_announcement(
-                    interval=int(self._config.discovery.interval),
-                    timeout_ms=timeout_ms,
-                    enabled_networks=enabled_networks,
-                    nip11_selection=Nip11Selection(info=include.nip11_info),
-                    nip66_selection=Nip66Selection(
-                        rtt=include.nip66_rtt,
-                        ssl=include.nip66_ssl,
-                        geo=include.nip66_geo,
-                        net=include.nip66_net,
-                        dns=include.nip66_dns,
-                        http=include.nip66_http,
-                    ),
-                    geohash=cfg.geohash,
-                ),
-            ],
-            clients,
+        await publish_monitor_announcement(
+            context=self._publish_context,
+            build_announcement=build_monitor_announcement,
         )
-        if not sent:
-            self._logger.warning(
-                "publish_failed", event="announcement", error="no relays reachable"
-            )
-            return
-
-        self._logger.info("publish_completed", event="announcement", relays=sent)
-        await upsert_publish_checkpoints(self._brotr, ["announcement"])
 
     async def publish_discovery(self, relay: Relay, result: CheckResult) -> None:
         """Publish a Kind 30166 relay discovery event for a single relay.
 
         Resolves discovery publish relays from config, connects lazily
-        via ``clients.get_many()``, builds the event, and broadcasts.
+        via ``clients.get_relay_clients()``, builds the event, and broadcasts.
 
         Args:
             relay: The relay that was health-checked.
             result: Health check result containing metadata.
         """
-        cfg = self._config.discovery
-        if not cfg.enabled:
-            return
-
-        relays = cfg.relays if cfg.relays is not None else self._config.publishing.relays
-        if not relays:
-            return
-
-        clients = await self.clients.get_many(relays)
-        if not clients:
-            return
-
-        include = cfg.include
-        try:
-            nip11 = Nip11(
-                relay=relay,
-                info=result.nip11_info if include.nip11_info else None,
-            )
-            nip66 = Nip66(
-                relay=relay,
-                rtt=result.nip66_rtt if include.nip66_rtt else None,
-                ssl=result.nip66_ssl if include.nip66_ssl else None,
-                geo=result.nip66_geo if include.nip66_geo else None,
-                net=result.nip66_net if include.nip66_net else None,
-                dns=result.nip66_dns if include.nip66_dns else None,
-                http=result.nip66_http if include.nip66_http else None,
-            )
-            builder = build_relay_discovery(relay, nip11, nip66)
-        except (ValueError, KeyError, TypeError) as e:
-            self._logger.debug("build_30166_failed", url=relay.url, error=str(e))
-            return
-
-        sent = await broadcast_events([builder], clients)
-        if not sent:
-            self._logger.debug("discovery_broadcast_failed", url=relay.url)
+        await publish_monitor_discovery(
+            context=DiscoveryContext(
+                config=self._config,
+                clients=self.clients,
+                logger=self._logger,
+                broadcast=broadcast_events_detailed,
+            ),
+            relay=relay,
+            result=result,
+            build_discovery=build_relay_discovery,
+        )
 
     async def check_relay(self, relay: Relay) -> CheckResult:
         """Perform all configured health checks on a single relay.
@@ -427,107 +358,10 @@ class Monitor(
             [CheckResult][bigbrotr.services.monitor.CheckResult] with
             metadata for each completed check (``None`` if skipped/failed).
         """
-        empty = CheckResult()
-
-        network_config = self._config.networks.get(relay.network)
-        proxy_url = self._config.networks.get_proxy_url(relay.network)
-        timeout = network_config.timeout
-        compute = self._config.processing.compute
-
-        nip11_info: Nip11InfoMetadata | None = None
-        generated_at = int(time.time())
-
-        try:
-            if compute.nip11_info:
-
-                async def _fetch_nip11() -> Nip11InfoMetadata | None:
-                    return (
-                        await Nip11.create(
-                            relay,
-                            timeout=timeout,
-                            proxy_url=proxy_url,
-                            options=Nip11Options(
-                                allow_insecure=self._config.processing.allow_insecure,
-                                max_size=self._config.processing.nip11_info_max_size,
-                            ),
-                        )
-                    ).info
-
-                nip11_info = await retry_fetch(
-                    relay,
-                    _fetch_nip11,
-                    self._config.processing.retries.nip11_info,
-                    "nip11_info",
-                    wait=self.wait,
-                )
-
-            rtt_meta: Nip66RttMetadata | None = None
-
-            # RTT test: open/read/write round-trip times
-            if compute.nip66_rtt:
-                event_builder = EventBuilder(Kind(EventKind.NIP66_TEST), "nip66-test").tags(
-                    [Tag.identifier(relay.url)]
-                )
-                # Apply proof-of-work if NIP-11 specifies minimum difficulty
-                if nip11_info and nip11_info.logs.success:
-                    pow_difficulty = nip11_info.data.limitation.min_pow_difficulty
-                    if pow_difficulty and pow_difficulty > 0:
-                        event_builder = event_builder.pow(pow_difficulty)
-                read_filter = Filter().limit(1)
-                rtt_deps = Nip66RttDependencies(
-                    keys=self._keys,
-                    event_builder=event_builder,
-                    read_filter=read_filter,
-                )
-                rtt_meta = await retry_fetch(
-                    relay,
-                    lambda: Nip66RttMetadata.execute(
-                        relay,
-                        rtt_deps,
-                        timeout,
-                        proxy_url,
-                        allow_insecure=self._config.processing.allow_insecure,
-                    ),
-                    self._config.processing.retries.nip66_rtt,
-                    "nip66_rtt",
-                    wait=self.wait,
-                )
-
-            # Run independent checks (SSL, DNS, Geo, Net, HTTP) in parallel
-            parallel_tasks = self._build_parallel_checks(relay, compute, timeout, proxy_url)
-
-            gathered: dict[str, Any] = {}
-            if parallel_tasks:
-                parallel_results = await asyncio.gather(
-                    *parallel_tasks.values(), return_exceptions=True
-                )
-                # Re-raise CancelledError from parallel checks
-                for r in parallel_results:
-                    if isinstance(r, asyncio.CancelledError):
-                        raise r
-                gathered = dict(zip(parallel_tasks.keys(), parallel_results, strict=True))
-
-            result = CheckResult(
-                generated_at=generated_at,
-                nip11_info=nip11_info,
-                nip66_rtt=rtt_meta,
-                nip66_ssl=extract_result(gathered, "ssl"),
-                nip66_geo=extract_result(gathered, "geo"),
-                nip66_net=extract_result(gathered, "net"),
-                nip66_dns=extract_result(gathered, "dns"),
-                nip66_http=extract_result(gathered, "http"),
-            )
-
-            if result.has_data:
-                self._logger.debug("check_succeeded", url=relay.url)
-            else:
-                self._logger.debug("check_failed", url=relay.url)
-
-            return result
-
-        except (TimeoutError, OSError) as e:
-            self._logger.debug("check_error", url=relay.url, error=str(e))
-            return empty
+        return await run_monitor_check_relay(
+            self._check_context(relay, generated_at=math.ceil(time.time())),
+            self._check_dependencies(),
+        )
 
     def _build_parallel_checks(
         self,
@@ -542,124 +376,224 @@ class Monitor(
         checks that are enabled in ``compute`` and applicable to the
         relay's network type are included.
         """
-        tasks: dict[str, Any] = {}
+        return build_monitor_parallel_checks(
+            self._check_context(
+                relay,
+                compute=compute,
+                timeout=timeout,
+                proxy_url=proxy_url,
+                generated_at=0,
+            ),
+            self._check_dependencies(),
+        )
 
-        if compute.nip66_ssl and relay.network == NetworkType.CLEARNET:
-            tasks["ssl"] = retry_fetch(
-                relay,
-                lambda: Nip66SslMetadata.execute(relay, timeout),
-                self._config.processing.retries.nip66_ssl,
-                "nip66_ssl",
-                wait=self.wait,
-            )
-        if compute.nip66_dns and relay.network == NetworkType.CLEARNET:
-            tasks["dns"] = retry_fetch(
-                relay,
-                lambda: Nip66DnsMetadata.execute(relay, timeout),
-                self._config.processing.retries.nip66_dns,
-                "nip66_dns",
-                wait=self.wait,
-            )
-        if compute.nip66_geo and self.geo_readers.city and relay.network == NetworkType.CLEARNET:
-            city_reader = self.geo_readers.city
-            precision = self._config.geo.geohash_precision
-            tasks["geo"] = retry_fetch(
-                relay,
-                lambda: Nip66GeoMetadata.execute(relay, city_reader, precision, timeout=timeout),
-                self._config.processing.retries.nip66_geo,
-                "nip66_geo",
-                wait=self.wait,
-            )
-        if compute.nip66_net and self.geo_readers.asn and relay.network == NetworkType.CLEARNET:
-            asn_reader = self.geo_readers.asn
-            tasks["net"] = retry_fetch(
-                relay,
-                lambda: Nip66NetMetadata.execute(relay, asn_reader, timeout=timeout),
-                self._config.processing.retries.nip66_net,
-                "nip66_net",
-                wait=self.wait,
-            )
-        if compute.nip66_http:
-            tasks["http"] = retry_fetch(
-                relay,
-                lambda: Nip66HttpMetadata.execute(
-                    relay,
-                    timeout,
-                    proxy_url,
-                    allow_insecure=self._config.processing.allow_insecure,
-                ),
-                self._config.processing.retries.nip66_http,
-                "nip66_http",
-                wait=self.wait,
-            )
+    def _check_context(
+        self,
+        relay: Relay,
+        *,
+        generated_at: int,
+        compute: MetadataFlags | None = None,
+        timeout: float | None = None,
+        proxy_url: str | None = None,
+    ) -> MonitorCheckContext:
+        """Build the shared per-relay monitor check context."""
+        return build_monitor_check_context(
+            relay=relay,
+            compute=compute or self._config.processing.compute,
+            timeout=timeout,
+            proxy_url=proxy_url,
+            allow_insecure=self._config.processing.allow_insecure,
+            nip11_info_max_size=self._config.processing.nip11_info_max_size,
+            retries=self._config.processing.retries,
+            geohash_precision=self._config.geo.geohash_precision,
+            keys=self._keys,
+            city_reader=self.geo_readers.city,
+            asn_reader=self.geo_readers.asn,
+            logger=self._logger,
+            wait=self.wait,
+            generated_at=generated_at,
+            networks=self._config.networks,
+        )
 
-        return tasks
+    def _check_dependencies(self) -> MonitorCheckDependencies:
+        """Build the shared check dependency bundle for monitor relay probes."""
+        return build_monitor_check_dependencies(
+            retry_fetch=retry_fetch,
+            nip11_fetch=Nip11.fetch,
+            rtt_probe=Nip66RttMetadata.probe,
+            ssl_probe=Nip66SslMetadata.probe,
+            geo_probe=Nip66GeoMetadata.probe,
+            net_probe=Nip66NetMetadata.probe,
+            dns_probe=Nip66DnsMetadata.probe,
+            http_probe=Nip66HttpMetadata.probe,
+        )
 
     async def monitor(self) -> int:
         """Check, persist, and publish all pending relays.
 
         Fetches relays in pages (``chunk_size``), checks each page
         concurrently via ``_iter_concurrent()``, persists results
-        at each pagination boundary, and publishes Kind 30166
-        discovery events per successful check.
+        at each pagination boundary, then publishes Kind 30166
+        discovery events as a best-effort post-persistence phase.
 
         Returns:
             Total number of relays processed (succeeded + failed).
         """
-        networks = self._config.networks.get_enabled_networks()
-        if not networks:
-            self._logger.warning("no_networks_enabled")
+        plan = await self._build_monitor_cycle_plan()
+        if plan is None:
             return 0
 
-        monitored_before = int(time.time() - self._config.discovery.interval)
-        max_relays = self._config.processing.max_relays
+        progress = self._start_monitor_progress(plan.total)
+        self._logger.info("relays_available", total=plan.total)
+        progress = await self._process_monitor_pages(plan, progress)
+        return progress.processed
 
-        all_relays = await fetch_relays_to_monitor(self._brotr, monitored_before, networks)
-        if max_relays is not None:
-            all_relays = all_relays[:max_relays]
+    async def _build_monitor_cycle_plan(
+        self,
+        *,
+        now: float | None = None,
+    ) -> MonitorCyclePlan | None:
+        """Build the relay-selection plan for one monitor cycle."""
+        if not self._config.networks.get_enabled_networks():
+            self._logger.warning("no_networks_enabled")
+            return None
+        return await build_monitor_cycle_plan(
+            brotr=self._brotr,
+            config=self._config,
+            network_semaphores=self.network_semaphores,
+            now=now,
+            count_relays_fn=count_relays_to_monitor,
+        )
 
-        total = len(all_relays)
-        succeeded = 0
-        failed = 0
+    async def _monitor_chunk(
+        self,
+        relays: list[Relay],
+        plan: MonitorCyclePlan,
+    ) -> MonitorChunkOutcome:
+        """Run one page of relay checks and classify the results."""
+        return await monitor_chunk(
+            context=MonitorChunkContext(
+                iter_concurrent=self._iter_concurrent,
+                worker=self._monitor_worker,
+                inc_gauge=self.inc_gauge,
+            ),
+            relays=relays,
+            max_concurrency=plan.max_concurrency,
+        )
 
-        self.set_gauge("total", total)
-        self.set_gauge("succeeded", 0)
-        self.set_gauge("failed", 0)
+    def _start_monitor_progress(self, total: int) -> MonitorProgress:
+        """Initialize gauges and progress totals for one monitor cycle."""
+        return start_monitor_progress(total=total, set_gauge=self.set_gauge)
 
-        self._logger.info("relays_available", total=total)
-
-        chunk_size = self._config.processing.chunk_size
-
-        for i in range(0, total, chunk_size):
+    async def _process_monitor_pages(
+        self,
+        plan: MonitorCyclePlan,
+        progress: MonitorProgress,
+    ) -> MonitorProgress:
+        """Process all eligible relay pages for one monitor cycle."""
+        async for relays in self._iter_monitor_pages(plan):
             if not self.is_running:
                 break
 
-            relays = all_relays[i : i + chunk_size]
-            chunk_successful: list[tuple[Relay, CheckResult]] = []
-            chunk_failed: list[Relay] = []
-
-            async for relay, result in self._iter_concurrent(relays, self._monitor_worker):
-                if result is not None:
-                    chunk_successful.append((relay, result))
-                    succeeded += 1
-                else:
-                    chunk_failed.append(relay)
-                    failed += 1
-                self.inc_gauge("succeeded" if result is not None else "failed")
-
-            metadata = collect_metadata(chunk_successful, self._config.processing.store)
-            await insert_relay_metadata(self._brotr, metadata)
-            all_checked = [relay for relay, _ in chunk_successful] + chunk_failed
-            await upsert_monitor_checkpoints(self._brotr, all_checked, int(time.time()))
-
-            self._logger.info(
-                "chunk_completed",
-                succeeded=len(chunk_successful),
-                failed=len(chunk_failed),
-                remaining=total - succeeded - failed,
+            progress = await self._process_monitor_page(
+                relays,
+                plan,
+                progress,
             )
 
-        return succeeded + failed
+        return progress
+
+    def _iter_monitor_pages(
+        self,
+        plan: MonitorCyclePlan,
+    ) -> AsyncIterator[list[Relay]]:
+        """Yield relay pages selected for one monitor cycle."""
+        return iter_relays_to_monitor_pages(
+            self._brotr,
+            plan.monitored_before,
+            list(plan.networks),
+            page_size=plan.chunk_size,
+            max_relays=plan.max_relays,
+        )
+
+    async def _process_monitor_page(
+        self,
+        relays: list[Relay],
+        plan: MonitorCyclePlan,
+        progress: MonitorProgress,
+    ) -> MonitorProgress:
+        """Process one relay page and return updated cycle progress."""
+        chunk_outcome = await self._monitor_chunk(relays, plan)
+        await self._persist_chunk_outcome(
+            chunk_outcome,
+            checked_at=math.ceil(time.time()),
+        )
+        await self._publish_chunk_discoveries(
+            chunk_outcome,
+            max_concurrency=plan.max_concurrency,
+        )
+
+        next_progress = progress.advance(chunk_outcome)
+        self._log_chunk_outcome(
+            chunk_outcome,
+            total=next_progress.total,
+            succeeded=next_progress.succeeded,
+            failed=next_progress.failed,
+        )
+        return next_progress
+
+    async def _persist_chunk_outcome(
+        self,
+        chunk_outcome: MonitorChunkOutcome,
+        *,
+        checked_at: int,
+    ) -> None:
+        """Persist one processed monitor chunk to metadata and service state."""
+        await persist_chunk_outcome(
+            context=MonitorChunkPersistence(
+                brotr=self._brotr,
+                store=self._config.processing.store,
+                insert_relay_document=insert_relay_document,
+                upsert_monitor_checkpoints=upsert_monitor_checkpoints,
+            ),
+            chunk_outcome=chunk_outcome,
+            checked_at=checked_at,
+        )
+
+    async def _publish_chunk_discoveries(
+        self,
+        chunk_outcome: MonitorChunkOutcome,
+        *,
+        max_concurrency: int,
+    ) -> None:
+        """Publish discovery events after persistence for successful check results."""
+        successful = list(chunk_outcome.successful)
+        if not successful:
+            return
+
+        async for _ in self._iter_concurrent(
+            successful,
+            self._publish_discovery_worker,
+            max_concurrency=max_concurrency,
+        ):
+            continue
+
+    def _log_chunk_outcome(
+        self,
+        chunk_outcome: MonitorChunkOutcome,
+        *,
+        total: int,
+        succeeded: int,
+        failed: int,
+    ) -> None:
+        """Emit the standard monitor chunk completion log line."""
+        log_chunk_outcome(
+            logger=self._logger,
+            chunk_outcome=chunk_outcome,
+            total=total,
+            succeeded=succeeded,
+            failed=failed,
+        )
 
     async def _monitor_worker(
         self, relay: Relay
@@ -667,30 +601,35 @@ class Monitor(
         """Health-check a single relay for use with ``_iter_concurrent``.
 
         Acquires the per-network semaphore, runs all configured checks,
-        publishes a Kind 30166 discovery event for successful results,
         and yields ``(relay, result)`` or ``(relay, None)`` on failure.
         Yields exactly once — never raises, so every relay produces a
         result for the caller to classify.
         """
-        try:
-            semaphore = self.network_semaphores.get(relay.network)
-            if semaphore is None:
-                self._logger.warning("unknown_network", url=relay.url, network=relay.network.value)
-                yield relay, None
-                return
+        async for item in monitor_worker(
+            context=MonitorWorkerContext(
+                network_semaphores=self.network_semaphores,
+                logger=self._logger,
+                check_relay=self.check_relay,
+            ),
+            relay=relay,
+        ):
+            yield item
 
-            async with semaphore:
-                result = await self.check_relay(relay)
-                if not result.has_data:
-                    yield relay, None
-                    return
-                await self.publish_discovery(relay, result)
-                yield relay, result
-        except Exception as e:  # Worker exception boundary — protects TaskGroup
+    async def _publish_discovery_worker(
+        self,
+        item: tuple[Relay, CheckResult],
+    ) -> AsyncGenerator[Relay, None]:
+        """Publish one relay discovery event without affecting check persistence."""
+        relay, result = item
+        try:
+            await self.publish_discovery(relay, result)
+        except Exception as error:
             self._logger.error(
-                "check_relay_failed",
-                error=str(e),
-                error_type=type(e).__name__,
+                "publish_discovery_failed",
                 relay=relay.url,
+                error=str(error),
+                error_type=type(error).__name__,
             )
-            yield relay, None
+            return
+
+        yield relay

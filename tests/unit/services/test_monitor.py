@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import time
 from typing import TYPE_CHECKING, Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 from nostr_sdk import Keys
+from pydantic import ValidationError
 
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.models import Relay
 from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.nips.base import BaseLogs
+from bigbrotr.nips.nip11 import Nip11
 from bigbrotr.nips.nip11.data import Nip11InfoData, Nip11InfoDataLimitation
 from bigbrotr.nips.nip11.info import Nip11InfoMetadata
 from bigbrotr.nips.nip11.logs import Nip11InfoLogs
@@ -41,22 +44,38 @@ from bigbrotr.services.monitor import (
     PublishingConfig,
     RelayListConfig,
 )
+from bigbrotr.services.monitor import service as monitor_service
 from bigbrotr.services.monitor.configs import RetriesConfig, RetryConfig
+from bigbrotr.services.monitor.publishing import PublishContext
 from bigbrotr.services.monitor.queries import (
+    count_relays_to_monitor,
     delete_stale_checkpoints,
     fetch_relays_to_monitor,
-    insert_relay_metadata,
+    fetch_relays_to_monitor_page,
+    insert_relay_document,
     is_publish_due,
+    iter_relays_to_monitor_pages,
     upsert_monitor_checkpoints,
     upsert_publish_checkpoints,
 )
+from bigbrotr.services.monitor.service import (
+    Nip66DnsMetadata,
+    Nip66GeoMetadata,
+    Nip66HttpMetadata,
+    Nip66NetMetadata,
+    Nip66SslMetadata,
+)
 from bigbrotr.services.monitor.utils import (
-    collect_metadata,
+    MonitorChunkOutcome,
+    MonitorCyclePlan,
+    MonitorProgress,
+    collect_documents,
     extract_result,
     log_reason,
     log_success,
     retry_fetch,
 )
+from bigbrotr.utils.protocol import BroadcastClientResult
 
 
 if TYPE_CHECKING:
@@ -75,7 +94,7 @@ VALID_HEX_KEY = (
 
 @pytest.fixture(autouse=True)
 def set_private_key_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("NOSTR_PRIVATE_KEY", VALID_HEX_KEY)
+    monkeypatch.setenv("NOSTR_PRIVATE_KEY_MONITOR", VALID_HEX_KEY)
 
 
 _NO_GEO_NET = MetadataFlags(nip66_geo=False, nip66_net=False)
@@ -89,6 +108,20 @@ def _make_config(**overrides: Any) -> MonitorConfig:
     }
     defaults.update(overrides)
     return MonitorConfig(**defaults)
+
+
+def _broadcast_results(
+    *,
+    successful_relays: tuple[str, ...] = ("wss://publish.example.com",),
+    failed_relays: dict[str, str] | None = None,
+) -> list[BroadcastClientResult]:
+    return [
+        BroadcastClientResult(
+            event_ids=("1" * 64,),
+            successful_relays=successful_relays,
+            failed_relays=failed_relays or {},
+        )
+    ]
 
 
 class _MonitorStub:
@@ -108,11 +141,50 @@ class _MonitorStub:
         self.set_gauge = MagicMock()
         self.inc_gauge = MagicMock()
         self.clients = MagicMock()
-        self.clients.get = AsyncMock(return_value=AsyncMock())
-        self.clients.get_many = AsyncMock(return_value=[AsyncMock()])
+        self.clients.get_relay_client = AsyncMock(return_value=AsyncMock())
+        self.clients.get_relay_clients = AsyncMock(return_value=[AsyncMock()])
         self.clients.disconnect = AsyncMock()
+        self._reset_publish_context()
+
+    def _reset_publish_context(self) -> None:
+        """Rebuild the publish context after stub dependency changes."""
+
+        async def publish_is_due(brotr: Brotr, key: str, interval: float) -> bool:
+            return await monitor_service.is_publish_due(brotr, key, interval)
+
+        async def publish_broadcast(
+            events: list[Any],
+            clients: list[Any],
+        ) -> list[BroadcastClientResult]:
+            return await monitor_service.broadcast_events_detailed(events, clients)
+
+        async def publish_save_checkpoints(brotr: Brotr, keys: list[str]) -> None:
+            await monitor_service.upsert_publish_checkpoints(brotr, keys)
+
+        self._publish_context = PublishContext(
+            brotr=self._brotr,
+            config=self._config,
+            clients=self.clients,
+            logger=self._logger,
+            is_due=publish_is_due,
+            broadcast=publish_broadcast,
+            save_checkpoints=publish_save_checkpoints,
+        )
 
     # Publishing methods bound from Monitor
+    _check_context = Monitor._check_context
+    _check_dependencies = Monitor._check_dependencies
+    _monitor_chunk = Monitor._monitor_chunk
+    _persist_chunk_outcome = Monitor._persist_chunk_outcome
+    _publish_chunk_discoveries = Monitor._publish_chunk_discoveries
+    _publish_discovery_worker = Monitor._publish_discovery_worker
+    _log_chunk_outcome = Monitor._log_chunk_outcome
+    _open_cycle_resources = Monitor._open_cycle_resources
+    _close_cycle_resources = Monitor._close_cycle_resources
+    _run_publication_phase = Monitor._run_publication_phase
+    _iter_monitor_pages = Monitor._iter_monitor_pages
+    _process_monitor_page = Monitor._process_monitor_page
+    run = Monitor.run
     publish_announcement = Monitor.publish_announcement
     publish_profile = Monitor.publish_profile
     publish_relay_list = Monitor.publish_relay_list
@@ -225,13 +297,18 @@ def query_brotr() -> MagicMock:
     brotr.fetch = AsyncMock(return_value=[])
     brotr.fetchval = AsyncMock(return_value=0)
     brotr.upsert_service_state = AsyncMock(return_value=0)
-    brotr.insert_relay_metadata = AsyncMock(return_value=0)
+    brotr.insert_relay_document = AsyncMock(return_value=0)
     brotr.config.batch.max_size = 1000
     return brotr
 
 
 def _make_dict_row(data: dict[str, Any]) -> dict[str, Any]:
     return data
+
+
+async def _mock_pages(*pages: list[Relay]):
+    for page in pages:
+        yield page
 
 
 # ============================================================================
@@ -276,6 +353,33 @@ class TestMetadataFlags:
         assert flags.nip66_net is False
         assert flags.nip66_dns is False
         assert flags.nip66_http is False
+
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            MetadataFlags.model_validate({b"nip11_info": False})
+
+    def test_extra_fields_forbidden(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            MetadataFlags(extra_field=True)
+
+    @pytest.mark.parametrize(
+        ("field_name", "value", "expected_type"),
+        [
+            ("nip11_info", "true", "str"),
+            ("nip66_rtt", 1, "int"),
+        ],
+    )
+    def test_rejects_non_boolean_flag_aliases(
+        self,
+        field_name: str,
+        value: object,
+        expected_type: str,
+    ) -> None:
+        with pytest.raises(
+            ValueError,
+            match=rf"{field_name}: expected boolean, got {expected_type}",
+        ):
+            MetadataFlags(**{field_name: value})
 
     def test_get_missing_from_no_missing(self) -> None:
         subset = MetadataFlags(nip66_geo=True, nip66_net=True)
@@ -334,9 +438,47 @@ class TestProcessingConfig:
         config_max = ProcessingConfig(chunk_size=1000)
         assert config_max.chunk_size == 1000
 
+    @pytest.mark.parametrize("value", ["100", 100.0])
+    def test_rejects_non_integer_chunk_size_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"chunk_size: expected integer, got"):
+            ProcessingConfig(chunk_size=value)
+
     def test_nip11_info_max_size_custom(self) -> None:
         config = ProcessingConfig(nip11_info_max_size=2097152)  # 2MB
         assert config.nip11_info_max_size == 2097152
+
+    @pytest.mark.parametrize("value", ["1048576", 1048576.0])
+    def test_rejects_non_integer_nip11_info_max_size_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"nip11_info_max_size: expected integer, got"):
+            ProcessingConfig(nip11_info_max_size=value)
+
+    def test_rejects_boolean_max_relays_alias(self) -> None:
+        with pytest.raises(ValueError, match="max_relays: expected integer, got bool"):
+            ProcessingConfig(max_relays=True)
+
+    @pytest.mark.parametrize("value", ["100", 100.0])
+    def test_rejects_non_integer_max_relays_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"max_relays: expected integer, got"):
+            ProcessingConfig(max_relays=value)
+
+    def test_rejects_non_boolean_allow_insecure(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"allow_insecure: expected boolean, got str",
+        ):
+            ProcessingConfig(allow_insecure="true")
+
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            ProcessingConfig.model_validate({b"chunk_size": 50})
+
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            ProcessingConfig.model_validate({"batch_size": 50})
+
+    def test_nested_compute_flags_reject_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            ProcessingConfig(compute={"extra_field": True})
 
 
 class TestRetryConfig:
@@ -370,6 +512,51 @@ class TestRetryConfig:
         config = RetryConfig(initial_delay=5.0, max_delay=5.0)
         assert config.max_delay == 5.0
 
+    @pytest.mark.parametrize(
+        ("field_name", "kwargs", "expected"),
+        [
+            ("max_attempts", {"max_attempts": True}, "integer"),
+            ("initial_delay", {"initial_delay": True}, "number"),
+            ("max_delay", {"max_delay": True}, "number"),
+            ("jitter", {"jitter": True}, "number"),
+        ],
+    )
+    def test_rejects_boolean_retry_aliases(
+        self,
+        field_name: str,
+        kwargs: dict[str, bool],
+        expected: str,
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected {expected}, got bool"):
+            RetryConfig(**kwargs)
+
+    @pytest.mark.parametrize("value", ["2", 2.0])
+    def test_rejects_non_integer_max_attempts_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"max_attempts: expected integer, got"):
+            RetryConfig(max_attempts=value)
+
+    @pytest.mark.parametrize(
+        ("field_name", "kwargs"),
+        [
+            ("initial_delay", {"initial_delay": "1.5"}),
+            ("max_delay", {"max_delay": "10.0"}),
+            ("jitter", {"jitter": "0.5"}),
+        ],
+    )
+    def test_rejects_non_numeric_retry_timing_aliases(
+        self, field_name: str, kwargs: dict[str, object]
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected number, got str"):
+            RetryConfig(**kwargs)
+
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            RetryConfig.model_validate({b"max_attempts": 2})
+
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            RetryConfig.model_validate({"backoff": 2.0})
+
 
 class TestRetriesConfig:
     def test_defaults(self) -> None:
@@ -382,6 +569,14 @@ class TestRetriesConfig:
         assert config.nip66_net.max_attempts == 0
         assert config.nip66_dns.max_attempts == 0
         assert config.nip66_http.max_attempts == 0
+
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            RetriesConfig.model_validate({b"nip11_info": {"max_attempts": 2}})
+
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            RetriesConfig.model_validate({"nip11": {"max_attempts": 2}})
 
 
 class TestGeoConfig:
@@ -405,6 +600,33 @@ class TestGeoConfig:
         assert config.asn_database_path == "/custom/path/asn.mmdb"
         assert config.max_age_days == 7
 
+    def test_string_fields_are_canonicalized(self) -> None:
+        config = GeoConfig(
+            city_database_path=" /custom/path/city.mmdb ",
+            asn_database_path=" /custom/path/asn.mmdb ",
+            city_download_url=" https://example.com/city.mmdb ",
+            asn_download_url=" https://example.com/asn.mmdb ",
+        )
+
+        assert config.city_database_path == "/custom/path/city.mmdb"
+        assert config.asn_database_path == "/custom/path/asn.mmdb"
+        assert config.city_download_url == "https://example.com/city.mmdb"
+        assert config.asn_download_url == "https://example.com/asn.mmdb"
+
+    def test_blank_download_urls_collapse_to_empty_string(self) -> None:
+        config = GeoConfig(city_download_url="   ", asn_download_url="   ")
+
+        assert config.city_download_url == ""
+        assert config.asn_download_url == ""
+
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            GeoConfig.model_validate({b"max_age_days": 1})
+
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            GeoConfig.model_validate({"download_url": "https://example.com/geo.mmdb"})
+
     def test_max_age_days_validation(self) -> None:
         config = GeoConfig(max_age_days=1)
         assert config.max_age_days == 1
@@ -416,6 +638,33 @@ class TestGeoConfig:
         config = GeoConfig(max_age_days=None)
         assert config.max_age_days is None
 
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("max_age_days", True),
+            ("max_download_size", True),
+            ("geohash_precision", True),
+        ],
+    )
+    def test_rejects_boolean_geo_aliases(self, field_name: str, value: bool) -> None:
+        with pytest.raises(ValidationError, match=rf"{field_name}: expected integer, got bool"):
+            GeoConfig(**{field_name: value})
+
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("max_age_days", "30"),
+            ("max_age_days", 30.0),
+            ("max_download_size", "100000000"),
+            ("max_download_size", 100000000.0),
+            ("geohash_precision", "9"),
+            ("geohash_precision", 9.0),
+        ],
+    )
+    def test_rejects_non_integer_geo_aliases(self, field_name: str, value: object) -> None:
+        with pytest.raises(ValidationError, match=rf"{field_name}: expected integer, got"):
+            GeoConfig(**{field_name: value})
+
     def test_empty_city_path_rejected(self) -> None:
         with pytest.raises(ValueError):
             GeoConfig(city_database_path="")
@@ -423,6 +672,14 @@ class TestGeoConfig:
     def test_empty_asn_path_rejected(self) -> None:
         with pytest.raises(ValueError):
             GeoConfig(asn_database_path="")
+
+    def test_blank_city_path_rejected(self) -> None:
+        with pytest.raises(ValueError, match=r"city_database_path: expected non-empty string"):
+            GeoConfig(city_database_path="   ")
+
+    def test_blank_asn_path_rejected(self) -> None:
+        with pytest.raises(ValueError, match=r"asn_database_path: expected non-empty string"):
+            GeoConfig(asn_database_path="   ")
 
 
 class TestPublishingConfig:
@@ -445,6 +702,33 @@ class TestPublishingConfig:
     def test_single_relay(self) -> None:
         config = PublishingConfig(relays=["wss://single.relay.com"])
         assert len(config.relays) == 1
+
+    def test_explicit_empty_relay_list_is_preserved(self) -> None:
+        config = PublishingConfig(relays=[])
+
+        assert config.relays == []
+
+    def test_rejects_nonempty_relay_list_without_valid_entries(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"relays: expected at least one valid relay",
+        ):
+            PublishingConfig(relays=["bad relay", "still bad"])
+
+    def test_rejects_non_string_relay_aliases(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"relays\[1\]: expected string or Relay, got bytes",
+        ):
+            PublishingConfig(relays=["wss://relay.example.com", b"wss://relay.damus.io"])
+
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            PublishingConfig.model_validate({b"relays": ["wss://relay.example.com"]})
+
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            PublishingConfig.model_validate({"publish_relays": ["wss://relay.example.com"]})
 
 
 class TestDiscoveryConfig:
@@ -476,9 +760,50 @@ class TestDiscoveryConfig:
         config2 = DiscoveryConfig(interval=86400)
         assert config2.interval == 86400
 
+    @pytest.mark.parametrize("value", ["60", "60.0"])
+    def test_interval_rejects_non_numeric_aliases(self, value: str) -> None:
+        with pytest.raises(ValidationError, match=r"interval: expected number, got str"):
+            DiscoveryConfig(interval=value)
+
     def test_interval_upper_bound_rejected(self) -> None:
         with pytest.raises(ValueError):
             DiscoveryConfig(interval=604801.0)
+
+    def test_include_rejects_boolean_aliases(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"nip11_info: expected boolean, got str",
+        ):
+            DiscoveryConfig(include={"nip11_info": "true"})
+
+    def test_enabled_rejects_boolean_aliases(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"enabled: expected boolean, got str",
+        ):
+            DiscoveryConfig(enabled="false")
+
+    def test_rejects_nonempty_relay_override_without_valid_entries(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"relays: expected at least one valid relay",
+        ):
+            DiscoveryConfig(relays=["bad relay", "still bad"])
+
+    def test_rejects_non_string_relay_aliases(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"relays\[1\]: expected string or Relay, got bytes",
+        ):
+            DiscoveryConfig(relays=["wss://relay.example.com", b"wss://relay.damus.io"])
+
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            DiscoveryConfig.model_validate({b"enabled": False})
+
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            DiscoveryConfig.model_validate({"publish_interval": 60.0})
 
 
 class TestAnnouncementConfig:
@@ -503,6 +828,64 @@ class TestAnnouncementConfig:
     def test_interval_upper_bound_rejected(self) -> None:
         with pytest.raises(ValueError):
             AnnouncementConfig(interval=604801.0)
+
+    @pytest.mark.parametrize("value", ["60", "60.0"])
+    def test_interval_rejects_non_numeric_aliases(self, value: str) -> None:
+        with pytest.raises(ValidationError, match=r"interval: expected number, got str"):
+            AnnouncementConfig(interval=value)
+
+    def test_include_rejects_boolean_aliases(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"nip66_http: expected boolean, got str",
+        ):
+            AnnouncementConfig(include={"nip66_http": "false"})
+
+    def test_enabled_rejects_boolean_aliases(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"enabled: expected boolean, got int",
+        ):
+            AnnouncementConfig(enabled=1)
+
+    def test_geohash_is_canonicalized(self) -> None:
+        config = AnnouncementConfig(geohash=" u0nd9f ")
+
+        assert config.geohash == "u0nd9f"
+
+    def test_blank_geohash_collapses_to_none(self) -> None:
+        config = AnnouncementConfig(geohash="   ")
+
+        assert config.geohash is None
+
+    def test_geohash_rejects_non_string_payloads(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"geohash: expected string, got bool",
+        ):
+            AnnouncementConfig(geohash=True)
+
+    def test_rejects_nonempty_relay_override_without_valid_entries(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"relays: expected at least one valid relay",
+        ):
+            AnnouncementConfig(relays=["bad relay", "still bad"])
+
+    def test_rejects_non_string_relay_aliases(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"relays\[1\]: expected string or Relay, got bytes",
+        ):
+            AnnouncementConfig(relays=["wss://relay.example.com", b"wss://relay.damus.io"])
+
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            AnnouncementConfig.model_validate({b"enabled": False})
+
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            AnnouncementConfig.model_validate({"announce_interval": 60.0})
 
 
 class TestProfileConfig:
@@ -530,6 +913,121 @@ class TestProfileConfig:
         with pytest.raises(ValueError):
             ProfileConfig(interval=604801.0)
 
+    @pytest.mark.parametrize("value", ["60", "60.0"])
+    def test_interval_rejects_non_numeric_aliases(self, value: str) -> None:
+        with pytest.raises(ValidationError, match=r"interval: expected number, got str"):
+            ProfileConfig(interval=value)
+
+    def test_text_fields_are_canonicalized(self) -> None:
+        config = ProfileConfig(
+            name=" BigBrotr Monitor ",
+            about=" Nostr relay monitoring service ",
+            picture=" https://example.com/pic.png ",
+            nip05=" monitor@example.com ",
+            website=" https://example.com ",
+            banner=" https://example.com/banner.png ",
+            lud16=" monitor@ln.example.com ",
+        )
+
+        assert config.name == "BigBrotr Monitor"
+        assert config.about == "Nostr relay monitoring service"
+        assert config.picture == "https://example.com/pic.png"
+        assert config.nip05 == "monitor@example.com"
+        assert config.website == "https://example.com"
+        assert config.banner == "https://example.com/banner.png"
+        assert config.lud16 == "monitor@ln.example.com"
+
+    def test_blank_text_fields_collapse_to_none(self) -> None:
+        config = ProfileConfig(
+            name="   ",
+            about="   ",
+            picture="   ",
+            nip05="   ",
+            website="   ",
+            banner="   ",
+            lud16="   ",
+        )
+
+        assert config.name is None
+        assert config.about is None
+        assert config.picture is None
+        assert config.nip05 is None
+        assert config.website is None
+        assert config.banner is None
+        assert config.lud16 is None
+
+    def test_enabled_rejects_boolean_aliases(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"enabled: expected boolean, got str",
+        ):
+            ProfileConfig(enabled="false")
+
+    def test_rejects_nonempty_relay_override_without_valid_entries(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"relays: expected at least one valid relay",
+        ):
+            ProfileConfig(relays=["bad relay", "still bad"])
+
+    def test_rejects_non_string_relay_aliases(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"relays\[1\]: expected string or Relay, got bytes",
+        ):
+            ProfileConfig(relays=["wss://relay.example.com", b"wss://relay.damus.io"])
+
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            ProfileConfig.model_validate({b"enabled": False})
+
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            ProfileConfig.model_validate({"display_name": "BigBrotr"})
+
+
+class TestRelayListConfig:
+    def test_default_values(self) -> None:
+        config = RelayListConfig()
+
+        assert config.enabled is True
+        assert config.interval == 86400
+        assert config.relays is None
+
+    @pytest.mark.parametrize("value", ["60", "60.0"])
+    def test_interval_rejects_non_numeric_aliases(self, value: str) -> None:
+        with pytest.raises(ValidationError, match=r"interval: expected number, got str"):
+            RelayListConfig(interval=value)
+
+    def test_enabled_rejects_boolean_aliases(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"enabled: expected boolean, got int",
+        ):
+            RelayListConfig(enabled=0)
+
+    def test_rejects_nonempty_relay_override_without_valid_entries(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"relays: expected at least one valid relay",
+        ):
+            RelayListConfig(relays=["bad relay", "still bad"])
+
+    def test_rejects_non_string_relay_aliases(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"relays\[1\]: expected string or Relay, got bytes",
+        ):
+            RelayListConfig(relays=["wss://relay.example.com", b"wss://relay.damus.io"])
+
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            RelayListConfig.model_validate({b"enabled": False})
+
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            RelayListConfig.model_validate({"publish_interval": 60.0})
+
 
 class TestMonitorConfig:
     def test_default_values_with_geo_disabled(self, tmp_path: Path) -> None:
@@ -550,6 +1048,40 @@ class TestMonitorConfig:
         assert config.networks.tor.enabled is False
         assert config.processing.compute.nip66_geo is False
         assert config.processing.compute.nip66_net is False
+
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            MonitorConfig.model_validate(
+                {
+                    b"processing": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                }
+            )
+
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            MonitorConfig.model_validate(
+                {
+                    "processing_config": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                }
+            )
 
     def test_store_requires_compute_validation(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match="Cannot store metadata that is not computed"):
@@ -587,6 +1119,358 @@ class TestMonitorConfig:
         assert config.networks.tor.enabled is True
         assert config.networks.tor.timeout == 30.0
 
+    def test_nested_networks_reject_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "networks": {b"tor": {"enabled": True}},
+                }
+            )
+
+    @pytest.mark.parametrize(
+        ("network_name", "payload"),
+        [
+            ("clearnet", {b"timeout": 5.0}),
+            ("tor", {b"enabled": True}),
+            ("i2p", {b"max_tasks": 7}),
+            ("loki", {b"proxy_url": "socks5://lokinet:1080"}),
+        ],
+    )
+    def test_nested_network_configs_reject_non_string_field_keys(
+        self, network_name: str, payload: dict[object, object]
+    ) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "networks": {network_name: payload},
+                }
+            )
+
+    def test_nested_publishing_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "publishing": {b"relays": ["wss://relay.example.com"]},
+                }
+            )
+
+    def test_nested_publishing_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "publishing": {"publish_relays": ["wss://relay.example.com"]},
+                }
+            )
+
+    def test_nested_discovery_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        b"enabled": False,
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                }
+            )
+
+    def test_nested_discovery_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "publish_interval": 60.0,
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                }
+            )
+
+    def test_nested_announcement_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        b"enabled": False,
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                }
+            )
+
+    def test_nested_announcement_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "announce_interval": 60.0,
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                }
+            )
+
+    def test_nested_profile_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "profile": {b"enabled": False},
+                }
+            )
+
+    def test_nested_profile_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "profile": {"display_name": "BigBrotr"},
+                }
+            )
+
+    def test_nested_relay_list_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "relay_list": {b"enabled": False},
+                }
+            )
+
+    def test_nested_relay_list_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "relay_list": {"publish_interval": 60.0},
+                }
+            )
+
+    def test_nested_retry_config_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                        "retries": {"nip11_info": {b"max_attempts": 2}},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                }
+            )
+
+    def test_nested_retries_reject_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                        "retries": {b"nip11_info": {"max_attempts": 2}},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                }
+            )
+
+    def test_nested_retries_reject_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                        "retries": {"nip11": {"max_attempts": 2}},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                }
+            )
+
+    def test_nested_retry_config_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                        "retries": {"nip11_info": {"backoff": 2.0}},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                }
+            )
+
+    def test_nested_compute_flags_reject_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "compute": {b"nip11_info": False, "nip66_geo": False, "nip66_net": False},
+                        "store": {"nip11_info": True, "nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                }
+            )
+
+    def test_nested_processing_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        b"chunk_size": 50,
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                }
+            )
+
+    def test_nested_processing_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "batch_size": 50,
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                }
+            )
+
     def test_interval_config(self) -> None:
         config = MonitorConfig(
             interval=600.0,
@@ -603,6 +1487,198 @@ class TestMonitorConfig:
         )
 
         assert config.interval == 600.0
+
+    @pytest.mark.parametrize("value", ["100", 100.0])
+    def test_nested_processing_rejects_non_integer_chunk_size_aliases(self, value: object) -> None:
+        with pytest.raises(ValidationError, match=r"chunk_size: expected integer, got"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "chunk_size": value,
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                }
+            )
+
+    @pytest.mark.parametrize("value", ["100", 100.0])
+    def test_nested_processing_rejects_non_integer_max_relays_aliases(self, value: object) -> None:
+        with pytest.raises(ValidationError, match=r"max_relays: expected integer, got"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "max_relays": value,
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                }
+            )
+
+    @pytest.mark.parametrize("value", ["1048576", 1048576.0])
+    def test_nested_processing_rejects_non_integer_nip11_info_max_size_aliases(
+        self, value: object
+    ) -> None:
+        with pytest.raises(ValidationError, match=r"nip11_info_max_size: expected integer, got"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "nip11_info_max_size": value,
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                }
+            )
+
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("max_age_days", "30"),
+            ("max_age_days", 30.0),
+            ("max_download_size", "100000000"),
+            ("max_download_size", 100000000.0),
+            ("geohash_precision", "9"),
+            ("geohash_precision", 9.0),
+        ],
+    )
+    def test_nested_geo_rejects_non_integer_aliases(self, field_name: str, value: object) -> None:
+        with pytest.raises(ValidationError, match=rf"{field_name}: expected integer, got"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "geo": {field_name: value},
+                }
+            )
+
+    def test_nested_geo_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "geo": {b"max_age_days": 1},
+                }
+            )
+
+    def test_nested_geo_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "geo": {"download_url": "https://example.com/geo.mmdb"},
+                }
+            )
+
+    @pytest.mark.parametrize("value", ["2", 2.0])
+    def test_nested_retries_reject_non_integer_max_attempts_aliases(self, value: object) -> None:
+        with pytest.raises(ValidationError, match=r"max_attempts: expected integer, got"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "retries": {"nip11_info": {"max_attempts": value}},
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                }
+            )
+
+    @pytest.mark.parametrize("field_name", ["discovery", "announcement", "profile", "relay_list"])
+    @pytest.mark.parametrize("value", ["60", "60.0"])
+    def test_nested_publish_intervals_reject_non_numeric_aliases(
+        self, field_name: str, value: str
+    ) -> None:
+        with pytest.raises(ValidationError, match=r"interval: expected number, got str"):
+            MonitorConfig.model_validate({field_name: {"interval": value}})
+
+    @pytest.mark.parametrize(
+        "field_name",
+        ["publishing", "discovery", "announcement", "profile", "relay_list"],
+    )
+    def test_nested_publish_relays_reject_non_string_aliases(self, field_name: str) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"relays\[1\]: expected string or Relay, got bytes",
+        ):
+            MonitorConfig.model_validate(
+                {field_name: {"relays": ["wss://relay.example.com", b"wss://relay.damus.io"]}}
+            )
+
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("initial_delay", "1.5"),
+            ("max_delay", "10.0"),
+            ("jitter", "0.5"),
+        ],
+    )
+    def test_nested_retries_reject_non_numeric_timing_aliases(
+        self, field_name: str, value: object
+    ) -> None:
+        with pytest.raises(ValidationError, match=rf"{field_name}: expected number, got str"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "retries": {"nip11_info": {field_name: value}},
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                }
+            )
 
 
 class TestMonitorConfigValidateGeoDatabases:
@@ -624,6 +1700,20 @@ class TestMonitorConfigValidateGeoDatabases:
             pytest.raises(ValueError, match="GeoLite2 ASN database not found"),
         ):
             MonitorConfig(geo=GeoConfig(asn_download_url=""))
+
+    def test_geo_missing_city_whitespace_url_raises(self) -> None:
+        with (
+            patch("bigbrotr.services.monitor.configs.Path.exists", return_value=False),
+            pytest.raises(ValueError, match="GeoLite2 City database not found"),
+        ):
+            MonitorConfig(geo=GeoConfig(city_download_url="   "))
+
+    def test_geo_missing_asn_whitespace_url_raises(self) -> None:
+        with (
+            patch("bigbrotr.services.monitor.configs.Path.exists", return_value=False),
+            pytest.raises(ValueError, match="GeoLite2 ASN database not found"),
+        ):
+            MonitorConfig(geo=GeoConfig(asn_download_url="   "))
 
     def test_geo_check_skipped_when_compute_disabled(self) -> None:
         config = MonitorConfig(
@@ -1086,8 +2176,10 @@ class TestFetchRelaysToMonitor:
         sql = args[0][0]
         assert "FROM relay r" in sql
         assert "LEFT JOIN service_state ss" in sql
-        assert "service_name = $3" in sql
+        assert "owner = $3" in sql
         assert "state_type = $4" in sql
+        assert "jsonb_typeof(ss.state_value->'timestamp') = 'number'" in sql
+        assert "~ '^[0-9]+$'" in sql
         assert "LIMIT" not in sql
         assert args[0][1] == [NetworkType.CLEARNET]
         assert args[0][2] == 1700000000
@@ -1096,7 +2188,7 @@ class TestFetchRelaysToMonitor:
 
     async def test_returns_relay_objects(self, query_brotr: MagicMock) -> None:
         row = _make_dict_row(
-            {"url": "wss://relay.example.com", "network": "clearnet", "discovered_at": 1700000000}
+            {"url": "wss://relay.example.com", "network": "clearnet", "stored_at": 1700000000}
         )
         query_brotr.fetch = AsyncMock(return_value=[row])
 
@@ -1108,11 +2200,9 @@ class TestFetchRelaysToMonitor:
     async def test_skips_invalid_urls(self, query_brotr: MagicMock) -> None:
         rows = [
             _make_dict_row(
-                {"url": "wss://valid.relay.com", "network": "clearnet", "discovered_at": 1700000000}
+                {"url": "wss://valid.relay.com", "network": "clearnet", "stored_at": 1700000000}
             ),
-            _make_dict_row(
-                {"url": "not-valid", "network": "clearnet", "discovered_at": 1700000000}
-            ),
+            _make_dict_row({"url": "not-valid", "network": "clearnet", "stored_at": 1700000000}),
         ]
         query_brotr.fetch = AsyncMock(return_value=rows)
 
@@ -1127,29 +2217,113 @@ class TestFetchRelaysToMonitor:
         assert result == []
 
 
-class TestInsertRelayMetadata:
-    async def test_delegates_to_batched_insert(self, query_brotr: MagicMock) -> None:
-        query_brotr.insert_relay_metadata = AsyncMock(return_value=5)
+class TestMonitorRelayPages:
+    async def test_count_relays_to_monitor_uses_scalar_query(self, query_brotr: MagicMock) -> None:
+        query_brotr.fetchval = AsyncMock(return_value=9)
 
-        result = await insert_relay_metadata(query_brotr, [MagicMock(), MagicMock()])
+        result = await count_relays_to_monitor(query_brotr, 1700000000, [NetworkType.CLEARNET])
+
+        assert result == 9
+        args = query_brotr.fetchval.call_args[0]
+        assert "count(*)::int" in args[0]
+        assert "jsonb_typeof(ss.state_value->'timestamp') = 'number'" in args[0]
+        assert "~ '^[0-9]+$'" in args[0]
+        assert args[1] == [NetworkType.CLEARNET]
+        assert args[2] == 1700000000
+        assert args[3] == ServiceName.MONITOR
+        assert args[4] == ServiceStateType.CHECKPOINT
+
+    async def test_page_query_applies_limit_and_after_token(self, query_brotr: MagicMock) -> None:
+        await fetch_relays_to_monitor_page(
+            query_brotr,
+            1700000000,
+            [NetworkType.CLEARNET],
+            after=None,
+            limit=50,
+        )
+
+        args = query_brotr.fetch.call_args[0]
+        sql = args[0]
+        assert "LIMIT $8" in sql
+        assert "jsonb_typeof(ss.state_value->'timestamp') = 'number'" in sql
+        assert "~ '^[0-9]+$'" in sql
+        assert "r.url" in sql
+        assert args[8] == 50
+
+    async def test_iter_pages_respects_max_relays(self, query_brotr: MagicMock) -> None:
+        query_brotr.fetch = AsyncMock(
+            side_effect=[
+                [
+                    _make_dict_row(
+                        {
+                            "url": "wss://relay1.example.com",
+                            "network": "clearnet",
+                            "stored_at": 1,
+                            "last_monitored": 0,
+                        }
+                    ),
+                    _make_dict_row(
+                        {
+                            "url": "wss://relay2.example.com",
+                            "network": "clearnet",
+                            "stored_at": 2,
+                            "last_monitored": 0,
+                        }
+                    ),
+                ],
+                [
+                    _make_dict_row(
+                        {
+                            "url": "wss://relay3.example.com",
+                            "network": "clearnet",
+                            "stored_at": 3,
+                            "last_monitored": 0,
+                        }
+                    ),
+                ],
+            ]
+        )
+
+        pages = [
+            page
+            async for page in iter_relays_to_monitor_pages(
+                query_brotr,
+                1700000000,
+                [NetworkType.CLEARNET],
+                page_size=2,
+                max_relays=3,
+            )
+        ]
+
+        assert [[relay.url for relay in page] for page in pages] == [
+            ["wss://relay1.example.com", "wss://relay2.example.com"],
+            ["wss://relay3.example.com"],
+        ]
+
+
+class TestInsertRelayDocument:
+    async def test_delegates_to_batched_insert(self, query_brotr: MagicMock) -> None:
+        query_brotr.insert_relay_document = AsyncMock(return_value=5)
+
+        result = await insert_relay_document(query_brotr, [MagicMock(), MagicMock()])
 
         assert result == 5
-        query_brotr.insert_relay_metadata.assert_awaited_once()
+        query_brotr.insert_relay_document.assert_awaited_once()
 
     async def test_splits_large_batch(self, query_brotr: MagicMock) -> None:
         query_brotr.config.batch.max_size = 2
-        query_brotr.insert_relay_metadata = AsyncMock(return_value=2)
+        query_brotr.insert_relay_document = AsyncMock(return_value=2)
 
         records = [MagicMock() for _ in range(5)]
-        result = await insert_relay_metadata(query_brotr, records)
+        result = await insert_relay_document(query_brotr, records)
 
         assert result == 6  # 2 + 2 + 2
-        assert query_brotr.insert_relay_metadata.await_count == 3
+        assert query_brotr.insert_relay_document.await_count == 3
 
     async def test_empty_returns_zero(self, query_brotr: MagicMock) -> None:
-        result = await insert_relay_metadata(query_brotr, [])
+        result = await insert_relay_document(query_brotr, [])
         assert result == 0
-        query_brotr.insert_relay_metadata.assert_not_awaited()
+        query_brotr.insert_relay_document.assert_not_awaited()
 
 
 class TestSaveMonitoringMarkers:
@@ -1173,7 +2347,7 @@ class TestSaveMonitoringMarkers:
         states = query_brotr.upsert_service_state.call_args[0][0]
         state = states[0]
         assert isinstance(state, ServiceState)
-        assert state.service_name == ServiceName.MONITOR
+        assert state.owner == ServiceName.MONITOR
         assert state.state_type == ServiceStateType.CHECKPOINT
         assert state.state_key == relay.url
         assert state.state_value == {"timestamp": now}
@@ -1188,49 +2362,48 @@ class TestSaveMonitoringMarkers:
 
 class TestIsPublishDue:
     async def test_no_prior_state_returns_true(self, query_brotr: MagicMock) -> None:
-        query_brotr.get_service_state = AsyncMock(return_value=[])
+        query_brotr.fetch = AsyncMock(return_value=[])
         assert await is_publish_due(query_brotr, "announcement", 86400) is True
 
     async def test_interval_not_elapsed_returns_false(self, query_brotr: MagicMock) -> None:
         now = int(time.time())
-        query_brotr.get_service_state = AsyncMock(
-            return_value=[
-                ServiceState(
-                    service_name=ServiceName.MONITOR,
-                    state_type=ServiceStateType.CHECKPOINT,
-                    state_key="announcement",
-                    state_value={"timestamp": now},
-                )
-            ]
+        query_brotr.fetch = AsyncMock(
+            return_value=[{"state_key": "announcement", "state_value": {"timestamp": now}}]
         )
         assert await is_publish_due(query_brotr, "announcement", 86400) is False
 
     async def test_interval_elapsed_returns_true(self, query_brotr: MagicMock) -> None:
         old = int(time.time()) - 100_000
-        query_brotr.get_service_state = AsyncMock(
-            return_value=[
-                ServiceState(
-                    service_name=ServiceName.MONITOR,
-                    state_type=ServiceStateType.CHECKPOINT,
-                    state_key="profile",
-                    state_value={"timestamp": old},
-                )
-            ]
+        query_brotr.fetch = AsyncMock(
+            return_value=[{"state_key": "profile", "state_value": {"timestamp": old}}]
         )
         assert await is_publish_due(query_brotr, "profile", 86400) is True
 
     async def test_missing_timestamp_key_returns_true(self, query_brotr: MagicMock) -> None:
-        query_brotr.get_service_state = AsyncMock(
-            return_value=[
-                ServiceState(
-                    service_name=ServiceName.MONITOR,
-                    state_type=ServiceStateType.CHECKPOINT,
-                    state_key="announcement",
-                    state_value={},
-                )
-            ]
+        query_brotr.fetch = AsyncMock(
+            return_value=[{"state_key": "announcement", "state_value": {}}]
         )
         assert await is_publish_due(query_brotr, "announcement", 86400) is True
+
+    async def test_fractional_interval_not_elapsed_before_ceiled_checkpoint_due_time(
+        self, query_brotr: MagicMock
+    ) -> None:
+        query_brotr.fetch = AsyncMock(
+            return_value=[{"state_key": "announcement", "state_value": {"timestamp": 1001}}]
+        )
+
+        with patch("bigbrotr.services.monitor.queries.time.time", return_value=4601.8):
+            assert await is_publish_due(query_brotr, "announcement", 3600.9) is False
+
+    async def test_fractional_interval_elapsed_after_ceiled_checkpoint_due_time(
+        self, query_brotr: MagicMock
+    ) -> None:
+        query_brotr.fetch = AsyncMock(
+            return_value=[{"state_key": "announcement", "state_value": {"timestamp": 1001}}]
+        )
+
+        with patch("bigbrotr.services.monitor.queries.time.time", return_value=4601.91):
+            assert await is_publish_due(query_brotr, "announcement", 3600.9) is True
 
     async def test_invalid_key_raises(self, query_brotr: MagicMock) -> None:
         with pytest.raises(ValueError, match="invalid publish keys"):
@@ -1248,7 +2421,7 @@ class TestUpsertPublishCheckpoints:
         assert len(states) == 1
         state = states[0]
         assert isinstance(state, ServiceState)
-        assert state.service_name == ServiceName.MONITOR
+        assert state.owner == ServiceName.MONITOR
         assert state.state_type == ServiceStateType.CHECKPOINT
         assert state.state_key == "announcement"
         assert "timestamp" in state.state_value
@@ -1263,6 +2436,15 @@ class TestUpsertPublishCheckpoints:
         assert len(states) == 2
         keys = {s.state_key for s in states}
         assert keys == {"announcement", "profile"}
+
+    async def test_rounds_fractional_checkpoint_timestamp_up(self, query_brotr: MagicMock) -> None:
+        query_brotr.upsert_service_state = AsyncMock(return_value=1)
+
+        with patch("bigbrotr.services.monitor.queries.time.time", return_value=1000.2):
+            await upsert_publish_checkpoints(query_brotr, ["announcement"])
+
+        state = query_brotr.upsert_service_state.call_args[0][0][0]
+        assert state.state_value["timestamp"] == 1001
 
     async def test_empty_list_skips(self, query_brotr: MagicMock) -> None:
         query_brotr.upsert_service_state = AsyncMock(return_value=0)
@@ -1302,6 +2484,216 @@ class TestMonitorInit:
         assert Monitor.SERVICE_NAME == "monitor"
 
 
+class TestMonitorHelpers:
+    def test_publish_context_uses_monitor_dependencies(self, mock_brotr: Brotr) -> None:
+        config = _make_config()
+        monitor = Monitor(brotr=mock_brotr, config=config)
+
+        context = monitor._publish_context
+
+        assert context.brotr is mock_brotr
+        assert context.config is config
+        assert context.clients is monitor.clients
+        assert context.logger is monitor._logger
+        assert callable(context.is_due)
+        assert callable(context.broadcast)
+        assert callable(context.save_checkpoints)
+
+    def test_check_context_defaults_to_network_timeout_and_proxy(self, mock_brotr: Brotr) -> None:
+        config = _make_config(
+            networks=NetworksConfig(
+                clearnet=ClearnetConfig(timeout=5.0),
+                tor=TorConfig(enabled=True, timeout=30.0, proxy_url="socks5://tor:9050"),
+            )
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay(f"ws://{'a' * 56}.onion")
+        monitor.geo_readers.city = MagicMock()
+        monitor.geo_readers.asn = MagicMock()
+
+        context = monitor._check_context(relay, generated_at=123)
+
+        assert context.relay == relay
+        assert context.compute == config.processing.compute
+        assert context.timeout == 30.0
+        assert context.proxy_url == "socks5://tor:9050"
+        assert context.generated_at == 123
+        assert context.city_reader is monitor.geo_readers.city
+        assert context.asn_reader is monitor.geo_readers.asn
+
+    def test_check_dependencies_match_monitor_probe_functions(self, mock_brotr: Brotr) -> None:
+        monitor = Monitor(brotr=mock_brotr, config=_make_config())
+
+        deps = monitor._check_dependencies()
+
+        assert deps.retry_fetch is retry_fetch
+        assert deps.nip11_fetch.__func__ is Nip11.fetch.__func__
+        assert deps.rtt_probe.__func__ is Nip66RttMetadata.probe.__func__
+        assert deps.ssl_probe.__func__ is Nip66SslMetadata.probe.__func__
+        assert deps.geo_probe.__func__ is Nip66GeoMetadata.probe.__func__
+        assert deps.net_probe.__func__ is Nip66NetMetadata.probe.__func__
+        assert deps.dns_probe.__func__ is Nip66DnsMetadata.probe.__func__
+        assert deps.http_probe.__func__ is Nip66HttpMetadata.probe.__func__
+
+    @patch(
+        "bigbrotr.services.monitor.service.count_relays_to_monitor",
+        new_callable=AsyncMock,
+        return_value=25,
+    )
+    async def test_build_monitor_cycle_plan_caps_total_to_max_relays(
+        self,
+        mock_count: AsyncMock,
+        mock_brotr: Brotr,
+    ) -> None:
+        config = _make_config(processing=ProcessingConfig(max_relays=10, chunk_size=10))
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        monitored_before = math.ceil(1000 - config.discovery.interval)
+
+        plan = await monitor._build_monitor_cycle_plan(now=1000)
+
+        assert plan == MonitorCyclePlan(
+            networks=(NetworkType.CLEARNET,),
+            monitored_before=monitored_before,
+            max_relays=10,
+            total=10,
+            max_concurrency=monitor.network_semaphores.max_concurrency([NetworkType.CLEARNET]),
+            chunk_size=10,
+        )
+        mock_count.assert_awaited_once_with(
+            mock_brotr,
+            monitored_before,
+            [NetworkType.CLEARNET],
+        )
+
+    @patch(
+        "bigbrotr.services.monitor.service.count_relays_to_monitor",
+        new_callable=AsyncMock,
+        return_value=7,
+    )
+    async def test_build_monitor_cycle_plan_rounds_fractional_due_cutoff_up(
+        self,
+        mock_count: AsyncMock,
+        mock_brotr: Brotr,
+    ) -> None:
+        config = _make_config(discovery=DiscoveryConfig(interval=3600.9, include=_NO_GEO_NET))
+        monitor = Monitor(brotr=mock_brotr, config=config)
+
+        plan = await monitor._build_monitor_cycle_plan(now=10_000.91)
+
+        assert plan is not None
+        assert plan.monitored_before == 6401
+        mock_count.assert_awaited_once_with(
+            mock_brotr,
+            6401,
+            [NetworkType.CLEARNET],
+        )
+
+    @patch(
+        "bigbrotr.services.monitor.service.count_relays_to_monitor",
+        new_callable=AsyncMock,
+        return_value=7,
+    )
+    async def test_build_monitor_cycle_plan_uses_precise_current_time_for_fractional_due_cutoff(
+        self,
+        mock_count: AsyncMock,
+        mock_brotr: Brotr,
+    ) -> None:
+        config = _make_config(discovery=DiscoveryConfig(interval=3600.9, include=_NO_GEO_NET))
+        monitor = Monitor(brotr=mock_brotr, config=config)
+
+        with patch("bigbrotr.services.monitor.runtime.time.time", return_value=10_000.91):
+            plan = await monitor._build_monitor_cycle_plan()
+
+        assert plan is not None
+        assert plan.monitored_before == 6401
+        mock_count.assert_awaited_once_with(
+            mock_brotr,
+            6401,
+            [NetworkType.CLEARNET],
+        )
+
+    async def test_monitor_chunk_classifies_results_and_updates_gauges(
+        self, mock_brotr: Brotr
+    ) -> None:
+        monitor = Monitor(brotr=mock_brotr, config=_make_config())
+        relay1 = Relay("wss://ok.example.com")
+        relay2 = Relay("wss://fail.example.com")
+        result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=50))
+
+        async def fake_iter_concurrent(
+            _relays: list[Relay],
+            _worker: Any,
+            *,
+            max_concurrency: int | None = None,
+        ):
+            assert max_concurrency is not None
+            yield relay1, result
+            yield relay2, None
+
+        with (
+            patch.object(monitor, "_iter_concurrent", side_effect=fake_iter_concurrent),
+            patch.object(monitor, "inc_gauge") as mock_inc,
+        ):
+            outcome = await monitor._monitor_chunk(
+                [relay1, relay2],
+                MonitorCyclePlan(
+                    networks=(NetworkType.CLEARNET,),
+                    monitored_before=0,
+                    max_relays=None,
+                    total=2,
+                    max_concurrency=5,
+                    chunk_size=2,
+                ),
+            )
+
+        assert outcome.successful == ((relay1, result),)
+        assert outcome.failed == (relay2,)
+        mock_inc.assert_any_call("succeeded")
+        mock_inc.assert_any_call("failed")
+
+    async def test_persist_chunk_outcome_stores_metadata_and_checkpoints(
+        self, mock_brotr: Brotr
+    ) -> None:
+        monitor = Monitor(brotr=mock_brotr, config=_make_config())
+        relay1 = Relay("wss://ok.example.com")
+        relay2 = Relay("wss://fail.example.com")
+        result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=50))
+        outcome = MonitorChunkOutcome(successful=((relay1, result),), failed=(relay2,))
+
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.insert_relay_document",
+                new_callable=AsyncMock,
+            ) as mock_insert,
+            patch(
+                "bigbrotr.services.monitor.service.upsert_monitor_checkpoints",
+                new_callable=AsyncMock,
+            ) as mock_upsert,
+        ):
+            await monitor._persist_chunk_outcome(outcome, checked_at=123)
+
+        inserted_metadata = mock_insert.await_args.args[1]
+        assert len(inserted_metadata) == 1
+        assert inserted_metadata[0].relay == relay1
+        mock_upsert.assert_awaited_once_with(mock_brotr, [relay1, relay2], 123)
+
+    def test_log_chunk_outcome_uses_remaining_budget(self, mock_brotr: Brotr) -> None:
+        monitor = Monitor(brotr=mock_brotr, config=_make_config())
+        relay = Relay("wss://ok.example.com")
+        result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=50))
+        outcome = MonitorChunkOutcome(successful=((relay, result),), failed=())
+
+        with patch.object(monitor._logger, "info") as mock_info:
+            monitor._log_chunk_outcome(outcome, total=10, succeeded=4, failed=1)
+
+        mock_info.assert_called_once_with(
+            "chunk_completed",
+            succeeded=1,
+            failed=0,
+            remaining=5,
+        )
+
+
 # ============================================================================
 # Service: Monitor run
 # ============================================================================
@@ -1309,31 +2701,154 @@ class TestMonitorInit:
 
 class TestMonitorRun:
     @patch(
+        "bigbrotr.services.monitor.service.iter_relays_to_monitor_pages",
+        return_value=_mock_pages(),
+    )
+    @patch(
+        "bigbrotr.services.monitor.service.count_relays_to_monitor",
+        new_callable=AsyncMock,
+        return_value=0,
+    )
+    @patch(
         "bigbrotr.services.monitor.service.is_publish_due",
         new_callable=AsyncMock,
         return_value=False,
     )
-    @patch(
-        "bigbrotr.services.monitor.service.fetch_relays_to_monitor",
-        new_callable=AsyncMock,
-        return_value=[],
-    )
     async def test_run_no_relays(
         self,
-        mock_fetch: AsyncMock,
-        mock_checkpoint: AsyncMock,
+        mock_publish_due: AsyncMock,
+        mock_count: AsyncMock,
+        mock_iter_pages: MagicMock,
         mock_brotr: Brotr,
         tmp_path: Path,
     ) -> None:
         config = _make_config()
         monitor = Monitor(brotr=mock_brotr, config=config)
         monitor.clients = MagicMock()
-        monitor.clients.get = AsyncMock(return_value=None)
-        monitor.clients.get_many = AsyncMock(return_value=[])
+        monitor.clients.get_relay_client = AsyncMock(return_value=None)
+        monitor.clients.get_relay_clients = AsyncMock(return_value=[])
         monitor.clients.disconnect = AsyncMock()
         await monitor.run()
 
-        mock_fetch.assert_awaited_once()
+        mock_count.assert_awaited_once()
+        mock_iter_pages.assert_called_once()
+
+    async def test_run_calls_control_plane_publication_then_monitor(
+        self,
+        stub: _MonitorStub,
+    ) -> None:
+        calls: list[str] = []
+
+        async def publication_phase() -> None:
+            calls.append("publication")
+
+        async def monitor_cycle() -> None:
+            calls.append("monitor")
+
+        stub._run_publication_phase = AsyncMock(side_effect=publication_phase)  # type: ignore[method-assign]
+        stub.monitor = AsyncMock(side_effect=monitor_cycle)
+        stub._open_cycle_resources = AsyncMock()  # type: ignore[method-assign]
+        stub._close_cycle_resources = AsyncMock()  # type: ignore[method-assign]
+
+        await stub.run()
+
+        assert calls == ["publication", "monitor"]
+
+    async def test_run_publication_phase_calls_profile_relay_list_and_announcement(
+        self,
+        stub: _MonitorStub,
+    ) -> None:
+        calls: list[str] = []
+
+        async def publish_profile() -> None:
+            calls.append("profile")
+
+        async def publish_relay_list() -> None:
+            calls.append("relay_list")
+
+        async def publish_announcement() -> None:
+            calls.append("announcement")
+
+        stub.publish_profile = AsyncMock(side_effect=publish_profile)
+        stub.publish_relay_list = AsyncMock(side_effect=publish_relay_list)
+        stub.publish_announcement = AsyncMock(side_effect=publish_announcement)
+
+        await stub._run_publication_phase()
+
+        assert calls == ["profile", "relay_list", "announcement"]
+
+    async def test_open_cycle_resources_uses_enabled_geo_readers(
+        self,
+        mock_brotr: Brotr,
+        tmp_path: Path,
+    ) -> None:
+        config = _make_config(
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=True, nip66_net=True),
+                store=MetadataFlags(nip66_geo=True, nip66_net=True),
+            ),
+            geo=GeoConfig(
+                city_database_path=str(tmp_path / "city.mmdb"),
+                asn_database_path=str(tmp_path / "asn.mmdb"),
+                city_download_url="https://example.com/city.mmdb",
+                asn_download_url="https://example.com/asn.mmdb",
+            ),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+
+        with (
+            patch.object(monitor, "update_geo_databases", new_callable=AsyncMock) as mock_update,
+            patch.object(type(monitor.geo_readers), "open", new_callable=AsyncMock) as mock_open,
+        ):
+            await monitor._open_cycle_resources()
+
+        mock_update.assert_awaited_once()
+        mock_open.assert_awaited_once_with(
+            city_path=str(tmp_path / "city.mmdb"),
+            asn_path=str(tmp_path / "asn.mmdb"),
+        )
+
+    async def test_close_cycle_resources_disconnects_clients_and_closes_readers(
+        self,
+        mock_brotr: Brotr,
+    ) -> None:
+        monitor = Monitor(brotr=mock_brotr, config=_make_config())
+        monitor.clients = MagicMock()
+        monitor.clients.disconnect = AsyncMock()
+
+        with patch.object(type(monitor.geo_readers), "close") as mock_close:
+            await monitor._close_cycle_resources()
+
+        monitor.clients.disconnect.assert_awaited_once()
+        mock_close.assert_called_once()
+
+    async def test_run_opens_and_closes_cycle_resources(self, mock_brotr: Brotr) -> None:
+        monitor = Monitor(brotr=mock_brotr, config=_make_config())
+
+        with (
+            patch.object(
+                monitor,
+                "_open_cycle_resources",
+                new_callable=AsyncMock,
+            ) as mock_open,
+            patch.object(
+                monitor,
+                "_run_publication_phase",
+                new_callable=AsyncMock,
+            ) as mock_publication,
+            patch.object(monitor, "monitor", new_callable=AsyncMock) as mock_monitor,
+            patch.object(
+                monitor,
+                "_close_cycle_resources",
+                new_callable=AsyncMock,
+            ) as mock_close,
+        ):
+            await monitor.run()
+
+        mock_open.assert_awaited_once()
+        mock_publication.assert_awaited_once()
+        mock_monitor.assert_awaited_once()
+        mock_close.assert_awaited_once()
 
     async def test_monitor_no_networks_enabled_returns_zero(self, mock_brotr: Brotr) -> None:
         no_clearnet = MetadataFlags(
@@ -1355,6 +2870,297 @@ class TestMonitorRun:
         result = await monitor.monitor()
 
         assert result == 0
+
+    @patch(
+        "bigbrotr.services.monitor.service.iter_relays_to_monitor_pages",
+        return_value=_mock_pages(),
+    )
+    async def test_monitor_uses_cycle_plan_values(
+        self,
+        mock_iter_pages: MagicMock,
+        mock_brotr: Brotr,
+    ) -> None:
+        monitor = Monitor(brotr=mock_brotr, config=_make_config())
+        plan = MonitorCyclePlan(
+            networks=(NetworkType.CLEARNET,),
+            monitored_before=123,
+            max_relays=5,
+            total=3,
+            max_concurrency=5,
+            chunk_size=2,
+        )
+
+        with (
+            patch.object(
+                monitor,
+                "_build_monitor_cycle_plan",
+                new_callable=AsyncMock,
+                return_value=plan,
+            ),
+            patch.object(
+                monitor,
+                "_monitor_chunk",
+                new_callable=AsyncMock,
+                return_value=MonitorChunkOutcome(),
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.insert_relay_document",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.upsert_monitor_checkpoints",
+                new_callable=AsyncMock,
+            ),
+        ):
+            result = await monitor.monitor()
+
+        assert result == 0
+        mock_iter_pages.assert_called_once_with(
+            mock_brotr,
+            123,
+            [NetworkType.CLEARNET],
+            page_size=2,
+            max_relays=5,
+        )
+
+    async def test_start_monitor_progress_initializes_gauges(self, mock_brotr: Brotr) -> None:
+        monitor = Monitor(brotr=mock_brotr, config=_make_config())
+
+        with patch.object(monitor, "set_gauge") as mock_set:
+            progress = monitor._start_monitor_progress(7)
+
+        assert progress == MonitorProgress(total=7)
+        assert mock_set.call_args_list == [
+            call("total", 7),
+            call("succeeded", 0),
+            call("failed", 0),
+        ]
+
+    @patch(
+        "bigbrotr.services.monitor.service.iter_relays_to_monitor_pages",
+        return_value=_mock_pages([Relay("wss://relay.example.com")]),
+    )
+    async def test_process_monitor_pages_accumulates_progress(
+        self,
+        mock_iter_pages: MagicMock,
+        mock_brotr: Brotr,
+    ) -> None:
+        monitor = Monitor(brotr=mock_brotr, config=_make_config())
+        plan = MonitorCyclePlan(
+            networks=(NetworkType.CLEARNET,),
+            monitored_before=123,
+            max_relays=None,
+            total=4,
+            max_concurrency=5,
+            chunk_size=2,
+        )
+        outcome = MonitorChunkOutcome(
+            successful=((Relay("wss://relay.example.com"), _make_check_result()),),
+            failed=(),
+        )
+
+        with (
+            patch.object(
+                monitor,
+                "_monitor_chunk",
+                new_callable=AsyncMock,
+                return_value=outcome,
+            ) as mock_chunk,
+            patch.object(
+                monitor,
+                "_persist_chunk_outcome",
+                new_callable=AsyncMock,
+            ) as mock_persist,
+            patch.object(
+                monitor,
+                "_publish_chunk_discoveries",
+                new_callable=AsyncMock,
+            ) as mock_publish,
+            patch.object(monitor, "_log_chunk_outcome") as mock_log,
+        ):
+            progress = await monitor._process_monitor_pages(plan, MonitorProgress(total=4))
+
+        assert progress == MonitorProgress(total=4, succeeded=1, failed=0)
+        mock_iter_pages.assert_called_once_with(
+            mock_brotr,
+            123,
+            [NetworkType.CLEARNET],
+            page_size=2,
+            max_relays=None,
+        )
+        mock_chunk.assert_awaited_once()
+        mock_persist.assert_awaited_once()
+        mock_publish.assert_awaited_once_with(outcome, max_concurrency=5)
+        mock_log.assert_called_once_with(outcome, total=4, succeeded=1, failed=0)
+
+    @patch(
+        "bigbrotr.services.monitor.service.iter_relays_to_monitor_pages",
+        return_value=_mock_pages([Relay("wss://relay.example.com")]),
+    )
+    async def test_iter_monitor_pages_uses_cycle_plan_values(
+        self,
+        mock_iter_pages: MagicMock,
+        mock_brotr: Brotr,
+    ) -> None:
+        monitor = Monitor(brotr=mock_brotr, config=_make_config())
+        plan = MonitorCyclePlan(
+            networks=(NetworkType.CLEARNET,),
+            monitored_before=123,
+            max_relays=7,
+            total=4,
+            max_concurrency=5,
+            chunk_size=2,
+        )
+
+        pages = [page async for page in monitor._iter_monitor_pages(plan)]
+
+        assert len(pages) == 1
+        mock_iter_pages.assert_called_once_with(
+            mock_brotr,
+            123,
+            [NetworkType.CLEARNET],
+            page_size=2,
+            max_relays=7,
+        )
+
+    async def test_process_monitor_page_advances_progress(
+        self,
+        mock_brotr: Brotr,
+    ) -> None:
+        monitor = Monitor(brotr=mock_brotr, config=_make_config())
+        relay = Relay("wss://relay.example.com")
+        outcome = MonitorChunkOutcome(
+            successful=((relay, _make_check_result()),),
+            failed=(),
+        )
+
+        with (
+            patch.object(
+                monitor,
+                "_monitor_chunk",
+                new_callable=AsyncMock,
+                return_value=outcome,
+            ) as mock_chunk,
+            patch.object(
+                monitor,
+                "_persist_chunk_outcome",
+                new_callable=AsyncMock,
+            ) as mock_persist,
+            patch.object(
+                monitor,
+                "_publish_chunk_discoveries",
+                new_callable=AsyncMock,
+            ) as mock_publish,
+            patch.object(monitor, "_log_chunk_outcome") as mock_log,
+        ):
+            progress = await monitor._process_monitor_page(
+                [relay],
+                MonitorCyclePlan(
+                    networks=(NetworkType.CLEARNET,),
+                    monitored_before=0,
+                    max_relays=None,
+                    total=4,
+                    max_concurrency=5,
+                    chunk_size=2,
+                ),
+                MonitorProgress(total=4),
+            )
+
+        assert progress == MonitorProgress(total=4, succeeded=1, failed=0)
+        mock_chunk.assert_awaited_once()
+        mock_persist.assert_awaited_once()
+        mock_publish.assert_awaited_once_with(outcome, max_concurrency=5)
+        mock_log.assert_called_once_with(outcome, total=4, succeeded=1, failed=0)
+
+    async def test_process_monitor_page_rounds_fractional_checkpoint_timestamp_up(
+        self,
+        mock_brotr: Brotr,
+    ) -> None:
+        monitor = Monitor(brotr=mock_brotr, config=_make_config())
+        relay = Relay("wss://relay.example.com")
+        outcome = MonitorChunkOutcome(
+            successful=((relay, _make_check_result()),),
+            failed=(),
+        )
+
+        with (
+            patch.object(
+                monitor,
+                "_monitor_chunk",
+                new_callable=AsyncMock,
+                return_value=outcome,
+            ),
+            patch.object(
+                monitor,
+                "_persist_chunk_outcome",
+                new_callable=AsyncMock,
+            ) as mock_persist,
+            patch.object(
+                monitor,
+                "_publish_chunk_discoveries",
+                new_callable=AsyncMock,
+            ),
+            patch.object(monitor, "_log_chunk_outcome"),
+            patch("bigbrotr.services.monitor.service.time.time", return_value=10_000.2),
+        ):
+            await monitor._process_monitor_page(
+                [relay],
+                MonitorCyclePlan(
+                    networks=(NetworkType.CLEARNET,),
+                    monitored_before=0,
+                    max_relays=None,
+                    total=1,
+                    max_concurrency=5,
+                    chunk_size=1,
+                ),
+                MonitorProgress(total=1),
+            )
+
+        mock_persist.assert_awaited_once_with(outcome, checked_at=10_001)
+
+    async def test_process_monitor_page_persists_before_discovery_publication(
+        self,
+        mock_brotr: Brotr,
+    ) -> None:
+        monitor = Monitor(brotr=mock_brotr, config=_make_config())
+        relay = Relay("wss://relay.example.com")
+        outcome = MonitorChunkOutcome(
+            successful=((relay, _make_check_result()),),
+            failed=(),
+        )
+        calls: list[str] = []
+
+        async def persist(*args: object, **kwargs: object) -> None:
+            calls.append("persist")
+
+        async def publish(*args: object, **kwargs: object) -> None:
+            calls.append("publish")
+
+        with (
+            patch.object(
+                monitor,
+                "_monitor_chunk",
+                new_callable=AsyncMock,
+                return_value=outcome,
+            ),
+            patch.object(monitor, "_persist_chunk_outcome", side_effect=persist),
+            patch.object(monitor, "_publish_chunk_discoveries", side_effect=publish),
+            patch.object(monitor, "_log_chunk_outcome"),
+        ):
+            await monitor._process_monitor_page(
+                [relay],
+                MonitorCyclePlan(
+                    networks=(NetworkType.CLEARNET,),
+                    monitored_before=0,
+                    max_relays=None,
+                    total=1,
+                    max_concurrency=5,
+                    chunk_size=1,
+                ),
+                MonitorProgress(total=1),
+            )
+
+        assert calls == ["persist", "publish"]
 
 
 # ============================================================================
@@ -1467,6 +3273,33 @@ class TestMonitoringWorker:
         assert r is relay
         assert res is result
 
+    async def test_discovery_publish_failure_does_not_change_worker_result(
+        self, mock_brotr: Brotr
+    ) -> None:
+        config = _make_config()
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+        result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=100))
+
+        with (
+            patch.object(
+                Monitor,
+                "check_relay",
+                new_callable=AsyncMock,
+                return_value=result,
+            ),
+            patch.object(
+                Monitor,
+                "publish_discovery",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("publish failed"),
+            ) as mock_publish,
+        ):
+            results = [item async for item in monitor._monitor_worker(relay)]
+
+        assert results == [(relay, result)]
+        mock_publish.assert_not_awaited()
+
     async def test_empty_result_returns_none(self, mock_brotr: Brotr) -> None:
         config = _make_config()
         monitor = Monitor(brotr=mock_brotr, config=config)
@@ -1501,6 +3334,36 @@ class TestMonitoringWorker:
 
         assert r is relay
         assert res is None
+
+    async def test_publish_chunk_discoveries_logs_and_continues_on_failure(
+        self, mock_brotr: Brotr
+    ) -> None:
+        config = _make_config()
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        monitor._logger = MagicMock()
+        relay_ok = Relay("wss://ok.example.com")
+        relay_fail = Relay("wss://fail.example.com")
+        result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=100))
+
+        async def publish(relay: Relay, _result: CheckResult) -> None:
+            if relay.url == relay_fail.url:
+                raise RuntimeError("publish failed")
+
+        with patch.object(monitor, "publish_discovery", side_effect=publish):
+            await monitor._publish_chunk_discoveries(
+                MonitorChunkOutcome(
+                    successful=((relay_ok, result), (relay_fail, result)),
+                    failed=(),
+                ),
+                max_concurrency=2,
+            )
+
+        monitor._logger.error.assert_called_once_with(
+            "publish_discovery_failed",
+            relay=relay_fail.url,
+            error="publish failed",
+            error_type="RuntimeError",
+        )
 
     @pytest.mark.parametrize("exc_type", [asyncio.CancelledError, KeyboardInterrupt, SystemExit])
     async def test_fatal_exception_propagates(
@@ -1557,7 +3420,7 @@ class TestPublishAnnouncement:
             return_value=False,
         ):
             await stub.publish_announcement()
-            stub.clients.get_many.assert_not_awaited()
+            stub.clients.get_relay_clients.assert_not_awaited()
 
     async def test_publish_announcement_no_prior_state(self, stub: _MonitorStub) -> None:
         with (
@@ -1567,9 +3430,9 @@ class TestPublishAnnouncement:
                 return_value=True,
             ),
             patch(
-                "bigbrotr.services.monitor.service.broadcast_events",
+                "bigbrotr.services.monitor.service.broadcast_events_detailed",
                 new_callable=AsyncMock,
-                return_value=1,
+                return_value=_broadcast_results(),
             ) as mock_broadcast,
             patch(
                 "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
@@ -1580,7 +3443,12 @@ class TestPublishAnnouncement:
 
         mock_broadcast.assert_awaited_once()
         mock_save.assert_awaited_once()
-        stub._logger.info.assert_called_with("publish_completed", event="announcement", relays=1)
+        stub._logger.info.assert_called_with(
+            "publish_completed",
+            event="announcement",
+            relays=1,
+            failed_relays=0,
+        )
 
     async def test_publish_announcement_interval_elapsed(self, stub: _MonitorStub) -> None:
         with (
@@ -1590,9 +3458,9 @@ class TestPublishAnnouncement:
                 return_value=True,
             ),
             patch(
-                "bigbrotr.services.monitor.service.broadcast_events",
+                "bigbrotr.services.monitor.service.broadcast_events_detailed",
                 new_callable=AsyncMock,
-                return_value=1,
+                return_value=_broadcast_results(),
             ) as mock_broadcast,
             patch(
                 "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
@@ -1604,8 +3472,13 @@ class TestPublishAnnouncement:
         mock_broadcast.assert_awaited_once()
         mock_save.assert_awaited_once()
 
-    async def test_publish_announcement_no_reachable_clients(self, stub: _MonitorStub) -> None:
-        stub.clients.get_many = AsyncMock(return_value=[])
+    async def test_publish_announcement_rounds_public_frequency_and_timeout_up(self) -> None:
+        config = _make_config(
+            discovery=DiscoveryConfig(interval=3600.9, include=_NO_GEO_NET),
+            networks=NetworksConfig(clearnet=ClearnetConfig(timeout=1.001)),
+        )
+        stub = _MonitorStub(config, Keys.generate())
+
         with (
             patch(
                 "bigbrotr.services.monitor.service.is_publish_due",
@@ -1613,7 +3486,66 @@ class TestPublishAnnouncement:
                 return_value=True,
             ),
             patch(
-                "bigbrotr.services.monitor.service.broadcast_events",
+                "bigbrotr.services.monitor.service.build_monitor_announcement",
+                return_value=MagicMock(),
+            ) as mock_builder,
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events_detailed",
+                new_callable=AsyncMock,
+                return_value=_broadcast_results(),
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await stub.publish_announcement()
+
+        assert mock_builder.call_args is not None
+        assert mock_builder.call_args.kwargs["interval"] == 3601
+        assert mock_builder.call_args.kwargs["timeout_ms"] == 1001
+
+    async def test_publish_announcement_passes_canonicalized_geohash(self) -> None:
+        config = _make_config(
+            announcement=AnnouncementConfig(include=_NO_GEO_NET, geohash=" u0nd9f "),
+        )
+        stub = _MonitorStub(config, Keys.generate())
+
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.is_publish_due",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.build_monitor_announcement",
+                return_value=MagicMock(),
+            ) as mock_builder,
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events_detailed",
+                new_callable=AsyncMock,
+                return_value=_broadcast_results(),
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await stub.publish_announcement()
+
+        assert mock_builder.call_args is not None
+        assert mock_builder.call_args.kwargs["geohash"] == "u0nd9f"
+
+    async def test_publish_announcement_no_reachable_clients(self, stub: _MonitorStub) -> None:
+        stub.clients.get_relay_clients = AsyncMock(return_value=[])
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.is_publish_due",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events_detailed",
                 new_callable=AsyncMock,
             ) as mock_broadcast,
         ):
@@ -1632,9 +3564,12 @@ class TestPublishAnnouncement:
                 return_value=True,
             ),
             patch(
-                "bigbrotr.services.monitor.service.broadcast_events",
+                "bigbrotr.services.monitor.service.broadcast_events_detailed",
                 new_callable=AsyncMock,
-                return_value=0,
+                return_value=_broadcast_results(
+                    successful_relays=(),
+                    failed_relays={"wss://publish.example.com": "timeout"},
+                ),
             ),
             patch(
                 "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
@@ -1646,7 +3581,10 @@ class TestPublishAnnouncement:
         mock_save.assert_not_awaited()
         stub._logger.warning.assert_called_once()
         stub._logger.warning.assert_called_once_with(
-            "publish_failed", event="announcement", error="no relays reachable"
+            "publish_failed",
+            event="announcement",
+            error="no relays accepted event",
+            failed_relays={"wss://publish.example.com": "timeout"},
         )
 
 
@@ -1684,7 +3622,7 @@ class TestPublishProfile:
             return_value=False,
         ):
             await stub.publish_profile()
-            stub.clients.get_many.assert_not_awaited()
+            stub.clients.get_relay_clients.assert_not_awaited()
 
     async def test_publish_profile_successful(self, stub: _MonitorStub) -> None:
         with (
@@ -1694,9 +3632,9 @@ class TestPublishProfile:
                 return_value=True,
             ),
             patch(
-                "bigbrotr.services.monitor.service.broadcast_events",
+                "bigbrotr.services.monitor.service.broadcast_events_detailed",
                 new_callable=AsyncMock,
-                return_value=1,
+                return_value=_broadcast_results(),
             ) as mock_broadcast,
             patch(
                 "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
@@ -1707,10 +3645,28 @@ class TestPublishProfile:
 
         mock_broadcast.assert_awaited_once()
         mock_save.assert_awaited_once()
-        stub._logger.info.assert_called_with("publish_completed", event="profile", relays=1)
+        stub._logger.info.assert_called_with(
+            "publish_completed",
+            event="profile",
+            relays=1,
+            failed_relays=0,
+        )
 
-    async def test_publish_profile_no_reachable_clients(self, stub: _MonitorStub) -> None:
-        stub.clients.get_many = AsyncMock(return_value=[])
+    async def test_publish_profile_passes_canonicalized_text_fields(self, test_keys: Keys) -> None:
+        config = _make_config(
+            profile=ProfileConfig(
+                enabled=True,
+                name=" Monitor ",
+                about="   ",
+                picture="   ",
+                website=" https://example.com ",
+                banner="   ",
+                lud16="   ",
+            )
+        )
+        harness = _MonitorStub(config, test_keys)
+        fake_builder = MagicMock()
+
         with (
             patch(
                 "bigbrotr.services.monitor.service.is_publish_due",
@@ -1718,7 +3674,41 @@ class TestPublishProfile:
                 return_value=True,
             ),
             patch(
-                "bigbrotr.services.monitor.service.broadcast_events",
+                "bigbrotr.services.monitor.service.build_profile_event",
+                return_value=fake_builder,
+            ) as mock_build,
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events_detailed",
+                new_callable=AsyncMock,
+                return_value=_broadcast_results(),
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await harness.publish_profile()
+
+        mock_build.assert_called_once_with(
+            name="Monitor",
+            about=None,
+            picture=None,
+            nip05=None,
+            website="https://example.com",
+            banner=None,
+            lud16=None,
+        )
+
+    async def test_publish_profile_no_reachable_clients(self, stub: _MonitorStub) -> None:
+        stub.clients.get_relay_clients = AsyncMock(return_value=[])
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.is_publish_due",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events_detailed",
                 new_callable=AsyncMock,
             ) as mock_broadcast,
         ):
@@ -1737,9 +3727,12 @@ class TestPublishProfile:
                 return_value=True,
             ),
             patch(
-                "bigbrotr.services.monitor.service.broadcast_events",
+                "bigbrotr.services.monitor.service.broadcast_events_detailed",
                 new_callable=AsyncMock,
-                return_value=0,
+                return_value=_broadcast_results(
+                    successful_relays=(),
+                    failed_relays={"wss://publish.example.com": "timeout"},
+                ),
             ),
             patch(
                 "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
@@ -1751,7 +3744,10 @@ class TestPublishProfile:
         mock_save.assert_not_awaited()
         stub._logger.warning.assert_called_once()
         stub._logger.warning.assert_called_once_with(
-            "publish_failed", event="profile", error="no relays reachable"
+            "publish_failed",
+            event="profile",
+            error="no relays accepted event",
+            failed_relays={"wss://publish.example.com": "timeout"},
         )
 
 
@@ -1774,6 +3770,7 @@ class TestPublishRelayList:
         stub._config = _make_config(
             relay_list=RelayListConfig(enabled=True, relays=["wss://custom.relay.com"]),
         )
+        stub._reset_publish_context()
         with (
             patch(
                 "bigbrotr.services.monitor.service.is_publish_due",
@@ -1781,9 +3778,9 @@ class TestPublishRelayList:
                 return_value=True,
             ),
             patch(
-                "bigbrotr.services.monitor.service.broadcast_events",
+                "bigbrotr.services.monitor.service.broadcast_events_detailed",
                 new_callable=AsyncMock,
-                return_value=1,
+                return_value=_broadcast_results(),
             ),
             patch(
                 "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
@@ -1791,8 +3788,8 @@ class TestPublishRelayList:
             ),
         ):
             await stub.publish_relay_list()
-        stub.clients.get_many.assert_awaited_once()
-        call_relays = stub.clients.get_many.call_args[0][0]
+        stub.clients.get_relay_clients.assert_awaited_once()
+        call_relays = stub.clients.get_relay_clients.call_args[0][0]
         assert len(call_relays) == 1
         assert call_relays[0].url == "wss://custom.relay.com"
 
@@ -1815,7 +3812,7 @@ class TestPublishRelayList:
             return_value=False,
         ):
             await stub.publish_relay_list()
-            stub.clients.get_many.assert_not_awaited()
+            stub.clients.get_relay_clients.assert_not_awaited()
 
     async def test_successful(self, stub: _MonitorStub) -> None:
         with (
@@ -1825,9 +3822,9 @@ class TestPublishRelayList:
                 return_value=True,
             ),
             patch(
-                "bigbrotr.services.monitor.service.broadcast_events",
+                "bigbrotr.services.monitor.service.broadcast_events_detailed",
                 new_callable=AsyncMock,
-                return_value=1,
+                return_value=_broadcast_results(),
             ) as mock_broadcast,
             patch(
                 "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
@@ -1838,10 +3835,15 @@ class TestPublishRelayList:
 
         mock_broadcast.assert_awaited_once()
         mock_save.assert_awaited_once_with(stub._brotr, ["relay_list"])
-        stub._logger.info.assert_called_with("publish_completed", event="relay_list", relays=1)
+        stub._logger.info.assert_called_with(
+            "publish_completed",
+            event="relay_list",
+            relays=1,
+            failed_relays=0,
+        )
 
     async def test_no_reachable_clients(self, stub: _MonitorStub) -> None:
-        stub.clients.get_many = AsyncMock(return_value=[])
+        stub.clients.get_relay_clients = AsyncMock(return_value=[])
         with (
             patch(
                 "bigbrotr.services.monitor.service.is_publish_due",
@@ -1849,7 +3851,7 @@ class TestPublishRelayList:
                 return_value=True,
             ),
             patch(
-                "bigbrotr.services.monitor.service.broadcast_events",
+                "bigbrotr.services.monitor.service.broadcast_events_detailed",
                 new_callable=AsyncMock,
             ) as mock_broadcast,
         ):
@@ -1868,9 +3870,12 @@ class TestPublishRelayList:
                 return_value=True,
             ),
             patch(
-                "bigbrotr.services.monitor.service.broadcast_events",
+                "bigbrotr.services.monitor.service.broadcast_events_detailed",
                 new_callable=AsyncMock,
-                return_value=0,
+                return_value=_broadcast_results(
+                    successful_relays=(),
+                    failed_relays={"wss://publish.example.com": "timeout"},
+                ),
             ),
             patch(
                 "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
@@ -1881,7 +3886,10 @@ class TestPublishRelayList:
 
         mock_save.assert_not_awaited()
         stub._logger.warning.assert_called_once_with(
-            "publish_failed", event="relay_list", error="no relays reachable"
+            "publish_failed",
+            event="relay_list",
+            error="no relays accepted event",
+            failed_relays={"wss://publish.example.com": "timeout"},
         )
 
 
@@ -1898,7 +3906,7 @@ class TestPublishDiscovery:
         result = _make_check_result(nip11_info=_make_nip11_meta(name="Test"))
 
         with patch(
-            "bigbrotr.services.monitor.service.broadcast_events",
+            "bigbrotr.services.monitor.service.broadcast_events_detailed",
             new_callable=AsyncMock,
         ) as mock_broadcast:
             await monitor.publish_discovery(relay, result)
@@ -1911,7 +3919,7 @@ class TestPublishDiscovery:
         result = _make_check_result(nip11_info=_make_nip11_meta(name="Test"))
 
         with patch(
-            "bigbrotr.services.monitor.service.broadcast_events",
+            "bigbrotr.services.monitor.service.broadcast_events_detailed",
             new_callable=AsyncMock,
         ) as mock_broadcast:
             await monitor.publish_discovery(relay, result)
@@ -1926,12 +3934,12 @@ class TestPublishDiscovery:
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
         monitor.clients = MagicMock()
-        monitor.clients.get_many = AsyncMock(return_value=[])
+        monitor.clients.get_relay_clients = AsyncMock(return_value=[])
         relay = Relay("wss://relay.example.com")
         result = _make_check_result(nip11_info=_make_nip11_meta(name="Test"))
 
         with patch(
-            "bigbrotr.services.monitor.service.broadcast_events",
+            "bigbrotr.services.monitor.service.broadcast_events_detailed",
             new_callable=AsyncMock,
         ) as mock_broadcast:
             await monitor.publish_discovery(relay, result)
@@ -1946,14 +3954,14 @@ class TestPublishDiscovery:
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
         monitor.clients = MagicMock()
-        monitor.clients.get_many = AsyncMock(return_value=[AsyncMock()])
+        monitor.clients.get_relay_clients = AsyncMock(return_value=[AsyncMock()])
         relay = Relay("wss://relay.example.com")
         result = _make_check_result(nip11_info=_make_nip11_meta(name="Test Relay"))
 
         with patch(
-            "bigbrotr.services.monitor.service.broadcast_events",
+            "bigbrotr.services.monitor.service.broadcast_events_detailed",
             new_callable=AsyncMock,
-            return_value=1,
+            return_value=_broadcast_results(),
         ) as mock_broadcast:
             await monitor.publish_discovery(relay, result)
 
@@ -1968,7 +3976,7 @@ class TestPublishDiscovery:
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
         monitor.clients = MagicMock()
-        monitor.clients.get_many = AsyncMock(return_value=[AsyncMock()])
+        monitor.clients.get_relay_clients = AsyncMock(return_value=[AsyncMock()])
         relay = Relay("wss://relay.example.com")
         result = _make_check_result()
 
@@ -1978,7 +3986,7 @@ class TestPublishDiscovery:
                 side_effect=ValueError("build failed"),
             ),
             patch(
-                "bigbrotr.services.monitor.service.broadcast_events",
+                "bigbrotr.services.monitor.service.broadcast_events_detailed",
                 new_callable=AsyncMock,
             ) as mock_broadcast,
         ):
@@ -1994,17 +4002,27 @@ class TestPublishDiscovery:
             ),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
+        monitor._logger = MagicMock()
         monitor.clients = MagicMock()
-        monitor.clients.get_many = AsyncMock(return_value=[AsyncMock()])
+        monitor.clients.get_relay_clients = AsyncMock(return_value=[AsyncMock()])
         relay = Relay("wss://relay.example.com")
         result = _make_check_result(nip11_info=_make_nip11_meta(name="Test"))
 
         with patch(
-            "bigbrotr.services.monitor.service.broadcast_events",
+            "bigbrotr.services.monitor.service.broadcast_events_detailed",
             new_callable=AsyncMock,
-            return_value=0,
+            return_value=_broadcast_results(
+                successful_relays=(),
+                failed_relays={"wss://publish.example.com": "timeout"},
+            ),
         ):
             await monitor.publish_discovery(relay, result)
+
+        monitor._logger.debug.assert_any_call(
+            "discovery_broadcast_failed",
+            url=relay.url,
+            failed_relays={"wss://publish.example.com": "timeout"},
+        )
 
 
 # ============================================================================
@@ -2033,19 +4051,23 @@ class TestMonitorMetrics:
                 yield (relay, None)
 
         monitor.clients = MagicMock()
-        monitor.clients.get = AsyncMock(return_value=None)
-        monitor.clients.get_many = AsyncMock(return_value=[])
+        monitor.clients.get_relay_client = AsyncMock(return_value=None)
+        monitor.clients.get_relay_clients = AsyncMock(return_value=[])
         monitor.clients.disconnect = AsyncMock()
 
         with (
             patch(
-                "bigbrotr.services.monitor.service.fetch_relays_to_monitor",
+                "bigbrotr.services.monitor.service.count_relays_to_monitor",
                 new_callable=AsyncMock,
-                return_value=[relay1, relay2],
+                return_value=2,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.iter_relays_to_monitor_pages",
+                return_value=_mock_pages([relay1, relay2]),
             ),
             patch.object(monitor, "_monitor_worker", side_effect=fake_monitor_worker),
             patch(
-                "bigbrotr.services.monitor.service.insert_relay_metadata",
+                "bigbrotr.services.monitor.service.insert_relay_document",
                 new_callable=AsyncMock,
             ),
             patch(
@@ -2344,6 +4366,27 @@ class TestCheckRelay:
         assert not result.has_data
         assert result.generated_at == 0
 
+    async def test_check_relay_rounds_fractional_generated_at_up(
+        self,
+        mock_brotr: Brotr,
+    ) -> None:
+        config = self._cfg(nip11_info=True)
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+        nip11_meta = _make_nip11_meta(name="Test")
+
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.retry_fetch",
+                new_callable=AsyncMock,
+                return_value=nip11_meta,
+            ),
+            patch("bigbrotr.services.monitor.service.time.time", return_value=10_000.2),
+        ):
+            result = await monitor.check_relay(relay)
+
+        assert result.generated_at == 10_001
+
     async def test_check_relay_rtt_skips_pow_when_nip11_absent(self, mock_brotr: Brotr) -> None:
         config = self._cfg(nip11_info=True, nip66_rtt=True)
         monitor = Monitor(brotr=mock_brotr, config=config)
@@ -2360,7 +4403,7 @@ class TestCheckRelay:
         assert result.nip11_info is None
         assert result.nip66_rtt is rtt_meta
 
-    async def test_check_relay_nip11_closure_calls_create(self, mock_brotr: Brotr) -> None:
+    async def test_check_relay_nip11_closure_calls_fetch(self, mock_brotr: Brotr) -> None:
         config = self._cfg(nip11_info=True)
         monitor = Monitor(brotr=mock_brotr, config=config)
         relay = Relay("wss://relay.example.com")
@@ -2375,14 +4418,14 @@ class TestCheckRelay:
         with (
             patch("bigbrotr.services.monitor.service.retry_fetch", side_effect=call_through),
             patch(
-                "bigbrotr.services.monitor.service.Nip11.create",
+                "bigbrotr.services.monitor.service.Nip11.fetch",
                 new_callable=AsyncMock,
                 return_value=mock_nip11,
-            ) as mock_create,
+            ) as mock_fetch,
         ):
             result = await monitor.check_relay(relay)
 
-        mock_create.assert_awaited_once()
+        mock_fetch.assert_awaited_once()
         assert result.nip11_info is nip11_meta
 
     async def test_check_relay_rtt_with_pow(self, mock_brotr: Brotr) -> None:
@@ -2575,13 +4618,17 @@ class TestMonitorMaxRelaysBudget:
 
         with (
             patch(
-                "bigbrotr.services.monitor.service.fetch_relays_to_monitor",
+                "bigbrotr.services.monitor.service.count_relays_to_monitor",
                 new_callable=AsyncMock,
-                return_value=[relay1, relay2, relay3],
+                return_value=3,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.iter_relays_to_monitor_pages",
+                return_value=_mock_pages([relay1, relay2, relay3]),
             ),
             patch.object(monitor, "_monitor_worker", side_effect=fake_worker),
             patch(
-                "bigbrotr.services.monitor.service.insert_relay_metadata",
+                "bigbrotr.services.monitor.service.insert_relay_document",
                 new_callable=AsyncMock,
             ),
             patch(
@@ -2605,7 +4652,6 @@ class TestMonitorMaxRelaysBudget:
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
         relay1 = Relay("wss://r1.example.com")
-        relay2 = Relay("wss://r2.example.com")
         result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=50))
 
         async def fake_worker(relay: Relay):
@@ -2616,13 +4662,17 @@ class TestMonitorMaxRelaysBudget:
 
         with (
             patch(
-                "bigbrotr.services.monitor.service.fetch_relays_to_monitor",
+                "bigbrotr.services.monitor.service.count_relays_to_monitor",
                 new_callable=AsyncMock,
-                return_value=[relay1, relay2],
+                return_value=2,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.iter_relays_to_monitor_pages",
+                return_value=_mock_pages([relay1]),
             ),
             patch.object(monitor, "_monitor_worker", side_effect=fake_worker),
             patch(
-                "bigbrotr.services.monitor.service.insert_relay_metadata",
+                "bigbrotr.services.monitor.service.insert_relay_document",
                 new_callable=AsyncMock,
             ),
             patch(
@@ -2653,9 +4703,13 @@ class TestMonitorMaxRelaysBudget:
 
         with (
             patch(
-                "bigbrotr.services.monitor.service.fetch_relays_to_monitor",
+                "bigbrotr.services.monitor.service.count_relays_to_monitor",
                 new_callable=AsyncMock,
-                return_value=[relay1, relay2],
+                return_value=2,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.iter_relays_to_monitor_pages",
+                return_value=_mock_pages([relay1, relay2]),
             ),
         ):
             total = await monitor.monitor()
@@ -2822,14 +4876,14 @@ class TestRetryFetch:
 
 
 # ============================================================================
-# Collect Metadata
+# Collect Document
 # ============================================================================
 
 
-class TestCollectMetadata:
+class TestCollectDocuments:
     def test_empty_input(self) -> None:
         store = MetadataFlags()
-        result = collect_metadata([], store)
+        result = collect_documents([], store)
 
         assert result == []
 
@@ -2847,11 +4901,11 @@ class TestCollectMetadata:
             nip66_http=True,
         )
 
-        result = collect_metadata([(relay, check_result)], store)
+        result = collect_documents([(relay, check_result)], store)
 
         assert len(result) == 1
         assert result[0].relay is relay
-        assert result[0].generated_at == 1700000000
+        assert result[0].associated_at == 1700000000
 
     def test_skips_disabled_types(self) -> None:
         relay = Relay("wss://relay.example.com")
@@ -2859,7 +4913,7 @@ class TestCollectMetadata:
         check_result = _make_check_result(generated_at=1700000000, nip11_info=nip11_meta)
         store = MetadataFlags(nip11_info=False)
 
-        result = collect_metadata([(relay, check_result)], store)
+        result = collect_documents([(relay, check_result)], store)
 
         assert len(result) == 0
 
@@ -2868,7 +4922,7 @@ class TestCollectMetadata:
         check_result = _make_check_result(generated_at=1700000000)
         store = MetadataFlags()
 
-        result = collect_metadata([(relay, check_result)], store)
+        result = collect_documents([(relay, check_result)], store)
 
         assert len(result) == 0
 
@@ -2881,6 +4935,6 @@ class TestCollectMetadata:
         result2 = _make_check_result(generated_at=200, nip11_info=nip11)
         store = MetadataFlags()
 
-        result = collect_metadata([(relay1, result1), (relay2, result2)], store)
+        result = collect_documents([(relay1, result1), (relay2, result2)], store)
 
         assert len(result) == 3

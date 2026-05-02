@@ -10,13 +10,53 @@ See Also:
 
 from __future__ import annotations
 
-from pydantic import Field, field_validator, model_validator
+from typing import Any, ClassVar, cast
 
-from bigbrotr.core.base_service import BaseServiceConfig
-from bigbrotr.services.common.configs import TableConfig  # noqa: TC001 (Pydantic runtime)
+from pydantic import ConfigDict, Field, ValidationInfo, field_validator, model_validator
+
+from bigbrotr.services.common.configs import PublicReadAdapterConfig
 
 
-class ApiConfig(BaseServiceConfig):
+def _require_number(value: Any, field_name: str) -> int | float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_name}: expected number, got {type(value).__name__}")
+    return cast("int | float", value)
+
+
+def _require_int(value: Any, field_name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field_name}: expected integer, got {type(value).__name__}")
+    return cast("int", value)
+
+
+def _normalize_non_blank_string(value: Any, field_name: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name}: expected string, got {type(value).__name__}")
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError(f"{field_name} must not be blank")
+    return normalized
+
+
+def _normalize_non_blank_string_items(values: Any, field_name: str) -> list[str]:
+    if not isinstance(values, list | tuple):
+        raise ValueError(f"{field_name}: expected list of strings, got {type(values).__name__}")
+    normalized_values: list[str] = []
+    seen_values: set[str] = set()
+    for index, value in enumerate(values):
+        if not isinstance(value, str):
+            raise ValueError(f"{field_name}[{index}]: expected string, got {type(value).__name__}")
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError(f"{field_name}[{index}] must not be blank")
+        if normalized in seen_values:
+            continue
+        seen_values.add(normalized)
+        normalized_values.append(normalized)
+    return normalized_values
+
+
+class ApiConfig(PublicReadAdapterConfig):
     """Configuration for the API service.
 
     Attributes:
@@ -25,11 +65,14 @@ class ApiConfig(BaseServiceConfig):
         route_prefix: URL prefix for all API routes (e.g. ``/v1``, ``/api/v1``).
         max_page_size: Hard ceiling on the ``limit`` query parameter.
         default_page_size: Default ``limit`` when not specified.
-        tables: Per-table access policies.  Tables not listed here
-            default to disabled.
+        read_models: Adapter-local protocol exposure policy. Read models not
+            listed here default to disabled.
         cors_origins: Allowed CORS origins.  Empty list disables CORS.
         request_timeout: HTTP request timeout in seconds.
     """
+
+    READ_SURFACE: ClassVar[str] = "api"
+    model_config = ConfigDict(extra="forbid")
 
     title: str = Field(
         default="BigBrotr API",
@@ -52,22 +95,6 @@ class ApiConfig(BaseServiceConfig):
         min_length=1,
         description="URL prefix for all API routes",
     )
-    max_page_size: int = Field(
-        default=1000,
-        ge=1,
-        le=10000,
-        description="Hard ceiling on the limit query parameter",
-    )
-    default_page_size: int = Field(
-        default=100,
-        ge=1,
-        le=10000,
-        description="Default limit when not specified",
-    )
-    tables: dict[str, TableConfig] = Field(
-        default_factory=dict,
-        description="Per-table access policies",
-    )
     cors_origins: list[str] = Field(
         default_factory=list,
         description="Allowed CORS origins (empty = disabled)",
@@ -79,24 +106,47 @@ class ApiConfig(BaseServiceConfig):
         description="Per-request timeout in seconds",
     )
 
-    @field_validator("route_prefix")
+    @field_validator("request_timeout", mode="before")
     @classmethod
-    def _normalize_route_prefix(cls, v: str) -> str:
-        v = v.strip("/")
+    def _require_numeric_request_timeout(cls, value: Any, info: ValidationInfo) -> int | float:
+        field_name = info.field_name or "value"
+        return _require_number(value, field_name)
+
+    @field_validator("port", mode="before")
+    @classmethod
+    def _require_integer_port(cls, value: Any, info: ValidationInfo) -> int:
+        field_name = info.field_name or "value"
+        return _require_int(value, field_name)
+
+    @field_validator("host", mode="before")
+    @classmethod
+    def _normalize_host(cls, value: Any, info: ValidationInfo) -> str:
+        field_name = info.field_name or "value"
+        return _normalize_non_blank_string(value, field_name)
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def _normalize_title(cls, value: Any, info: ValidationInfo) -> str:
+        field_name = info.field_name or "value"
+        return _normalize_non_blank_string(value, field_name)
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _normalize_cors_origins(cls, value: Any, info: ValidationInfo) -> list[str]:
+        field_name = info.field_name or "value"
+        return _normalize_non_blank_string_items(value, field_name)
+
+    @field_validator("route_prefix", mode="before")
+    @classmethod
+    def _normalize_route_prefix(cls, value: Any, info: ValidationInfo) -> str:
+        field_name = info.field_name or "value"
+        if not isinstance(value, str):
+            raise ValueError(f"{field_name}: expected string, got {type(value).__name__}")
+        v = value.strip().strip("/")
         if not v:
             msg = "route_prefix must not be empty"
             raise ValueError(msg)
         return f"/{v}"
-
-    @model_validator(mode="after")
-    def _validate_page_sizes(self) -> ApiConfig:
-        if self.default_page_size > self.max_page_size:
-            msg = (
-                f"default_page_size ({self.default_page_size}) "
-                f"must not exceed max_page_size ({self.max_page_size})"
-            )
-            raise ValueError(msg)
-        return self
 
     @model_validator(mode="after")
     def _validate_port_conflict(self) -> ApiConfig:

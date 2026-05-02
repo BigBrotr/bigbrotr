@@ -1,5 +1,5 @@
 """
-Unit tests for models.nips.nip66.geo module.
+Unit tests for the ``bigbrotr.nips.nip66.geo`` module.
 
 Tests:
 - GeoExtractor.extract_country() - country code, name, EU membership
@@ -7,13 +7,13 @@ Tests:
 - GeoExtractor.extract_location() - lat, lon, accuracy, tz, geohash
 - GeoExtractor.extract_all() - combines all extraction methods
 - Nip66GeoMetadata._geo() - synchronous lookup
-- Nip66GeoMetadata.execute() - async lookup with clearnet validation
+- Nip66GeoMetadata.probe() - async lookup with clearnet validation
 """
 
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
@@ -47,11 +47,13 @@ class TestGeoExtractorExtractCountry:
         response.country.is_in_european_union = None
         response.registered_country.iso_code = "DE"
         response.registered_country.name = "Germany"
+        response.registered_country.is_in_european_union = True
 
         result = GeoExtractor.extract_country(response)
 
         assert result["geo_country"] == "DE"
         assert result["geo_country_name"] == "Germany"
+        assert result["geo_is_eu"] is True
 
     def test_eu_membership_true(self) -> None:
         """Extract EU membership when True."""
@@ -297,6 +299,20 @@ class TestGeoExtractorExtractLocation:
 
         assert len(result["geo_hash"]) == 9
 
+    @pytest.mark.parametrize("value", [True, 0, -1, 13])
+    def test_rejects_invalid_geohash_precision(self, value: object) -> None:
+        """Invalid precision values fail before geohash generation."""
+        response = MagicMock()
+        response.location.latitude = 0.0
+        response.location.longitude = 0.0
+        response.location.accuracy_radius = None
+        response.location.time_zone = None
+
+        with pytest.raises(
+            ValueError, match="geohash_precision must be an integer between 1 and 12"
+        ):
+            GeoExtractor.extract_location(response, geohash_precision=value)
+
 
 class TestGeoExtractorExtractAll:
     """Test GeoExtractor.extract_all() method."""
@@ -384,16 +400,28 @@ class TestNip66GeoMetadataGeoSync:
         assert result["geo_country"] == "US"
         mock_city_reader.city.assert_called_once_with("2001:4860:4860::8888")
 
+    @pytest.mark.parametrize("value", [True, 0, -1, 13])
+    def test_rejects_invalid_geohash_precision_before_lookup(self, value: object) -> None:
+        """Invalid precision values fail before the GeoIP reader is touched."""
+        mock_city_reader = MagicMock()
+
+        with pytest.raises(
+            ValueError, match="geohash_precision must be an integer between 1 and 12"
+        ):
+            Nip66GeoMetadata._geo("8.8.8.8", mock_city_reader, geohash_precision=value)
+
+        mock_city_reader.city.assert_not_called()
+
 
 class TestNip66GeoMetadataGeoAsync:
-    """Test Nip66GeoMetadata.execute() async class method."""
+    """Test Nip66GeoMetadata.probe() async class method."""
 
-    async def test_clearnet_with_reader_returns_geo_metadata(
+    async def test_clearnet_with_reader_returns_geo_result_container(
         self,
         relay: Relay,
         mock_geoip_response: MagicMock,
     ) -> None:
-        """Returns Nip66GeoMetadata for clearnet relay with city reader."""
+        """Returns the geo result container for a clearnet relay with a city reader."""
         mock_city_reader = MagicMock()
 
         mock_resolved = MagicMock()
@@ -414,7 +442,7 @@ class TestNip66GeoMetadataGeoAsync:
             ),
             patch.object(Nip66GeoMetadata, "_geo", return_value=geo_result),
         ):
-            result = await Nip66GeoMetadata.execute(relay, mock_city_reader)
+            result = await Nip66GeoMetadata.probe(relay, mock_city_reader)
 
         assert isinstance(result, Nip66GeoMetadata)
         assert result.data.geo_country == "US"
@@ -427,9 +455,10 @@ class TestNip66GeoMetadataGeoAsync:
         mock_city_reader: MagicMock,
     ) -> None:
         """Returns failure for Tor relay (geo not applicable)."""
-        result = await Nip66GeoMetadata.execute(tor_relay, mock_city_reader)
+        result = await Nip66GeoMetadata.probe(tor_relay, mock_city_reader)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
+        assert "Tor" in result.logs.reason
 
     async def test_i2p_returns_failure(
         self,
@@ -437,9 +466,10 @@ class TestNip66GeoMetadataGeoAsync:
         mock_city_reader: MagicMock,
     ) -> None:
         """Returns failure for I2P relay (geo not applicable)."""
-        result = await Nip66GeoMetadata.execute(i2p_relay, mock_city_reader)
+        result = await Nip66GeoMetadata.probe(i2p_relay, mock_city_reader)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
+        assert "I2P" in result.logs.reason
 
     async def test_loki_returns_failure(
         self,
@@ -447,9 +477,10 @@ class TestNip66GeoMetadataGeoAsync:
         mock_city_reader: MagicMock,
     ) -> None:
         """Returns failure for Lokinet relay (geo not applicable)."""
-        result = await Nip66GeoMetadata.execute(loki_relay, mock_city_reader)
+        result = await Nip66GeoMetadata.probe(loki_relay, mock_city_reader)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
+        assert "Lokinet" in result.logs.reason
 
     async def test_no_ip_resolved_returns_failure(
         self,
@@ -466,7 +497,7 @@ class TestNip66GeoMetadataGeoAsync:
             new_callable=AsyncMock,
             return_value=mock_resolved,
         ):
-            result = await Nip66GeoMetadata.execute(relay, mock_city_reader)
+            result = await Nip66GeoMetadata.probe(relay, mock_city_reader)
 
         assert isinstance(result, Nip66GeoMetadata)
         assert result.logs.success is False
@@ -490,7 +521,7 @@ class TestNip66GeoMetadataGeoAsync:
             ),
             patch.object(Nip66GeoMetadata, "_geo", return_value={}),
         ):
-            result = await Nip66GeoMetadata.execute(relay, mock_city_reader)
+            result = await Nip66GeoMetadata.probe(relay, mock_city_reader)
 
         assert isinstance(result, Nip66GeoMetadata)
         assert result.logs.success is False
@@ -514,7 +545,7 @@ class TestNip66GeoMetadataGeoAsync:
             ),
             patch.object(Nip66GeoMetadata, "_geo", side_effect=ValueError("Database error")),
         ):
-            result = await Nip66GeoMetadata.execute(relay, mock_city_reader)
+            result = await Nip66GeoMetadata.probe(relay, mock_city_reader)
 
         assert isinstance(result, Nip66GeoMetadata)
         assert result.logs.success is False
@@ -540,7 +571,7 @@ class TestNip66GeoMetadataGeoAsync:
             ),
             patch.object(Nip66GeoMetadata, "_geo", return_value=geo_result) as mock_geo,
         ):
-            await Nip66GeoMetadata.execute(relay, mock_city_reader)
+            await Nip66GeoMetadata.probe(relay, mock_city_reader)
 
         mock_geo.assert_called_once_with("8.8.8.8", mock_city_reader, 9)
 
@@ -564,9 +595,131 @@ class TestNip66GeoMetadataGeoAsync:
             ),
             patch.object(Nip66GeoMetadata, "_geo", return_value=geo_result) as mock_geo,
         ):
-            await Nip66GeoMetadata.execute(relay, mock_city_reader)
+            await Nip66GeoMetadata.probe(relay, mock_city_reader)
 
         mock_geo.assert_called_once_with("2001:4860:4860::8888", mock_city_reader, 9)
+
+    async def test_probe_requests_timeout_propagation_from_resolver(
+        self,
+        relay: Relay,
+        mock_city_reader: MagicMock,
+    ) -> None:
+        """Geo probe asks the shared resolver to preserve real timeout outcomes."""
+        mock_resolved = MagicMock()
+        mock_resolved.ipv4 = "8.8.8.8"
+        mock_resolved.ipv6 = None
+
+        with (
+            patch(
+                "bigbrotr.nips.nip66.geo.resolve_host",
+                new_callable=AsyncMock,
+                return_value=mock_resolved,
+            ) as mock_resolve,
+            patch.object(Nip66GeoMetadata, "_geo", return_value={"geo_country": "US"}),
+        ):
+            await Nip66GeoMetadata.probe(relay, mock_city_reader, timeout=0.5)
+
+        assert mock_resolve.await_args.kwargs["raise_on_timeout"] is True
+
+    @pytest.mark.parametrize("value", [True, 0, -1, 13])
+    async def test_rejects_invalid_geohash_precision_before_resolve(
+        self,
+        relay: Relay,
+        mock_city_reader: MagicMock,
+        value: object,
+    ) -> None:
+        """Invalid precision values fail before resolver or GeoIP lookups start."""
+        with (
+            patch("bigbrotr.nips.nip66.geo.resolve_host", new_callable=AsyncMock) as mock_resolve,
+            pytest.raises(
+                ValueError, match="geohash_precision must be an integer between 1 and 12"
+            ),
+        ):
+            await Nip66GeoMetadata.probe(relay, mock_city_reader, geohash_precision=value)
+
+        mock_resolve.assert_not_awaited()
+
+    @pytest.mark.parametrize("value", [True, 0, -1, float("nan")])
+    async def test_rejects_invalid_timeout_before_resolve(
+        self,
+        relay: Relay,
+        mock_city_reader: MagicMock,
+        value: object,
+    ) -> None:
+        """Invalid timeout budgets fail before resolver or GeoIP lookups start."""
+        with (
+            patch("bigbrotr.nips.nip66.geo.resolve_host", new_callable=AsyncMock) as mock_resolve,
+            pytest.raises(ValueError, match="timeout must be a positive finite number"),
+        ):
+            await Nip66GeoMetadata.probe(relay, mock_city_reader, timeout=value)
+
+        mock_resolve.assert_not_awaited()
+
+    async def test_ipv4_lookup_failure_falls_back_to_ipv6(
+        self,
+        relay: Relay,
+        mock_city_reader: MagicMock,
+    ) -> None:
+        """IPv6 is tried when the preferred IPv4 lookup raises."""
+        mock_resolved = MagicMock()
+        mock_resolved.ipv4 = "8.8.8.8"
+        mock_resolved.ipv6 = "2001:4860:4860::8888"
+
+        geo_result = {"geo_country": "US"}
+
+        with (
+            patch(
+                "bigbrotr.nips.nip66.geo.resolve_host",
+                new_callable=AsyncMock,
+                return_value=mock_resolved,
+            ),
+            patch.object(
+                Nip66GeoMetadata,
+                "_geo",
+                side_effect=[ValueError("IPv4 lookup failed"), geo_result],
+            ) as mock_geo,
+        ):
+            result = await Nip66GeoMetadata.probe(relay, mock_city_reader)
+
+        assert result.logs.success is True
+        assert result.data.geo_country == "US"
+        assert mock_geo.call_args_list == [
+            call("8.8.8.8", mock_city_reader, 9),
+            call("2001:4860:4860::8888", mock_city_reader, 9),
+        ]
+
+    async def test_ipv4_empty_data_falls_back_to_ipv6(
+        self,
+        relay: Relay,
+        mock_city_reader: MagicMock,
+    ) -> None:
+        """IPv6 is tried when the preferred IPv4 lookup returns no geo data."""
+        mock_resolved = MagicMock()
+        mock_resolved.ipv4 = "8.8.8.8"
+        mock_resolved.ipv6 = "2001:4860:4860::8888"
+
+        geo_result = {"geo_country": "US"}
+
+        with (
+            patch(
+                "bigbrotr.nips.nip66.geo.resolve_host",
+                new_callable=AsyncMock,
+                return_value=mock_resolved,
+            ),
+            patch.object(
+                Nip66GeoMetadata,
+                "_geo",
+                side_effect=[{}, geo_result],
+            ) as mock_geo,
+        ):
+            result = await Nip66GeoMetadata.probe(relay, mock_city_reader)
+
+        assert result.logs.success is True
+        assert result.data.geo_country == "US"
+        assert mock_geo.call_args_list == [
+            call("8.8.8.8", mock_city_reader, 9),
+            call("2001:4860:4860::8888", mock_city_reader, 9),
+        ]
 
     async def test_resolve_timeout_returns_failure(
         self,
@@ -579,7 +732,7 @@ class TestNip66GeoMetadataGeoAsync:
             new_callable=AsyncMock,
             side_effect=TimeoutError,
         ):
-            result = await Nip66GeoMetadata.execute(relay, mock_city_reader, timeout=0.1)
+            result = await Nip66GeoMetadata.probe(relay, mock_city_reader, timeout=0.1)
 
         assert result.logs.success is False
         assert "timeout" in result.logs.reason
@@ -605,6 +758,38 @@ class TestNip66GeoMetadataGeoAsync:
             ),
             patch("bigbrotr.nips.nip66.geo.asyncio.to_thread", side_effect=slow_thread),
         ):
-            result = await Nip66GeoMetadata.execute(relay, mock_city_reader, timeout=0.1)
+            result = await Nip66GeoMetadata.probe(relay, mock_city_reader, timeout=0.1)
 
         assert result.logs.success is False
+
+    async def test_timeout_budget_is_shared_between_resolve_and_geo_lookup(
+        self,
+        relay: Relay,
+        mock_city_reader: MagicMock,
+    ) -> None:
+        """Geo lookup receives only the timeout budget left after DNS resolve."""
+        mock_resolved = MagicMock()
+        mock_resolved.ipv4 = "8.8.8.8"
+        mock_resolved.ipv6 = None
+
+        async def slow_resolve(*args: object, **kwargs: object) -> MagicMock:
+            await asyncio.sleep(0.05)
+            return mock_resolved
+
+        with (
+            patch(
+                "bigbrotr.nips.nip66.geo.resolve_host",
+                new_callable=AsyncMock,
+                side_effect=slow_resolve,
+            ),
+            patch.object(
+                Nip66GeoMetadata,
+                "_lookup_candidate_ips",
+                new_callable=AsyncMock,
+                return_value=({"geo_country": "US"}, None),
+            ) as mock_lookup,
+        ):
+            result = await Nip66GeoMetadata.probe(relay, mock_city_reader, timeout=0.1)
+
+        assert result.logs.success is True
+        assert 0 < mock_lookup.await_args.args[4] < 0.1

@@ -84,7 +84,7 @@ ENV PYTHONUNBUFFERED=1
 # causing monotonic RSS growth.  jemalloc returns freed pages via
 # madvise(MADV_DONTNEED).  Verified: macOS allocator shows zero growth with
 # shutdown_client alone; Linux glibc does not — jemalloc is required on Linux.
-ENV LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so.2
+ENV LD_PRELOAD=libjemalloc.so.2
 
 # Default environment variables
 ENV LOG_LEVEL=INFO

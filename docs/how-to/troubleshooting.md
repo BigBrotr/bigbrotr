@@ -31,13 +31,19 @@ Solutions for common issues and frequently asked questions about BigBrotr.
 
 **Solution**:
 
-Writer services (seeder, finder, validator, monitor, synchronizer) use `DB_WRITER_PASSWORD`. The refresher uses `DB_REFRESHER_PASSWORD`. Read-only services (api, dvm) use `DB_READER_PASSWORD`. Set the appropriate variable:
+Writer-facing services (seeder, finder, validator, monitor, synchronizer,
+assertor) use `DB_WRITER_PASSWORD`. The refresher uses
+`DB_REFRESHER_PASSWORD`. Read-only adapters (`api`, `dvm`) use
+`DB_READER_PASSWORD`. The ranker uses `DB_RANKER_PASSWORD`. Set the
+appropriate variable:
 
 1. Set the environment variable:
 
     === "Docker"
 
-        Add `DB_WRITER_PASSWORD`, `DB_REFRESHER_PASSWORD`, and `DB_READER_PASSWORD` to your `.env` file and verify with:
+        Add `DB_WRITER_PASSWORD`, `DB_REFRESHER_PASSWORD`,
+        `DB_READER_PASSWORD`, and `DB_RANKER_PASSWORD` to your `.env` file and
+        verify with:
 
         ```bash
         docker compose config | grep DB_WRITER_PASSWORD
@@ -190,13 +196,21 @@ processing:
 
 ### What is the difference between BigBrotr and LilBrotr?
 
-**BigBrotr** stores complete Nostr events including `tags` (JSON), `content`, and `sig`. It provides 11 materialized views for analytics and uses more disk space.
+**BigBrotr** stores complete Nostr events including `tags` (JSON), `content`,
+and `sig`. It provides the full current-state, analytics, and NIP-85 score
+outputs and uses more disk space.
 
-**LilBrotr** has all 8 event columns but keeps `tags`, `content`, and `sig` as NULL (they are nullable columns that are never populated). The `tagvalues` column is computed at insert time. Since NULL values do not occupy storage, this results in approximately 60% disk savings. All 11 materialized views are available in both variants.
+**LilBrotr** has all 8 event columns but keeps `tags`, `content`, and `sig` as
+NULL (they are nullable columns that are never populated). The `tagvalues`
+column is still computed at insert time and preserves the order of
+single-character tags, which lets LilBrotr share almost all analytics logic
+with BigBrotr while using much less disk. Since NULL values do not occupy
+storage, this results in approximately 60% disk savings. The current-state,
+analytics, and NIP-85 score schema is available in both variants.
 
-Both use the same services and codebase. The only difference is the SQL schema.
+Both use the same services and codebase. The intended contract is exact parity whenever a metric can be reconstructed from `tagvalues`; only metrics that require missing tag metadata fall back to best-effort behavior in LilBrotr. Today the clearest example is NIP-85 zaps: LilBrotr can count zap events from `p`/`e` tagvalues, but cannot reconstruct verified zap amounts because `amount` and `bolt11` are not stored.
 
-### Do I need to run all eight services?
+### Do I need to run all ten services?
 
 No. The only required services are:
 
@@ -204,11 +218,20 @@ No. The only required services are:
 - **Finder** -- discovers new relay URLs
 - **Validator** -- tests connectivity and promotes candidates to the relay table
 
-The remaining services are optional:
+The remaining services are optional depending on what you want from the
+deployment:
 
-- **Monitor** -- performs NIP-11/NIP-66 health checks and publishes Nostr events. Required if you want relay metadata.
+- **Monitor** -- performs NIP-11/NIP-66 health checks and publishes Nostr events. Required if you want relay-document history and health data.
 - **Synchronizer** -- archives events from validated relays. Required only if you want to store Nostr events.
-- **Refresher** -- refreshes materialized views. Required only if you use analytics views.
+- **Refresher** -- refreshes narrow current winner tables, shared analytics facts, operational contact-graph facts, and periodic reconciliation targets. Required if you use derived analytics outputs.
+- **Ranker** -- computes public NIP-85 score tables from canonical facts.
+  Required if you want score outputs for downstream publication or read
+  adapters.
+- **Assertor** -- publishes the NIP-85 provider package from those score
+  outputs. Required if you want trusted assertions, provider profile data, or
+  trusted-provider lists.
+- **API** -- exposes deployment-approved readable resources over HTTP.
+- **DVM** -- exposes deployment-approved readable resources over Nostr/NIP-90.
 
 ### How much disk space does BigBrotr use?
 
@@ -217,7 +240,7 @@ Disk usage depends on the number of relays monitored and events archived:
 | Component | Approximate size |
 |-----------|-----------------|
 | PostgreSQL base (schema + indexes) | ~50 MB |
-| Relay metadata (1000 relays) | ~200 MB |
+| Relay documents (1000 relays) | ~200 MB |
 | Events (1M events, BigBrotr schema) | ~2--5 GB |
 | Events (1M events, LilBrotr schema) | ~0.8--2 GB |
 
@@ -226,25 +249,30 @@ Disk usage depends on the number of relays monitored and events archived:
 
 ### What happens when a service crashes?
 
-All long-running services (`finder`, `validator`, `monitor`, `synchronizer`, `refresher`, `api`, `dvm`) have `restart: unless-stopped` in Docker Compose. When a service crashes:
+All long-running services (`finder`, `validator`, `monitor`, `synchronizer`,
+`refresher`, `ranker`, `assertor`, `api`, `dvm`) have `restart:
+unless-stopped` in Docker Compose. When a service crashes:
 
 1. Docker restarts the container automatically after `RestartSec` (10s default).
-2. The service picks up where it left off using cursor state stored in the `service_state` table.
+2. The service resumes from persisted operational state:
+   - most services use checkpoints or cursors in `service_state`;
+   - the Ranker resumes from its private DuckDB checkpoint;
+   - the Assertor resumes from canonical publication checkpoints.
 3. After `max_consecutive_failures` (default: 5) consecutive failures, the service stops to avoid a crash loop.
 
 For systemd deployments, the `Restart=always` directive provides the same behavior.
 
 ### How do I upgrade to a new version?
 
-1. Pull the latest code:
+1. Read the relevant release notes and `CHANGELOG.md` entries first.
+
+2. Pull the desired release or integration baseline:
 
     ```bash
-    git pull origin main
+    git pull --ff-only
     ```
 
-2. Check the changelog for breaking changes or new migration steps.
-
-3. Rebuild and restart:
+3. Rebuild or resync the runtime:
 
     === "Docker"
 
@@ -257,15 +285,19 @@ For systemd deployments, the `Restart=always` directive provides the same behavi
     === "Manual"
 
         ```bash
-        uv sync --no-dev
-        sudo systemctl restart bigbrotr-finder bigbrotr-validator bigbrotr-monitor bigbrotr-synchronizer
+        uv sync --frozen
+        sudo systemctl restart bigbrotr-finder bigbrotr-validator bigbrotr-monitor \
+            bigbrotr-synchronizer bigbrotr-refresher bigbrotr-ranker \
+            bigbrotr-assertor bigbrotr-api bigbrotr-dvm
         ```
 
-4. If the upgrade includes SQL migrations, apply them before restarting services:
+4. If the release changes the generated SQL package, review the diff under
+   `deployments/<profile>/postgres/init/` and apply the required DBA
+   procedure before restarting writer services.
 
-    ```bash
-    psql -U admin -d bigbrotr -f migrations/XXXX_description.sql
-    ```
+!!! note
+    BigBrotr does not ship a separate `migrations/` directory. Schema changes
+    are reflected in the deployment SQL package and the SQL template system.
 
 ---
 

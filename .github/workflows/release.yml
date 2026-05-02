@@ -38,12 +38,12 @@ env:
 
 jobs:
   # --------------------------------------------------------------------------
-  # Validate: Full CI suite + version/branch guards
+  # Validate: release contract gate + version/branch guards
   # --------------------------------------------------------------------------
   validate:
     name: Validate
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     permissions:
       contents: read
     steps:
@@ -63,12 +63,15 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION_DEFAULT }}
 
       - name: Install dependencies
-        run: uv sync --frozen --group dev
+        run: uv sync --frozen --group dev --group docs
 
       - name: Verify version matches tag
         run: |
           TAG_VERSION="${GITHUB_REF_NAME#v}"
-          PKG_VERSION=$(uv run python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          PKG_VERSION=$(
+            uv run python -c \
+              "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])"
+          )
           if [[ "$TAG_VERSION" != "$PKG_VERSION" ]]; then
             echo "::error::Tag version ($TAG_VERSION) does not match pyproject.toml ($PKG_VERSION)"
             exit 1
@@ -87,13 +90,14 @@ jobs:
       - name: Run pre-commit
         uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
 
-      - name: Run unit tests
-        run: >-
-          uv run pytest tests/
-          --ignore=tests/integration/
-          -v --tb=short
-        env:
-          DB_ADMIN_PASSWORD: test_password
+      - name: Run repository contract gate
+        run: make ci
+
+      - name: Verify lockfile sync
+        run: uv lock --check
+
+      - name: Build documentation
+        run: make docs
 
   # --------------------------------------------------------------------------
   # Build Python: sdist + wheel + twine check

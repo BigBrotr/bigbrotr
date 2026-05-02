@@ -11,14 +11,13 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any
+from typing import Any, cast
 
 from nostr_sdk import Filter
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
-from bigbrotr.services.common.configs import NetworksConfig
-from bigbrotr.utils.keys import KeysConfig
+from bigbrotr.services.common.configs import NetworksConfig, NostrKeysConfig
 
 
 def _parse_filter(raw: Any, index: int) -> Filter:
@@ -44,6 +43,27 @@ def _parse_filter(raw: Any, index: int) -> Filter:
         raise ValueError(f"filters[{index}]: {e}") from e
 
 
+def _require_bool(value: Any, field_name: str) -> bool:
+    """Require canonical booleans for authored synchronizer config boundaries."""
+    if not isinstance(value, bool):
+        raise ValueError(f"{field_name}: expected bool, got {type(value).__name__}")
+    return value
+
+
+def _require_number(value: Any, field_name: str) -> int | float:
+    """Require canonical numeric types for authored synchronizer config boundaries."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_name}: expected number, got {type(value).__name__}")
+    return cast("int | float", value)
+
+
+def _require_int(value: Any, field_name: str) -> int:
+    """Require canonical integers for authored synchronizer config boundaries."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field_name}: expected integer, got {type(value).__name__}")
+    return int(value)
+
+
 class TimeoutsConfig(BaseModel):
     """Sync timeout limits: idle progress check and phase-level cap.
 
@@ -61,6 +81,8 @@ class TimeoutsConfig(BaseModel):
             Parent config that embeds this model.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     idle: float = Field(
         default=300.0,
         ge=10.0,
@@ -73,6 +95,22 @@ class TimeoutsConfig(BaseModel):
         le=86_400.0,
         description="Maximum seconds for the entire sync phase",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def require_string_field_keys(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            invalid_key = next((key for key in data if not isinstance(key, str)), None)
+            if invalid_key is not None:
+                raise ValueError(f"config: expected string keys, got {type(invalid_key).__name__}")
+        return data
+
+    @field_validator("idle", "max_duration", mode="before")
+    @classmethod
+    def require_numeric_timeouts(cls, v: Any, info: ValidationInfo) -> int | float:
+        """Require canonical numeric types for synchronizer timeout budgets."""
+        field_name = info.field_name or "value"
+        return _require_number(v, field_name)
 
 
 class ProcessingConfig(BaseModel):
@@ -93,7 +131,7 @@ class ProcessingConfig(BaseModel):
             Parent config that embeds this model.
     """
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
     filters: list[Filter] = Field(
         default_factory=lambda: [Filter()],
@@ -130,6 +168,15 @@ class ProcessingConfig(BaseModel):
         description="Maximum event JSON size in bytes (None = no limit)",
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def require_string_field_keys(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            invalid_key = next((key for key in data if not isinstance(key, str)), None)
+            if invalid_key is not None:
+                raise ValueError(f"config: expected string keys, got {type(invalid_key).__name__}")
+        return data
+
     @field_validator("filters", mode="before")
     @classmethod
     def parse_filters(cls, v: Any) -> list[Filter]:
@@ -137,6 +184,38 @@ class ProcessingConfig(BaseModel):
         if not isinstance(v, list):
             raise TypeError(f"filters: expected list, got {type(v).__name__}")
         return [_parse_filter(raw, i) for i, raw in enumerate(v)]
+
+    @field_validator("since", "until", "end_lag", mode="before")
+    @classmethod
+    def require_integer_temporal_bounds(cls, v: Any, info: ValidationInfo) -> Any:
+        """Require canonical integers for temporal sync bounds."""
+        if v is None:
+            return v
+        field_name = info.field_name or "value"
+        return _require_int(v, field_name)
+
+    @field_validator("limit", "batch_size", mode="before")
+    @classmethod
+    def require_integer_processing_budgets(cls, v: Any, info: ValidationInfo) -> int:
+        """Require canonical integers for synchronizer processing budgets."""
+        field_name = info.field_name or "value"
+        return _require_int(v, field_name)
+
+    @field_validator("max_event_size", mode="before")
+    @classmethod
+    def require_integer_max_event_size(cls, v: Any, info: ValidationInfo) -> Any:
+        """Require canonical integers for the optional event-size budget."""
+        if v is None:
+            return v
+        field_name = info.field_name or "max_event_size"
+        return _require_int(v, field_name)
+
+    @field_validator("allow_insecure", mode="before")
+    @classmethod
+    def require_boolean_allow_insecure(cls, v: Any, info: ValidationInfo) -> bool:
+        """Require canonical booleans for the TLS fallback policy."""
+        field_name = info.field_name or "allow_insecure"
+        return _require_bool(v, field_name)
 
     def get_end_time(self) -> int:
         """Compute the sync end timestamp: ``(until or now()) - end_lag``."""
@@ -162,15 +241,27 @@ class SynchronizerConfig(BaseServiceConfig):
             Base class providing ``interval``, ``max_consecutive_failures``, and ``metrics`` fields.
         [NetworksConfig][bigbrotr.services.common.configs.NetworksConfig]:
             Per-network timeout and proxy settings.
-        [KeysConfig][bigbrotr.utils.keys.KeysConfig]: Nostr key management
+        [NostrKeysConfig][bigbrotr.services.common.configs.NostrKeysConfig]: Nostr key
+            management
             for NIP-42 authentication during event fetching.
     """
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="before")
+    @classmethod
+    def require_string_field_keys(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            invalid_key = next((key for key in data if not isinstance(key, str)), None)
+            if invalid_key is not None:
+                raise ValueError(f"config: expected string keys, got {type(invalid_key).__name__}")
+        return data
 
     networks: NetworksConfig = Field(
         default_factory=NetworksConfig, description="Per-network connection settings"
     )
-    keys: KeysConfig = Field(
-        default_factory=lambda: KeysConfig.model_validate({}),
+    keys: NostrKeysConfig = Field(
+        default_factory=lambda: NostrKeysConfig(keys_env="NOSTR_PRIVATE_KEY_SYNCHRONIZER"),
         description="Nostr key configuration for NIP-42 authentication",
     )
     processing: ProcessingConfig = Field(

@@ -9,13 +9,14 @@ Attributes:
     DEFAULT_TIMEOUT: Default timeout for network operations (10 seconds).
     InsecureWebSocketAdapter: aiohttp WebSocket adapter with SSL disabled.
     InsecureWebSocketTransport: nostr-sdk custom transport wrapping the adapter.
+    suppress_nostr_sdk_stderr: Narrow context manager for short validation windows.
 
 Note:
-    The ``_NostrSdkStderrFilter`` is installed globally at import time to
-    suppress UniFFI traceback noise from nostr-sdk's Rust layer. This is
-    separate from the ``_StderrSuppressor`` in
-    [bigbrotr.utils.protocol][bigbrotr.utils.protocol] which provides
-    batch-level suppression during relay validation.
+    ``install_nostr_sdk_stderr_filter()`` installs the global UniFFI
+    traceback filter on demand, avoiding import-time mutation of
+    ``sys.stderr``.
+    ``suppress_nostr_sdk_stderr()`` provides the narrower batch-level
+    suppression used during relay validation.
 
 See Also:
     [bigbrotr.utils.protocol][bigbrotr.utils.protocol]: Higher-level Nostr
@@ -27,9 +28,13 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
+import math
+import os
 import ssl
 import sys
+from io import UnsupportedOperation
 from typing import TYPE_CHECKING, Final, TextIO
 
 import aiohttp
@@ -43,10 +48,12 @@ from nostr_sdk import (
 
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
     from datetime import timedelta as Duration  # noqa: N812
 
 
 DEFAULT_TIMEOUT: Final[float] = 10.0
+_STDERR_FD_SETUP_ERRORS: Final = (OSError, ValueError, UnsupportedOperation)
 
 
 logger = logging.getLogger(__name__)
@@ -66,9 +73,9 @@ class _NostrSdkStderrFilter:
     exits on the next empty line (end of traceback).
 
     Note:
-        This filter is installed globally at module import time. It wraps
-        ``sys.stderr`` once, checked via ``isinstance`` to prevent double-
-        wrapping on repeated imports.
+        This filter is installed explicitly through
+        ``install_nostr_sdk_stderr_filter()``. The installation is idempotent
+        and wraps ``sys.stderr`` only once.
     """
 
     __slots__ = ("_original", "_suppressed_count", "_suppressing")
@@ -108,17 +115,98 @@ class _NostrSdkStderrFilter:
         return getattr(self._original, name)
 
 
-# nostr-sdk's Rust layer (via UniFFI) prints tracebacks directly to stderr
-# from background threads, bypassing Python's logging entirely. Neither
-# contextlib.redirect_stderr nor logging.Filter can intercept this output
-# because it originates from non-Python threads. A global stderr wrapper is
-# the only way to suppress it.
-if not isinstance(sys.stderr, _NostrSdkStderrFilter):
-    sys.stderr = _NostrSdkStderrFilter(sys.stderr)
+def install_nostr_sdk_stderr_filter() -> None:
+    """Install the global UniFFI stderr filter once, on demand."""
+    # nostr-sdk's Rust layer (via UniFFI) prints tracebacks directly to stderr
+    # from background threads, bypassing Python's logging entirely. Neither
+    # contextlib.redirect_stderr nor logging.Filter can intercept this output
+    # because it originates from non-Python threads.
+    if not isinstance(sys.stderr, _NostrSdkStderrFilter):
+        sys.stderr = _NostrSdkStderrFilter(sys.stderr)
+
+
+class _ScopedStderrSuppressor:
+    """Reference-counted stderr suppressor for short validation windows.
+
+    ``nostr-sdk`` can also write diagnostics directly to the process stderr
+    file descriptor from native threads. When a caller needs a short
+    "drop everything" window, this suppressor redirects ``sys.stderr`` to
+    ``/dev/null`` for the duration of the outermost context.
+
+    Trade-off: while the suppressor is active, all stderr output is discarded.
+    The shared helper below deliberately keeps the scope narrow.
+    """
+
+    __slots__ = ("_devnull", "_refcount", "_saved_fd", "_saved_stderr")
+
+    def __init__(self) -> None:
+        self._refcount = 0
+        self._saved_stderr: TextIO | None = None
+        self._devnull: TextIO | None = None
+        self._saved_fd: int | None = None
+
+    @contextlib.contextmanager
+    def __call__(self) -> Generator[None, None, None]:
+        if self._refcount == 0:
+            self._saved_stderr = sys.stderr
+            devnull = open(os.devnull, "w")  # noqa: PTH123, SIM115
+            try:
+                stderr_fd = self._saved_stderr.fileno()
+                saved_fd = os.dup(stderr_fd)
+                try:
+                    os.dup2(devnull.fileno(), stderr_fd)
+                except OSError:
+                    with contextlib.suppress(OSError):
+                        os.close(saved_fd)
+                    raise
+            except _STDERR_FD_SETUP_ERRORS:
+                with contextlib.suppress(OSError, ValueError):
+                    devnull.close()
+                self._saved_stderr = None
+                raise
+            self._devnull = devnull
+            self._saved_fd = saved_fd
+        self._refcount += 1
+        sys.stderr = self._devnull
+        try:
+            yield
+        finally:
+            self._refcount -= 1
+            if self._refcount == 0:
+                sys.stderr = self._saved_stderr
+                if self._saved_stderr is not None and self._saved_fd is not None:
+                    stderr_fd = self._saved_stderr.fileno()
+                    os.dup2(self._saved_fd, stderr_fd)
+                    os.close(self._saved_fd)
+                if self._devnull is not None:
+                    self._devnull.close()
+                self._saved_stderr = None
+                self._devnull = None
+                self._saved_fd = None
+
+
+_stderr_suppressor = _ScopedStderrSuppressor()
+
+
+@contextlib.contextmanager
+def suppress_nostr_sdk_stderr() -> Generator[None, None, None]:
+    """Suppress process stderr for a short ``nostr-sdk`` operation window."""
+    install_nostr_sdk_stderr_filter()
+    with _stderr_suppressor():
+        yield
 
 
 _WS_RECV_TIMEOUT = 60.0
 _WS_CLOSE_TIMEOUT = 5.0
+
+
+def _normalize_timeout(value: object, field_name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"{field_name} must be a positive finite number")
+    timeout = float(value)
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError(f"{field_name} must be a positive finite number")
+    return timeout
 
 
 class InsecureWebSocketAdapter(WebSocketAdapter):
@@ -146,8 +234,8 @@ class InsecureWebSocketAdapter(WebSocketAdapter):
     ) -> None:
         self._ws = ws
         self._session = session
-        self._recv_timeout = recv_timeout
-        self._close_timeout = close_timeout
+        self._recv_timeout = _normalize_timeout(recv_timeout, "recv_timeout")
+        self._close_timeout = _normalize_timeout(close_timeout, "close_timeout")
 
     async def send(self, msg: WebSocketMessage) -> None:
         """Send a WebSocket message (text, binary, ping, or pong)."""
@@ -187,11 +275,11 @@ class InsecureWebSocketAdapter(WebSocketAdapter):
         """Close the WebSocket and session with timeouts to prevent hanging."""
         try:
             await asyncio.wait_for(self._ws.close(), timeout=self._close_timeout)
-        except Exception as e:
+        except (aiohttp.ClientError, OSError, RuntimeError, TimeoutError) as e:
             logger.debug("ws_close_error error=%s", e)
         try:
             await asyncio.wait_for(self._session.close(), timeout=self._close_timeout)
-        except Exception as e:
+        except (aiohttp.ClientError, OSError, RuntimeError, TimeoutError) as e:
             logger.debug("session_close_error error=%s", e)
 
 
@@ -228,8 +316,8 @@ class InsecureWebSocketTransport(CustomWebSocketTransport):
         recv_timeout: float = _WS_RECV_TIMEOUT,
         close_timeout: float = _WS_CLOSE_TIMEOUT,
     ) -> None:
-        self._recv_timeout = recv_timeout
-        self._close_timeout = close_timeout
+        self._recv_timeout = _normalize_timeout(recv_timeout, "recv_timeout")
+        self._close_timeout = _normalize_timeout(close_timeout, "close_timeout")
 
     async def connect(
         self,

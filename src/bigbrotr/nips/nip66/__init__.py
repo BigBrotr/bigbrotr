@@ -3,9 +3,10 @@
 Implements [NIP-66](https://github.com/nostr-protocol/nips/blob/master/66.md)
 -- relay capability testing and monitoring data collection. Each test type
 (RTT, SSL, GEO, NET, DNS, HTTP) has its own data model, logs model, and
-metadata container. Raw data is sanitized through ``parse()`` methods and
-validated into typed, frozen Pydantic models. Invalid fields or wrong types
-are silently dropped.
+result container. Raw data is sanitized through report-oriented
+``parse_report()`` paths and validated into typed, frozen Pydantic models;
+``parse()`` remains the convenience wrapper that returns constructor-ready
+canonical payloads when the underlying data model can validate them safely.
 
 Model hierarchy:
 
@@ -35,16 +36,16 @@ Nip66                                        Top-level container
 
 Note:
     Each test produces a separate
-    [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata] record
-    with a distinct [MetadataType][bigbrotr.models.metadata.MetadataType]
+    [RelayDocument][bigbrotr.models.relay_document.RelayDocument] record
+    with a distinct [DocumentType][bigbrotr.models.document.DocumentType]
     variant (``NIP66_RTT``, ``NIP66_SSL``, ``NIP66_GEO``, ``NIP66_NET``,
     ``NIP66_DNS``, ``NIP66_HTTP``). Tests are executed concurrently via
-    ``asyncio.gather`` in [Nip66.create][bigbrotr.nips.nip66.nip66.Nip66.create].
+    ``asyncio.gather`` in [Nip66.probe][bigbrotr.nips.nip66.nip66.Nip66.probe].
 
 See Also:
     [bigbrotr.nips.nip11][bigbrotr.nips.nip11]: Companion NIP-11 module for
         relay information documents.
-    [bigbrotr.models.metadata.MetadataType][bigbrotr.models.metadata.MetadataType]:
+    [bigbrotr.models.document.DocumentType][bigbrotr.models.document.DocumentType]:
         Enum with ``NIP66_*`` variants for each test type.
     [bigbrotr.services.monitor.Monitor][bigbrotr.services.monitor.Monitor]:
         Service that orchestrates NIP-66 checks per relay.
@@ -78,7 +79,7 @@ from .nip66 import (
     Nip66Dependencies,
     Nip66Options,
     Nip66Selection,
-    RelayNip66MetadataTuple,
+    RelayNip66DocumentTuple,
 )
 from .rtt import Nip66RttDependencies, Nip66RttMetadata
 from .ssl import Nip66SslMetadata
@@ -109,5 +110,5 @@ __all__ = [
     "Nip66SslData",
     "Nip66SslLogs",
     "Nip66SslMetadata",
-    "RelayNip66MetadataTuple",
+    "RelayNip66DocumentTuple",
 ]

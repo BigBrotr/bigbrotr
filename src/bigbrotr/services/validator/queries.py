@@ -3,21 +3,33 @@
 from __future__ import annotations
 
 import logging
+import math
 import time
 from typing import TYPE_CHECKING
 
 from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.models.relay import Relay
-from bigbrotr.models.service_state import ServiceState, ServiceStateType
-from bigbrotr.services.common.queries import batched_insert
-from bigbrotr.services.common.types import CandidateCheckpoint
+from bigbrotr.models.service_state import ServiceStateType
+from bigbrotr.services.common.state_store import ServiceStateStore
+from bigbrotr.services.common.utils import batched_insert
 
 
 if TYPE_CHECKING:
     from bigbrotr.core.brotr import Brotr
+    from bigbrotr.services.common.types import CandidateCheckpoint
 
 
 logger = logging.getLogger(__name__)
+
+_CANDIDATE_NETWORKS = tuple(
+    network.value
+    for network in (
+        NetworkType.CLEARNET,
+        NetworkType.TOR,
+        NetworkType.I2P,
+        NetworkType.LOKI,
+    )
+)
 
 
 async def delete_promoted_candidates(brotr: Brotr) -> int:
@@ -38,7 +50,7 @@ async def delete_promoted_candidates(brotr: Brotr) -> int:
         """
         WITH deleted AS (
             DELETE FROM service_state
-            WHERE service_name = $1
+            WHERE owner = $1
               AND state_type = $2
               AND EXISTS (SELECT 1 FROM relay r WHERE r.url = state_key)
             RETURNING 1
@@ -57,7 +69,9 @@ async def delete_exhausted_candidates(brotr: Brotr, max_failures: int) -> int:
     Deletes CHECKPOINT records whose ``failures`` counter meets or exceeds
     ``max_failures``. Called during cleanup when ``cleanup.enabled`` is
     ``True`` to prevent permanently broken relays from consuming validation
-    resources indefinitely.
+    resources indefinitely. Also removes malformed candidate rows whose
+    persisted network or numeric fields can no longer be consumed by the
+    validator runtime, so they do not block rediscovery of the same relay.
 
     Args:
         brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
@@ -70,9 +84,24 @@ async def delete_exhausted_candidates(brotr: Brotr, max_failures: int) -> int:
         """
         WITH deleted AS (
             DELETE FROM service_state
-            WHERE service_name = $1
+            WHERE owner = $1
               AND state_type = $2
-              AND COALESCE((state_value->>'failures')::int, 0) >= $3
+              AND (
+                    jsonb_typeof(state_value->'failures') != 'number'
+                    OR (state_value->>'failures') !~ '^[0-9]+$'
+                    OR jsonb_typeof(state_value->'timestamp') != 'number'
+                    OR (state_value->>'timestamp') !~ '^[0-9]+$'
+                    OR COALESCE(state_value->>'network', '') != ALL($4::text[])
+                    OR
+                    (
+                        CASE
+                            WHEN jsonb_typeof(state_value->'failures') = 'number'
+                                 AND (state_value->>'failures') ~ '^[0-9]+$'
+                            THEN (state_value->>'failures')::int
+                            ELSE 0
+                        END
+                    ) >= $3
+              )
             RETURNING 1
         )
         SELECT count(*)::int FROM deleted
@@ -80,17 +109,82 @@ async def delete_exhausted_candidates(brotr: Brotr, max_failures: int) -> int:
         ServiceName.VALIDATOR,
         ServiceStateType.CHECKPOINT,
         max_failures,
+        list(_CANDIDATE_NETWORKS),
     )
     return count
 
 
+async def delete_invalid_candidates(brotr: Brotr) -> int:
+    """Remove persisted validator candidates that no longer satisfy the typed contract.
+
+    Deletes CHECKPOINT rows whose payload or state key cannot be decoded into a
+    [CandidateCheckpoint][bigbrotr.services.common.types.CandidateCheckpoint].
+    This prevents permanently unprocessable candidate tombstones from lingering
+    in ``service_state`` and blocking rediscovery of the same relay URL.
+
+    Args:
+        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
+
+    Returns:
+        Number of invalid candidate rows deleted.
+    """
+    rows = await brotr.fetch(
+        "SELECT * FROM service_state_get($1, $2, $3)",
+        ServiceName.VALIDATOR,
+        ServiceStateType.CHECKPOINT,
+        None,
+    )
+    invalid_keys: list[str] = []
+    for row in rows:
+        try:
+            ServiceStateStore.decode_candidate(row["state_key"], row["state_value"])
+        except (KeyError, TypeError, ValueError):
+            invalid_keys.append(row["state_key"])
+
+    if not invalid_keys:
+        return 0
+    return await ServiceStateStore(brotr).delete_keys(
+        ServiceName.VALIDATOR,
+        ServiceStateType.CHECKPOINT,
+        invalid_keys,
+    )
+
+
 _CANDIDATES_WHERE = """
-    FROM service_state
-    WHERE service_name = $1
-      AND state_type = $2
-      AND state_value->>'network' = ANY($3)
-      AND (COALESCE((state_value->>'failures')::int, 0) = 0
-           OR (state_value->>'timestamp')::BIGINT < $4)
+    FROM candidates
+    WHERE failures_count IS NOT NULL
+      AND attempted_at IS NOT NULL
+      AND (
+            failures_count = 0
+         OR attempted_at < $4
+      )
+"""
+
+_CANDIDATES_ORDER = """
+    ORDER BY failures_count ASC,
+             attempted_at ASC,
+             state_key ASC
+"""
+
+_CANDIDATES_CTE = """
+    WITH candidates AS (
+        SELECT state_key,
+               state_value,
+               CASE
+                   WHEN jsonb_typeof(state_value->'failures') = 'number'
+                        AND (state_value->>'failures') ~ '^[0-9]+$'
+                   THEN (state_value->>'failures')::int
+               END AS failures_count,
+               CASE
+                   WHEN jsonb_typeof(state_value->'timestamp') = 'number'
+                        AND (state_value->>'timestamp') ~ '^[0-9]+$'
+                   THEN (state_value->>'timestamp')::bigint
+               END AS attempted_at
+        FROM service_state
+        WHERE owner = $1
+          AND state_type = $2
+          AND state_value->>'network' = ANY($3)
+    )
 """
 
 
@@ -112,7 +206,7 @@ async def count_candidates(
         Total count of matching candidates.
     """
     count: int = await brotr.fetchval(
-        f"SELECT count(*)::int {_CANDIDATES_WHERE}",
+        f"{_CANDIDATES_CTE} SELECT count(*)::int {_CANDIDATES_WHERE}",
         ServiceName.VALIDATOR,
         ServiceStateType.CHECKPOINT,
         networks,
@@ -131,6 +225,9 @@ async def fetch_candidates(
 
     Returns candidates that either have zero failures (never attempted)
     or whose last attempt ``timestamp`` is before ``attempted_before``.
+    The query may read multiple raw pages to compensate for malformed
+    persisted rows that are rejected during typed decode, so a leading
+    corrupted candidate cannot make a non-empty workset appear empty.
 
     Rows whose ``state_key`` is not a valid relay URL are skipped
     with a warning.
@@ -147,34 +244,41 @@ async def fetch_candidates(
         List of [CandidateCheckpoint][bigbrotr.services.common.types.CandidateCheckpoint]
         instances.
     """
-    rows = await brotr.fetch(
-        f"""
-        SELECT state_key, state_value
-        {_CANDIDATES_WHERE}
-        ORDER BY COALESCE((state_value->>'failures')::int, 0) ASC,
-                 COALESCE((state_value->>'timestamp')::BIGINT, 0) ASC
-        LIMIT $5
-        """,
-        ServiceName.VALIDATOR,
-        ServiceStateType.CHECKPOINT,
-        networks,
-        attempted_before,
-        limit,
-    )
     candidates: list[CandidateCheckpoint] = []
-    for row in rows:
-        try:
-            sv = row["state_value"]
-            candidates.append(
-                CandidateCheckpoint(
-                    key=row["state_key"],
-                    timestamp=int(sv.get("timestamp", 0)),
-                    network=NetworkType(sv.get("network", "clearnet")),
-                    failures=int(sv.get("failures", 0)),
+    offset = 0
+
+    while len(candidates) < limit:
+        raw_limit = limit - len(candidates)
+        rows = await brotr.fetch(
+            f"""
+            {_CANDIDATES_CTE}
+            SELECT state_key, state_value
+            {_CANDIDATES_WHERE}
+            {_CANDIDATES_ORDER}
+            LIMIT $5
+            OFFSET $6
+            """,
+            ServiceName.VALIDATOR,
+            ServiceStateType.CHECKPOINT,
+            networks,
+            attempted_before,
+            raw_limit,
+            offset,
+        )
+        if not rows:
+            break
+        offset += len(rows)
+
+        for row in rows:
+            try:
+                candidates.append(
+                    ServiceStateStore.decode_candidate(row["state_key"], row["state_value"])
                 )
-            )
-        except (ValueError, TypeError) as e:
-            logger.warning("invalid_candidate_skipped: %s (%s)", row["state_key"], e)
+            except (ValueError, TypeError) as e:
+                logger.warning("invalid_candidate_skipped: %s (%s)", row["state_key"], e)
+
+        if len(rows) < raw_limit:
+            break
     return candidates
 
 
@@ -196,14 +300,11 @@ async def promote_candidates(brotr: Brotr, candidates: list[CandidateCheckpoint]
     relays = [Relay(c.key) for c in candidates]
     inserted = await batched_insert(brotr, relays, brotr.insert_relay)
 
-    batch_size = brotr.config.batch.max_size
-    for i in range(0, len(candidates), batch_size):
-        chunk = candidates[i : i + batch_size]
-        await brotr.delete_service_state(
-            [ServiceName.VALIDATOR] * len(chunk),
-            [ServiceStateType.CHECKPOINT] * len(chunk),
-            [c.key for c in chunk],
-        )
+    await ServiceStateStore(brotr).delete_keys(
+        ServiceName.VALIDATOR,
+        ServiceStateType.CHECKPOINT,
+        [candidate.key for candidate in candidates],
+    )
     return inserted
 
 
@@ -224,18 +325,15 @@ async def fail_candidates(brotr: Brotr, candidates: list[CandidateCheckpoint]) -
     if not candidates:
         return 0
 
-    now = int(time.time())
-    records: list[ServiceState] = [
-        ServiceState(
-            service_name=ServiceName.VALIDATOR,
-            state_type=ServiceStateType.CHECKPOINT,
-            state_key=c.key,
-            state_value={
-                "network": c.network.value,
-                "failures": c.failures + 1,
-                "timestamp": now,
-            },
+    # Retry intervals are fractional, so persist the failed-at marker at the
+    # next whole second to avoid retrying before the configured wait elapses.
+    now = math.ceil(time.time())
+    records = [
+        ServiceStateStore.encode_candidate(
+            candidate,
+            timestamp=now,
+            failures=candidate.failures + 1,
         )
-        for c in candidates
+        for candidate in candidates
     ]
-    return await batched_insert(brotr, records, brotr.upsert_service_state)
+    return await ServiceStateStore(brotr).upsert(records)

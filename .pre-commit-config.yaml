@@ -83,14 +83,13 @@ repos:
           - pydantic>=2.5.0
           - aiohttp>=3.9.0
           - aiohttp-socks>=0.9.0
-          - aiomultiprocess>=0.9.1
           - asyncpg>=0.29.0
           - cryptography>=46.0.5
           - dnspython>=2.5.0
           - fastapi>=0.115.0
           - geoip2>=4.8.0
           - geohash2>=1.1
-          - nostr-sdk>=0.37.0
+          - nostr-sdk>=0.44.0
           - uvicorn>=0.34.0
           - prometheus-client>=0.21.0
           - PyYAML>=6.0.1

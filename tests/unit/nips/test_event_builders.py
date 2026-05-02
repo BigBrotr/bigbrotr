@@ -6,8 +6,11 @@ Covers Kind 0 (NIP-01), Kind 10166, Kind 30166, and all tag builder functions.
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
+import pytest
 from nostr_sdk import Keys
 
 from bigbrotr.models.constants import NetworkType
@@ -103,6 +106,121 @@ class TestBuildProfileEvent:
         builder = build_profile_event()
         assert builder is not None
 
+    def test_extra_fields_are_merged_without_overriding_explicit_fields(self) -> None:
+        """Extra metadata should be preserved while explicit parameters win on conflicts."""
+        event = build_profile_event(
+            name="BigBrotr",
+            website="https://bigbrotr.com",
+            extra_fields={
+                "algorithm_id": "global-pagerank",
+                "model_family": "pagerank",
+                "name": "ignored",
+            },
+        ).sign_with_keys(Keys.generate())
+
+        content = json.loads(event.content())
+        assert content["name"] == "BigBrotr"
+        assert content["website"] == "https://bigbrotr.com"
+        assert content["algorithm_id"] == "global-pagerank"
+        assert content["model_family"] == "pagerank"
+
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("name", True),
+            ("about", 1),
+            ("picture", object()),
+            ("nip05", 1.5),
+            ("website", ["https://example.com"]),
+            ("banner", {"url": "https://example.com/banner.png"}),
+            ("lud16", b"monitor@ln.example.com"),
+        ],
+    )
+    def test_rejects_non_string_profile_fields_before_metadata_build(
+        self,
+        field_name: str,
+        value: object,
+    ) -> None:
+        """Malformed explicit profile fields fail before metadata serialization."""
+        with (
+            patch("bigbrotr.nips.event_builders.NostrMetadata.from_json") as mock_from_json,
+            pytest.raises(ValueError, match=rf"{field_name} must be a string"),
+        ):
+            build_profile_event(**{field_name: value})
+
+        mock_from_json.assert_not_called()
+
+    def test_blank_profile_fields_are_omitted_after_normalization(self) -> None:
+        """Whitespace-only explicit profile fields do not produce blank metadata keys."""
+        event = build_profile_event(name="   ", about="\n\t").sign_with_keys(Keys.generate())
+        content = json.loads(event.content())
+        assert content == {}
+
+    @pytest.mark.parametrize("value", [True, [("algorithm_id", "pagerank")]])
+    def test_rejects_non_mapping_extra_fields_before_metadata_build(self, value: object) -> None:
+        """Malformed extra_fields payloads fail before metadata serialization."""
+        with (
+            patch("bigbrotr.nips.event_builders.NostrMetadata.from_json") as mock_from_json,
+            pytest.raises(ValueError, match="extra_fields must be a mapping"),
+        ):
+            build_profile_event(extra_fields=value)  # type: ignore[arg-type]
+
+        mock_from_json.assert_not_called()
+
+    @pytest.mark.parametrize("value", [{1: "pagerank"}, {True: "pagerank"}])
+    def test_rejects_non_string_extra_field_keys_before_metadata_build(
+        self,
+        value: object,
+    ) -> None:
+        """Malformed extra_fields keys fail before metadata serialization."""
+        with (
+            patch("bigbrotr.nips.event_builders.NostrMetadata.from_json") as mock_from_json,
+            pytest.raises(ValueError, match="extra_fields keys must be strings"),
+        ):
+            build_profile_event(extra_fields=value)  # type: ignore[arg-type]
+
+        mock_from_json.assert_not_called()
+
+    def test_rejects_duplicate_normalized_extra_field_keys_before_metadata_build(self) -> None:
+        """Normalization collisions in extra_fields fail before metadata serialization."""
+        with (
+            patch("bigbrotr.nips.event_builders.NostrMetadata.from_json") as mock_from_json,
+            pytest.raises(ValueError, match="extra_fields contains duplicate normalized keys"),
+        ):
+            build_profile_event(
+                extra_fields={
+                    "algorithm_id": "global-pagerank",
+                    " algorithm_id ": "ignored",
+                }
+            )
+
+        mock_from_json.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("value", "message"),
+        [
+            (
+                {"algorithm_id": object()},
+                r"extra_fields\['algorithm_id'\] contains unsupported type object",
+            ),
+            ({"topic_counts": (1, 2)}, r"extra_fields\['topic_counts'\] contains a tuple"),
+            ({"weights": float("nan")}, r"extra_fields\['weights'\] contains a non-finite float"),
+        ],
+    )
+    def test_rejects_non_json_extra_field_values_before_metadata_build(
+        self,
+        value: object,
+        message: str,
+    ) -> None:
+        """Malformed extra_fields values fail before metadata serialization."""
+        with (
+            patch("bigbrotr.nips.event_builders.NostrMetadata.from_json") as mock_from_json,
+            pytest.raises(ValueError, match=message),
+        ):
+            build_profile_event(extra_fields=value)  # type: ignore[arg-type]
+
+        mock_from_json.assert_not_called()
+
 
 # ============================================================================
 # build_relay_list_event (Kind 10002)
@@ -122,6 +240,68 @@ class TestBuildRelayListEvent:
     def test_single_relay(self) -> None:
         builder = build_relay_list_event([Relay("wss://solo.relay.com")])
         assert builder is not None
+
+    def test_normalizes_relay_tag_order_and_duplicates(self) -> None:
+        """Relay list tags are emitted in stable deduplicated URL order."""
+        keys = Keys.generate()
+        builder = build_relay_list_event(
+            [
+                Relay("wss://relay-b.example.com"),
+                Relay("wss://relay-a.example.com"),
+                Relay("wss://relay-b.example.com"),
+            ]
+        )
+
+        event = builder.sign_with_keys(keys)
+        tag_vecs = [tag.as_vec() for tag in event.tags().to_vec()]
+
+        assert tag_vecs == [
+            ["r", "wss://relay-a.example.com", "write"],
+            ["r", "wss://relay-b.example.com", "write"],
+        ]
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            True,
+            "wss://relay.example.com",
+            b"wss://relay.example.com",
+            {"relay": Relay("wss://relay.example.com")},
+            object(),
+        ],
+    )
+    def test_rejects_invalid_relay_containers_before_tag_build(self, value: object) -> None:
+        """Malformed relay containers fail before any tag or builder work starts."""
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            patch("bigbrotr.nips.event_builders.EventBuilder") as mock_builder,
+            pytest.raises(ValueError, match="relays must be an iterable of Relay"),
+        ):
+            build_relay_list_event(value)  # type: ignore[arg-type]
+
+        mock_parse.assert_not_called()
+        mock_builder.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            [True],
+            ["wss://relay.example.com"],
+            [object()],
+            [Relay("wss://relay.example.com"), True],
+        ],
+    )
+    def test_rejects_invalid_relay_items_before_tag_build(self, value: object) -> None:
+        """Malformed relay items fail before any tag or builder work starts."""
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            patch("bigbrotr.nips.event_builders.EventBuilder") as mock_builder,
+            pytest.raises(ValueError, match="relays must contain only Relay items"),
+        ):
+            build_relay_list_event(value)  # type: ignore[arg-type]
+
+        mock_parse.assert_not_called()
+        mock_builder.assert_not_called()
 
 
 # ============================================================================
@@ -231,6 +411,207 @@ class TestBuildMonitorAnnouncement:
         tag_vecs = [tag.as_vec() for tag in event.tags().to_vec()]
         assert not any(t[0] == "g" for t in tag_vecs)
 
+    def test_network_tags_are_stable_and_deduplicated(self) -> None:
+        """Network capability tags do not inherit caller ordering or duplicates."""
+        keys = Keys.generate()
+        builder = build_monitor_announcement(
+            interval=3600,
+            timeout_ms=10000,
+            enabled_networks=[
+                NetworkType.TOR,
+                NetworkType.CLEARNET,
+                NetworkType.TOR,
+                NetworkType.I2P,
+            ],
+            nip11_selection=Nip11Selection(info=False),
+            nip66_selection=Nip66Selection(
+                rtt=False, ssl=False, geo=False, net=False, dns=False, http=False
+            ),
+        )
+
+        event = builder.sign_with_keys(keys)
+        tag_vecs = [tag.as_vec() for tag in event.tags().to_vec()]
+
+        assert [vec for vec in tag_vecs if vec[0] == "n"] == [
+            ["n", "clearnet"],
+            ["n", "i2p"],
+            ["n", "tor"],
+        ]
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            True,
+            "clearnet",
+            b"tor",
+            {"network": NetworkType.CLEARNET},
+            object(),
+        ],
+    )
+    def test_rejects_invalid_enabled_networks_container_before_tag_build(
+        self,
+        value: object,
+    ) -> None:
+        """Malformed enabled_networks containers fail before any announcement tags are built."""
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            pytest.raises(ValueError, match="enabled_networks must be an iterable of NetworkType"),
+        ):
+            build_monitor_announcement(
+                interval=3600,
+                timeout_ms=10000,
+                enabled_networks=value,  # type: ignore[arg-type]
+                nip11_selection=Nip11Selection(info=False),
+                nip66_selection=Nip66Selection(
+                    rtt=False,
+                    ssl=False,
+                    geo=False,
+                    net=False,
+                    dns=False,
+                    http=False,
+                ),
+            )
+
+        mock_parse.assert_not_called()
+
+    @pytest.mark.parametrize("value", [True, "clearnet", object()])
+    def test_rejects_invalid_enabled_network_items_before_tag_build(self, value: object) -> None:
+        """Malformed enabled_networks items fail before any announcement tags are built."""
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            pytest.raises(ValueError, match="enabled_networks must contain only NetworkType items"),
+        ):
+            build_monitor_announcement(
+                interval=3600,
+                timeout_ms=10000,
+                enabled_networks=[NetworkType.CLEARNET, value],  # type: ignore[list-item]
+                nip11_selection=Nip11Selection(info=False),
+                nip66_selection=Nip66Selection(
+                    rtt=False,
+                    ssl=False,
+                    geo=False,
+                    net=False,
+                    dns=False,
+                    http=False,
+                ),
+            )
+
+        mock_parse.assert_not_called()
+
+    @pytest.mark.parametrize("value", [True, 0, -1])
+    def test_rejects_invalid_interval_before_tag_build(self, value: object) -> None:
+        """Invalid frequency budgets fail before any announcement tags are built."""
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            pytest.raises(ValueError, match="interval must be a positive integer"),
+        ):
+            build_monitor_announcement(
+                interval=value,  # type: ignore[arg-type]
+                timeout_ms=10000,
+                enabled_networks=[NetworkType.CLEARNET],
+                nip11_selection=Nip11Selection(info=False),
+                nip66_selection=Nip66Selection(
+                    rtt=False,
+                    ssl=False,
+                    geo=False,
+                    net=False,
+                    dns=False,
+                    http=False,
+                ),
+            )
+
+        mock_parse.assert_not_called()
+
+    @pytest.mark.parametrize("value", [True, 0, -1])
+    def test_rejects_invalid_timeout_before_tag_build(self, value: object) -> None:
+        """Invalid timeout budgets fail before any announcement tags are built."""
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            pytest.raises(ValueError, match="timeout_ms must be a positive integer"),
+        ):
+            build_monitor_announcement(
+                interval=3600,
+                timeout_ms=value,  # type: ignore[arg-type]
+                enabled_networks=[NetworkType.CLEARNET],
+                nip11_selection=Nip11Selection(info=False),
+                nip66_selection=Nip66Selection(
+                    rtt=False,
+                    ssl=False,
+                    geo=False,
+                    net=False,
+                    dns=False,
+                    http=False,
+                ),
+            )
+
+        mock_parse.assert_not_called()
+
+    @pytest.mark.parametrize("value", [True, "", "   "])
+    def test_rejects_invalid_geohash_before_tag_build(self, value: object) -> None:
+        """Malformed geohash inputs fail before any announcement tags are built."""
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            pytest.raises(ValueError, match="geohash must be a non-empty string"),
+        ):
+            build_monitor_announcement(
+                interval=3600,
+                timeout_ms=10000,
+                enabled_networks=[NetworkType.CLEARNET],
+                nip11_selection=Nip11Selection(info=False),
+                nip66_selection=Nip66Selection(
+                    rtt=False,
+                    ssl=False,
+                    geo=False,
+                    net=False,
+                    dns=False,
+                    http=False,
+                ),
+                geohash=value,  # type: ignore[arg-type]
+            )
+
+        mock_parse.assert_not_called()
+
+    @pytest.mark.parametrize("value", [True, "not-a-selection", object()])
+    def test_rejects_invalid_nip11_selection_before_tag_build(self, value: object) -> None:
+        """Malformed NIP-11 selection payloads fail before announcement tag assembly."""
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            pytest.raises(ValueError, match="nip11_selection must be a Nip11Selection"),
+        ):
+            build_monitor_announcement(
+                interval=3600,
+                timeout_ms=10000,
+                enabled_networks=[NetworkType.CLEARNET],
+                nip11_selection=value,  # type: ignore[arg-type]
+                nip66_selection=Nip66Selection(
+                    rtt=False,
+                    ssl=False,
+                    geo=False,
+                    net=False,
+                    dns=False,
+                    http=False,
+                ),
+            )
+
+        mock_parse.assert_not_called()
+
+    @pytest.mark.parametrize("value", [True, "not-a-selection", object()])
+    def test_rejects_invalid_nip66_selection_before_tag_build(self, value: object) -> None:
+        """Malformed NIP-66 selection payloads fail before announcement tag assembly."""
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            pytest.raises(ValueError, match="nip66_selection must be a Nip66Selection"),
+        ):
+            build_monitor_announcement(
+                interval=3600,
+                timeout_ms=10000,
+                enabled_networks=[NetworkType.CLEARNET],
+                nip11_selection=Nip11Selection(info=False),
+                nip66_selection=value,  # type: ignore[arg-type]
+            )
+
+        mock_parse.assert_not_called()
+
 
 # ============================================================================
 # add_rtt_tags
@@ -270,6 +651,19 @@ class TestAddRttTags:
         """Test RTT tags when all fields are None."""
         tags: list[Tag] = []
         add_rtt_tags(tags, Nip66RttData())
+        assert tags == []
+
+    @pytest.mark.parametrize("value", [True, "not-rtt-data", object()])
+    def test_rejects_invalid_rtt_data_before_tag_build(self, value: object) -> None:
+        """Malformed RTT data fails before any RTT tag work starts."""
+        tags: list[Tag] = []
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            pytest.raises(ValueError, match="rtt_data must be a Nip66RttData or None"),
+        ):
+            add_rtt_tags(tags, value)  # type: ignore[arg-type]
+
+        mock_parse.assert_not_called()
         assert tags == []
 
 
@@ -331,6 +725,19 @@ class TestAddSslTags:
         """Test SSL tags when data is None."""
         tags: list[Tag] = []
         add_ssl_tags(tags, None)
+        assert tags == []
+
+    @pytest.mark.parametrize("value", [True, "not-ssl-data", object()])
+    def test_rejects_invalid_ssl_data_before_tag_build(self, value: object) -> None:
+        """Malformed SSL data fails before any SSL tag work starts."""
+        tags: list[Tag] = []
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            pytest.raises(ValueError, match="ssl_data must be a Nip66SslData or None"),
+        ):
+            add_ssl_tags(tags, value)  # type: ignore[arg-type]
+
+        mock_parse.assert_not_called()
         assert tags == []
 
 
@@ -405,6 +812,19 @@ class TestAddNetTags:
         add_net_tags(tags, None)
         assert tags == []
 
+    @pytest.mark.parametrize("value", [True, "not-net-data", object()])
+    def test_rejects_invalid_net_data_before_tag_build(self, value: object) -> None:
+        """Malformed net data fails before any net tag work starts."""
+        tags: list[Tag] = []
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            pytest.raises(ValueError, match="net_data must be a Nip66NetData or None"),
+        ):
+            add_net_tags(tags, value)  # type: ignore[arg-type]
+
+        mock_parse.assert_not_called()
+        assert tags == []
+
 
 # ============================================================================
 # add_geo_tags
@@ -440,10 +860,10 @@ class TestAddGeoTags:
     def test_partial_fields(self) -> None:
         """Test geo tags with only country and geohash present."""
         tags: list[Tag] = []
-        add_geo_tags(tags, Nip66GeoData(geo_hash="abc", geo_country="US"))
+        add_geo_tags(tags, Nip66GeoData(geo_hash="u33dc", geo_country="US"))
 
         tag_map = _extract_tag_map(tags)
-        assert tag_map["g"] == "abc"
+        assert tag_map["g"] == "u33dc"
         assert tag_map["geo-country"] == "US"
         assert "geo-city" not in tag_map
         assert "geo-lat" not in tag_map
@@ -458,6 +878,14 @@ class TestAddGeoTags:
         tag_map = _extract_tag_map(tags)
         assert "g" not in tag_map
         assert tag_map["geo-country"] == "IT"
+
+    def test_country_tags_use_canonical_iso_code(self) -> None:
+        """Lowercase country codes are normalized before public geo tags are emitted."""
+        tags: list[Tag] = []
+        add_geo_tags(tags, Nip66GeoData(geo_country="de"))
+
+        tag_map = _extract_tag_map(tags)
+        assert tag_map["geo-country"] == "DE"
 
     def test_no_hash_no_country_with_city(self) -> None:
         """Test geo tags when only geo_city is present (covers geo_hash and geo_country False branches)."""
@@ -487,6 +915,19 @@ class TestAddGeoTags:
         add_geo_tags(tags, None)
         assert tags == []
 
+    @pytest.mark.parametrize("value", [True, "not-geo-data", object()])
+    def test_rejects_invalid_geo_data_before_tag_build(self, value: object) -> None:
+        """Malformed geo data fails before any geo tag work starts."""
+        tags: list[Tag] = []
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            pytest.raises(ValueError, match="geo_data must be a Nip66GeoData or None"),
+        ):
+            add_geo_tags(tags, value)  # type: ignore[arg-type]
+
+        mock_parse.assert_not_called()
+        assert tags == []
+
 
 # ============================================================================
 # add_dns_tags
@@ -504,7 +945,7 @@ class TestAddDnsTags:
             Nip66DnsData(
                 dns_ips=["1.2.3.4", "5.6.7.8"],
                 dns_ips_v6=["2001:db8::1"],
-                dns_cname="relay.cdn.example.com",
+                dns_cname="RELAY.CDN.EXAMPLE.COM",
                 dns_ttl=3600,
             ),
         )
@@ -549,6 +990,19 @@ class TestAddDnsTags:
         add_dns_tags(tags, None)
         assert tags == []
 
+    @pytest.mark.parametrize("value", [True, "not-dns-data", object()])
+    def test_rejects_invalid_dns_data_before_tag_build(self, value: object) -> None:
+        """Malformed DNS data fails before any DNS tag work starts."""
+        tags: list[Tag] = []
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            pytest.raises(ValueError, match="dns_data must be a Nip66DnsData or None"),
+        ):
+            add_dns_tags(tags, value)  # type: ignore[arg-type]
+
+        mock_parse.assert_not_called()
+        assert tags == []
+
 
 # ============================================================================
 # add_http_tags
@@ -591,6 +1045,19 @@ class TestAddHttpTags:
         add_http_tags(tags, None)
         assert tags == []
 
+    @pytest.mark.parametrize("value", [True, "not-http-data", object()])
+    def test_rejects_invalid_http_data_before_tag_build(self, value: object) -> None:
+        """Malformed HTTP data fails before any HTTP tag work starts."""
+        tags: list[Tag] = []
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            pytest.raises(ValueError, match="http_data must be a Nip66HttpData or None"),
+        ):
+            add_http_tags(tags, value)  # type: ignore[arg-type]
+
+        mock_parse.assert_not_called()
+        assert tags == []
+
 
 # ============================================================================
 # add_attributes_tags
@@ -620,6 +1087,34 @@ class TestAddAttributesTags:
         """Test no tags emitted when attributes is None."""
         tags: list[Tag] = []
         add_attributes_tags(tags, Nip11InfoData())
+        assert tags == []
+
+    def test_parse_filtered_attributes_emit_only_canonical_w_tags(self) -> None:
+        """Only canonical PascalCase attributes survive into public W tags."""
+        tags: list[Tag] = []
+        parsed = Nip11InfoData.parse(
+            {"attributes": ["Search", "search", "Public Inbox", "PrivateStorage"]}
+        )
+
+        add_attributes_tags(tags, Nip11InfoData(**parsed))
+
+        pairs = _extract_tag_pairs(tags)
+        assert ("W", "Search") in pairs
+        assert ("W", "PrivateStorage") in pairs
+        assert ("W", "search") not in pairs
+        assert ("W", "Public Inbox") not in pairs
+
+    @pytest.mark.parametrize("value", [True, "not-a-nip11-data", object()])
+    def test_rejects_invalid_nip11_data_before_attribute_tag_build(self, value: object) -> None:
+        """Malformed nip11_data fails before any W tag work starts."""
+        tags: list[Tag] = []
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            pytest.raises(ValueError, match="nip11_data must be a Nip11InfoData"),
+        ):
+            add_attributes_tags(tags, value)  # type: ignore[arg-type]
+
+        mock_parse.assert_not_called()
         assert tags == []
 
 
@@ -683,6 +1178,19 @@ class TestAddLanguageTags:
         assert len(tags) == 1
         vec = tags[0].as_vec()
         assert vec == ["l", "en", "ISO-639-1"]
+
+    @pytest.mark.parametrize("value", [True, "not-a-nip11-data", object()])
+    def test_rejects_invalid_nip11_data_before_language_tag_build(self, value: object) -> None:
+        """Malformed nip11_data fails before any l tag work starts."""
+        tags: list[Tag] = []
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            pytest.raises(ValueError, match="nip11_data must be a Nip11InfoData"),
+        ):
+            add_language_tags(tags, value)  # type: ignore[arg-type]
+
+        mock_parse.assert_not_called()
+        assert tags == []
 
 
 # ============================================================================
@@ -873,6 +1381,38 @@ class TestAddRequirementAndTypeTags:
         assert ("R", "auth") in pairs
         assert ("R", "payment") in pairs
 
+    @pytest.mark.parametrize("value", [True, "not-a-nip11-data", object()])
+    def test_rejects_invalid_nip11_data_before_requirement_or_type_tags(
+        self, value: object
+    ) -> None:
+        """Malformed nip11_data fails before any R/T tag work starts."""
+        tags: list[Tag] = []
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            patch("bigbrotr.nips.event_builders.add_type_tags") as mock_add_type_tags,
+            pytest.raises(ValueError, match="nip11_data must be a Nip11InfoData"),
+        ):
+            add_requirement_and_type_tags(tags, value, None)  # type: ignore[arg-type]
+
+        mock_parse.assert_not_called()
+        mock_add_type_tags.assert_not_called()
+        assert tags == []
+
+    @pytest.mark.parametrize("value", [True, "not-rtt-logs", object()])
+    def test_rejects_invalid_rtt_logs_before_requirement_or_type_tags(self, value: object) -> None:
+        """Malformed rtt_logs fails before any R/T tag work starts."""
+        tags: list[Tag] = []
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            patch("bigbrotr.nips.event_builders.add_type_tags") as mock_add_type_tags,
+            pytest.raises(ValueError, match="rtt_logs must be a Nip66RttMultiPhaseLogs or None"),
+        ):
+            add_requirement_and_type_tags(tags, Nip11InfoData(), value)  # type: ignore[arg-type]
+
+        mock_parse.assert_not_called()
+        mock_add_type_tags.assert_not_called()
+        assert tags == []
+
 
 # ============================================================================
 # add_type_tags
@@ -992,6 +1532,47 @@ class TestAddTypeTags:
         assert ("T", "Paid") in pairs
         assert ("T", "PublicOutbox") in pairs
 
+    @pytest.mark.parametrize("value", [True, "50", {"50": True}, object()])
+    def test_rejects_invalid_supported_nips_container_before_tag_build(self, value: object) -> None:
+        """Malformed supported_nips containers fail before any T tag work starts."""
+        tags: list[Tag] = []
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            pytest.raises(
+                ValueError, match="supported_nips must be an iterable of integers or None"
+            ),
+        ):
+            add_type_tags(tags, value, AccessFlags(False, False, False, False))  # type: ignore[arg-type]
+
+        mock_parse.assert_not_called()
+        assert tags == []
+
+    @pytest.mark.parametrize("value", [[True], ["50"], [object()]])
+    def test_rejects_invalid_supported_nips_items_before_tag_build(self, value: object) -> None:
+        """Malformed supported_nips items fail before any T tag work starts."""
+        tags: list[Tag] = []
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            pytest.raises(ValueError, match="supported_nips must contain only integers"),
+        ):
+            add_type_tags(tags, value, AccessFlags(False, False, False, False))  # type: ignore[arg-type]
+
+        mock_parse.assert_not_called()
+        assert tags == []
+
+    @pytest.mark.parametrize("value", [True, (False, False, False, False), object()])
+    def test_rejects_invalid_access_before_tag_build(self, value: object) -> None:
+        """Malformed access flags fail before any T tag work starts."""
+        tags: list[Tag] = []
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            pytest.raises(ValueError, match="access must be an AccessFlags"),
+        ):
+            add_type_tags(tags, [50], value)  # type: ignore[arg-type]
+
+        mock_parse.assert_not_called()
+        assert tags == []
+
 
 # ============================================================================
 # add_nip11_tags
@@ -1016,13 +1597,11 @@ class TestAddNip11Tags:
     def test_with_topic_tags(self) -> None:
         """Test NIP-11 tags with topic (t) tags."""
         tags: list[Tag] = []
-        add_nip11_tags(tags, Nip11InfoData(tags=["social", "bitcoin", "nostr"]))
+        add_nip11_tags(tags, Nip11InfoData(tags=["Social", "bitcoin", "Nostr", "BITCOIN"]))
 
         pairs = _extract_tag_pairs(tags)
         topic_tags = [(k, v) for k, v in pairs if k == "t"]
-        assert ("t", "social") in topic_tags
-        assert ("t", "bitcoin") in topic_tags
-        assert ("t", "nostr") in topic_tags
+        assert topic_tags == [("t", "bitcoin"), ("t", "nostr"), ("t", "social")]
 
     def test_with_languages(self) -> None:
         """Test NIP-11 tags with language_tags."""
@@ -1068,6 +1647,39 @@ class TestAddNip11Tags:
 
         pairs = _extract_tag_pairs(tags)
         assert ("R", "auth") in pairs
+
+    @pytest.mark.parametrize("value", [True, "not-a-nip11-data", object()])
+    def test_rejects_invalid_nip11_data_before_tag_build(self, value: object) -> None:
+        """Malformed nip11_data fails before any tag work starts."""
+        tags: list[Tag] = []
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            patch("bigbrotr.nips.event_builders.Tag.hashtag") as mock_hashtag,
+            pytest.raises(ValueError, match="nip11_data must be a Nip11InfoData or None"),
+        ):
+            add_nip11_tags(tags, value)  # type: ignore[arg-type]
+
+        mock_parse.assert_not_called()
+        mock_hashtag.assert_not_called()
+        assert tags == []
+
+    @pytest.mark.parametrize("value", [True, "not-rtt-logs", object()])
+    def test_rejects_invalid_rtt_logs_before_tag_build(self, value: object) -> None:
+        """Malformed rtt_logs fails before any tag work starts."""
+        tags: list[Tag] = []
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            patch("bigbrotr.nips.event_builders.Tag.hashtag") as mock_hashtag,
+            pytest.raises(
+                ValueError,
+                match="rtt_logs must be a Nip66RttMultiPhaseLogs or None",
+            ),
+        ):
+            add_nip11_tags(tags, Nip11InfoData(), value)  # type: ignore[arg-type]
+
+        mock_parse.assert_not_called()
+        mock_hashtag.assert_not_called()
+        assert tags == []
 
 
 # ============================================================================
@@ -1127,6 +1739,95 @@ class TestBuildRelayDiscovery:
         )
         builder = build_relay_discovery(relay, nip11)
         assert builder is not None
+
+    @pytest.mark.parametrize("value", [True, "wss://relay.example.com", object()])
+    def test_rejects_invalid_relay_before_discovery_tag_build(self, value: object) -> None:
+        """Malformed relay inputs fail before any discovery tag or builder work starts."""
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.identifier") as mock_identifier,
+            patch("bigbrotr.nips.event_builders.EventBuilder") as mock_builder,
+            pytest.raises(ValueError, match="relay must be a Relay"),
+        ):
+            build_relay_discovery(value)  # type: ignore[arg-type]
+
+        mock_identifier.assert_not_called()
+        mock_builder.assert_not_called()
+
+    @pytest.mark.parametrize("value", [True, "not-a-nip11", object()])
+    def test_rejects_invalid_nip11_before_document_or_tag_build(self, value: object) -> None:
+        """Malformed nip11 payloads fail before document or tag work starts."""
+        relay = Relay("wss://relay.example.com")
+        with (
+            patch("bigbrotr.nips.event_builders.Document") as mock_document,
+            patch("bigbrotr.nips.event_builders.Tag.identifier") as mock_identifier,
+            patch("bigbrotr.nips.event_builders.EventBuilder") as mock_builder,
+            pytest.raises(ValueError, match="nip11 must be a Nip11 or None"),
+        ):
+            build_relay_discovery(relay, nip11=value)  # type: ignore[arg-type]
+
+        mock_document.assert_not_called()
+        mock_identifier.assert_not_called()
+        mock_builder.assert_not_called()
+
+    def test_rejects_mismatched_nip11_relay_before_document_or_tag_build(self) -> None:
+        """Nip11 metadata for a different relay fails before document or tag work starts."""
+        relay = Relay("wss://relay.example.com")
+        other_relay = Relay("wss://other.example.com")
+        nip11 = Nip11(
+            relay=other_relay,
+            info=Nip11InfoMetadata(
+                data=Nip11InfoData(name="Other Relay"),
+                logs=Nip11InfoLogs(success=True),
+            ),
+        )
+
+        with (
+            patch("bigbrotr.nips.event_builders.Document") as mock_document,
+            patch("bigbrotr.nips.event_builders.Tag.identifier") as mock_identifier,
+            patch("bigbrotr.nips.event_builders.EventBuilder") as mock_builder,
+            pytest.raises(ValueError, match="nip11 relay must match relay"),
+        ):
+            build_relay_discovery(relay, nip11=nip11)
+
+        mock_document.assert_not_called()
+        mock_identifier.assert_not_called()
+        mock_builder.assert_not_called()
+
+    @pytest.mark.parametrize("value", [True, "not-a-nip66", object()])
+    def test_rejects_invalid_nip66_before_discovery_tag_build(self, value: object) -> None:
+        """Malformed nip66 payloads fail before any discovery tag or builder work starts."""
+        relay = Relay("wss://relay.example.com")
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.identifier") as mock_identifier,
+            patch("bigbrotr.nips.event_builders.EventBuilder") as mock_builder,
+            pytest.raises(ValueError, match="nip66 must be a Nip66 or None"),
+        ):
+            build_relay_discovery(relay, nip66=value)  # type: ignore[arg-type]
+
+        mock_identifier.assert_not_called()
+        mock_builder.assert_not_called()
+
+    def test_rejects_mismatched_nip66_relay_before_discovery_tag_build(self) -> None:
+        """Nip66 metadata for a different relay fails before any discovery tag or builder work."""
+        relay = Relay("wss://relay.example.com")
+        other_relay = Relay("wss://other.example.com")
+        nip66 = Nip66(
+            relay=other_relay,
+            rtt=Nip66RttMetadata(
+                data=Nip66RttData(rtt_open=45),
+                logs=Nip66RttMultiPhaseLogs(open_success=True),
+            ),
+        )
+
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.identifier") as mock_identifier,
+            patch("bigbrotr.nips.event_builders.EventBuilder") as mock_builder,
+            pytest.raises(ValueError, match="nip66 relay must match relay"),
+        ):
+            build_relay_discovery(relay, nip66=nip66)
+
+        mock_identifier.assert_not_called()
+        mock_builder.assert_not_called()
 
 
 # ============================================================================

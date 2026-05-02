@@ -21,6 +21,7 @@ from bigbrotr.services.common.types import (
     CandidateCheckpoint,
     Checkpoint,
     Cursor,
+    DvmRequestCursor,
     FinderCursor,
     MonitorCheckpoint,
     PublishCheckpoint,
@@ -49,6 +50,31 @@ class TestCheckpoint:
 
         with pytest.raises(FrozenInstanceError):
             cp.timestamp = 0  # type: ignore[misc]
+
+    @pytest.mark.parametrize(
+        ("kwargs", "match"),
+        [
+            (
+                {"key": 123, "timestamp": 1700000000},
+                "key must be a str",
+            ),
+            (
+                {"key": "wss://relay.example.com", "timestamp": True},
+                "timestamp must be an int",
+            ),
+            (
+                {"key": "wss://relay.example.com", "timestamp": -1},
+                "timestamp must be non-negative",
+            ),
+        ],
+    )
+    def test_rejects_invalid_runtime_contracts(
+        self,
+        kwargs: dict[str, object],
+        match: str,
+    ) -> None:
+        with pytest.raises((TypeError, ValueError), match=match):
+            Checkpoint(**kwargs)  # type: ignore[arg-type]
 
 
 # ============================================================================
@@ -149,6 +175,52 @@ class TestCandidateCheckpoint:
         with pytest.raises(FrozenInstanceError):
             candidate.network = NetworkType.TOR  # type: ignore[misc]
 
+    @pytest.mark.parametrize(
+        ("kwargs", "match"),
+        [
+            (
+                {
+                    "key": "not-a-relay",
+                    "timestamp": 1700000000,
+                    "network": NetworkType.CLEARNET,
+                },
+                "canonical form|invalid|scheme",
+            ),
+            (
+                {
+                    "key": f"ws://{'a' * 56}.onion",
+                    "timestamp": 1700000000,
+                    "network": NetworkType.CLEARNET,
+                },
+                "candidate network",
+            ),
+            (
+                {
+                    "key": "wss://relay.example.com",
+                    "timestamp": -1,
+                    "network": NetworkType.CLEARNET,
+                },
+                "timestamp must be a non-negative integer",
+            ),
+            (
+                {
+                    "key": "wss://relay.example.com",
+                    "timestamp": 1700000000,
+                    "network": NetworkType.CLEARNET,
+                    "failures": -1,
+                },
+                "failures must be a non-negative integer",
+            ),
+        ],
+    )
+    def test_rejects_invalid_runtime_contracts(
+        self,
+        kwargs: dict[str, object],
+        match: str,
+    ) -> None:
+        with pytest.raises((TypeError, ValueError), match=match):
+            CandidateCheckpoint(**kwargs)  # type: ignore[arg-type]
+
 
 # ============================================================================
 # Cursor Tests
@@ -195,6 +267,32 @@ class TestCursor:
         with pytest.raises(FrozenInstanceError):
             cursor.timestamp = 123  # type: ignore[misc]
 
+    def test_normalizes_hex_ids(self) -> None:
+        cursor = DvmRequestCursor(key="job_requests", id="AB" * 32)
+
+        assert cursor.id == "ab" * 32
+
+    @pytest.mark.parametrize(
+        ("kwargs", "match"),
+        [
+            (
+                {"key": "job_requests", "timestamp": -1},
+                "timestamp must be non-negative",
+            ),
+            (
+                {"key": "job_requests", "id": "bad"},
+                "id must be a 64-character hex string",
+            ),
+        ],
+    )
+    def test_rejects_invalid_runtime_contracts(
+        self,
+        kwargs: dict[str, object],
+        match: str,
+    ) -> None:
+        with pytest.raises((TypeError, ValueError), match=match):
+            DvmRequestCursor(**kwargs)  # type: ignore[arg-type]
+
 
 # ============================================================================
 # Cursor Subclass Tests
@@ -229,7 +327,12 @@ class TestCursorSubclasses:
             cursor.timestamp = 123  # type: ignore[misc]
 
     def test_sync_cursor_not_finder_cursor(self) -> None:
-        assert not isinstance(SyncCursor(key="x"), FinderCursor)
+        assert not isinstance(SyncCursor(key="wss://sync.example.com"), FinderCursor)
 
     def test_finder_cursor_not_sync_cursor(self) -> None:
-        assert not isinstance(FinderCursor(key="x"), SyncCursor)
+        assert not isinstance(FinderCursor(key="wss://finder.example.com"), SyncCursor)
+
+    @pytest.mark.parametrize("cls", [SyncCursor, FinderCursor])
+    def test_rejects_invalid_relay_keys(self, cls: type[Cursor]) -> None:
+        with pytest.raises(ValueError, match=r"canonical form|invalid|scheme"):
+            cls(key="not-a-relay")

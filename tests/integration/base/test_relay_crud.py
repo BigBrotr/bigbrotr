@@ -16,7 +16,7 @@ pytestmark = pytest.mark.integration
 
 class TestRelayInsert:
     async def test_single_relay_insert(self, brotr: Brotr) -> None:
-        relay = Relay("wss://insert.example.com", discovered_at=1700000000)
+        relay = Relay("wss://insert.example.com", stored_at=1700000000)
         inserted = await brotr.insert_relay([relay])
         assert inserted == 1
 
@@ -26,7 +26,7 @@ class TestRelayInsert:
         assert row["network"] == "clearnet"
 
     async def test_duplicate_relay_not_inserted(self, brotr: Brotr) -> None:
-        relay = Relay("wss://dup.example.com", discovered_at=1700000000)
+        relay = Relay("wss://dup.example.com", stored_at=1700000000)
         first = await brotr.insert_relay([relay])
         assert first == 1
 
@@ -35,31 +35,31 @@ class TestRelayInsert:
 
     async def test_duplicate_preserves_original_timestamp(self, brotr: Brotr) -> None:
         original_ts = 1700000000
-        relay1 = Relay("wss://ts.example.com", discovered_at=original_ts)
+        relay1 = Relay("wss://ts.example.com", stored_at=original_ts)
         await brotr.insert_relay([relay1])
 
         later_ts = 1800000000
-        relay2 = Relay("wss://ts.example.com", discovered_at=later_ts)
+        relay2 = Relay("wss://ts.example.com", stored_at=later_ts)
         await brotr.insert_relay([relay2])
 
         row = await brotr.fetchrow(
-            "SELECT discovered_at FROM relay WHERE url = $1", "wss://ts.example.com"
+            "SELECT stored_at FROM relay WHERE url = $1", "wss://ts.example.com"
         )
-        assert row["discovered_at"] == original_ts
+        assert row["stored_at"] == original_ts
 
     async def test_four_network_types(self, brotr: Brotr) -> None:
         onion_url = f"ws://{ONION_HOST}.onion"
         loki_url = f"ws://{LOKI_HOST}.loki"
         relays = [
-            Relay("wss://clearnet.example.com", discovered_at=1700000000),
-            Relay(onion_url, discovered_at=1700000001),
-            Relay("ws://i2phost.i2p", discovered_at=1700000002),
-            Relay(loki_url, discovered_at=1700000003),
+            Relay("wss://clearnet.example.com", stored_at=1700000000),
+            Relay(onion_url, stored_at=1700000001),
+            Relay("ws://i2phost.i2p", stored_at=1700000002),
+            Relay(loki_url, stored_at=1700000003),
         ]
         inserted = await brotr.insert_relay(relays)
         assert inserted == 4
 
-        rows = await brotr.fetch("SELECT url, network FROM relay ORDER BY discovered_at")
+        rows = await brotr.fetch("SELECT url, network FROM relay ORDER BY stored_at")
         networks = {row["url"]: row["network"] for row in rows}
         assert networks["wss://clearnet.example.com"] == "clearnet"
         assert networks[onion_url] == "tor"
@@ -67,7 +67,7 @@ class TestRelayInsert:
         assert networks[loki_url] == "loki"
 
     async def test_explicit_port_and_path_preserved(self, brotr: Brotr) -> None:
-        relay = Relay("wss://relay.example.com:9090/custom/path", discovered_at=1700000000)
+        relay = Relay("wss://relay.example.com:9090/custom/path", stored_at=1700000000)
         await brotr.insert_relay([relay])
 
         row = await brotr.fetchrow(
@@ -79,7 +79,7 @@ class TestRelayInsert:
 
     async def test_overlay_scheme_downgrade(self, brotr: Brotr) -> None:
         onion_url = f"ws://{ONION_HOST}.onion"
-        relay = Relay(onion_url, discovered_at=1700000000)
+        relay = Relay(onion_url, stored_at=1700000000)
         assert relay.url == onion_url
         await brotr.insert_relay([relay])
 
@@ -93,7 +93,7 @@ class TestRelayInsert:
 
 class TestRelayInsertEdgeCases:
     async def test_ipv6_relay(self, brotr: Brotr) -> None:
-        relay = Relay("wss://[2607:f8b0:4000::1]:8080", discovered_at=1700000000)
+        relay = Relay("wss://[2607:f8b0:4000::1]:8080", stored_at=1700000000)
         await brotr.insert_relay([relay])
 
         row = await brotr.fetchrow(
@@ -104,7 +104,7 @@ class TestRelayInsertEdgeCases:
         assert row["network"] == "clearnet"
 
     async def test_batch_insert(self, brotr: Brotr) -> None:
-        relays = [Relay(f"wss://batch{i}.example.com", discovered_at=1700000000) for i in range(50)]
+        relays = [Relay(f"wss://batch{i}.example.com", stored_at=1700000000) for i in range(50)]
         inserted = await brotr.insert_relay(relays)
         assert inserted == 50
 
@@ -112,7 +112,7 @@ class TestRelayInsertEdgeCases:
         assert count == 50
 
     async def test_concurrent_inserts(self, brotr: Brotr) -> None:
-        relay = Relay("wss://concurrent.example.com", discovered_at=1700000000)
+        relay = Relay("wss://concurrent.example.com", stored_at=1700000000)
         results = await asyncio.gather(
             brotr.insert_relay([relay]),
             brotr.insert_relay([relay]),

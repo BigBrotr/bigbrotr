@@ -1,5 +1,5 @@
 """
-Shared base classes for all NIP data, metadata, log, and top-level models.
+Shared base classes for all NIP data, result-container, log, and top-level models.
 
 Provides Pydantic base classes that define the common interface and behavior
 inherited by NIP-11 and NIP-66 model hierarchies:
@@ -8,17 +8,18 @@ inherited by NIP-11 and NIP-66 model hierarchies:
         Frozen model with declarative field parsing via
         [FieldSpec][bigbrotr.nips.parsing.FieldSpec].
     [BaseNipMetadata][bigbrotr.nips.base.BaseNipMetadata]
-        Container pairing a data object with a logs object.
+        Historical-name result container pairing a data object with a logs
+        object.
     [BaseLogs][bigbrotr.nips.base.BaseLogs]
         Operation log with success/reason semantic validation.
     [BaseNip][bigbrotr.nips.base.BaseNip]
-        Abstract top-level NIP model with relay, generated_at, and
-        enforced ``create()`` / ``to_relay_metadata_tuple()`` contract.
+        Abstract top-level NIP model with relay and generated_at.
     [BaseNipSelection][bigbrotr.nips.base.BaseNipSelection]
-        Base for selection models controlling which metadata types
+        Base for selection models controlling which document or probe families
         to retrieve.
     [BaseNipOptions][bigbrotr.nips.base.BaseNipOptions]
-        Base for options models controlling how metadata is retrieved.
+        Base for options models controlling how NIP retrieval/probe work is
+        executed.
     [BaseNipDependencies][bigbrotr.nips.base.BaseNipDependencies]
         Base for dependency containers holding external objects
         (keys, database readers) required by specific NIP tests.
@@ -34,16 +35,29 @@ See Also:
 
 from __future__ import annotations
 
+import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from time import time
-from typing import Any, ClassVar, Self
+from typing import TYPE_CHECKING, Any, ClassVar, Self
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictInt,
+    ValidationError,
+    model_validator,
+)
 
 from bigbrotr.models.relay import Relay  # noqa: TC001
 
-from .parsing import FieldSpec, parse_fields
+from .parsing import FieldSpec, ParseIssue, ParseReport, parse_fields_report
+
+
+if TYPE_CHECKING:
+    from logging import Logger
 
 
 class BaseData(BaseModel):
@@ -51,9 +65,12 @@ class BaseData(BaseModel):
 
     Subclasses declare a ``_FIELD_SPEC`` class variable (a
     [FieldSpec][bigbrotr.nips.parsing.FieldSpec]) that maps field names to
-    their expected types. The ``parse()`` class method uses this spec to
-    coerce raw data into valid constructor arguments, silently dropping
-    values that fail type checks.
+    their expected types. The ``parse_report()`` class method uses this spec
+    to coerce raw data into valid constructor arguments while recording which
+    values were dropped or ignored. ``parse()`` remains the convenience
+    wrapper for callers that only want the parsed payload, while still
+    returning constructor-ready canonical values when model validation can
+    normalize them safely.
 
     Subclasses may override ``parse()`` for custom logic (e.g., nested objects).
 
@@ -65,8 +82,8 @@ class BaseData(BaseModel):
     See Also:
         [FieldSpec][bigbrotr.nips.parsing.FieldSpec]: Declarative type
             specification consumed by ``parse()``.
-        [parse_fields][bigbrotr.nips.parsing.parse_fields]: The underlying
-            parsing engine.
+        [parse_fields_report][bigbrotr.nips.parsing.parse_fields_report]:
+            The underlying report-oriented parsing engine.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -74,11 +91,22 @@ class BaseData(BaseModel):
     _FIELD_SPEC: ClassVar[FieldSpec] = FieldSpec()
 
     @classmethod
+    def _canonicalize_parsed_payload(cls, parsed: dict[str, Any]) -> dict[str, Any]:
+        """Return parsed payload in canonical constructor-ready form when valid."""
+        model = cls.model_validate(parsed)
+        return model.model_dump(exclude_none=True, include=set(model.model_fields_set))
+
+    @classmethod
     def parse(cls, data: Any) -> dict[str, Any]:
         """Parse arbitrary data into validated constructor arguments.
 
-        Invalid or unrecognized values are silently dropped rather than
-        raising errors, making this safe for untrusted relay responses.
+        Invalid or unrecognized values are omitted from the returned payload
+        rather than raising errors, making this safe for untrusted relay
+        responses. Callers that need visibility into dropped fields should
+        use ``parse_report()`` instead. When the parsed payload is valid for
+        model construction, the return value is also canonicalized through the
+        model boundary so field validators can normalize set-like or sorted
+        data before the caller sees it.
 
         Args:
             data: Raw dictionary from an external source.
@@ -86,9 +114,49 @@ class BaseData(BaseModel):
         Returns:
             A cleaned dictionary containing only valid fields.
         """
-        if not isinstance(data, dict):
+        report = cls.parse_report(data)
+        if not report.parsed:
             return {}
-        return parse_fields(data, cls._FIELD_SPEC)
+        try:
+            return cls._canonicalize_parsed_payload(report.parsed)
+        except ValidationError:
+            return report.parsed
+
+    @classmethod
+    def parse_report(cls, data: Any, *, path: str = "") -> ParseReport:
+        """Parse arbitrary data and record unknown or invalid fields."""
+        if not isinstance(data, dict):
+            target = path or cls.__name__
+            return ParseReport(
+                parsed={},
+                issues=(
+                    ParseIssue(
+                        kind="invalid_input",
+                        path=target,
+                        detail="expected dict",
+                    ),
+                ),
+            )
+        return parse_fields_report(data, cls._FIELD_SPEC, path=path)
+
+    @classmethod
+    def log_parse_issues(
+        cls,
+        logger: Logger,
+        relay_url: str,
+        report: ParseReport,
+    ) -> None:
+        """Log a warning when permissive parsing had to drop data."""
+        if not report.has_issues:
+            return
+
+        logger.warning(
+            "nip_parse_issues relay=%s model=%s count=%s issues=%s",
+            relay_url,
+            cls.__name__,
+            len(report.issues),
+            report.summary(),
+        )
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
@@ -101,7 +169,7 @@ class BaseData(BaseModel):
 
 
 class BaseNipMetadata(BaseModel):
-    """Base class for metadata containers that pair data with operation logs.
+    """Base class for result containers that pair data with operation logs.
 
     Provides standard ``from_dict()`` and ``to_dict()`` methods. The
     ``to_dict()`` implementation automatically delegates to nested
@@ -109,6 +177,11 @@ class BaseNipMetadata(BaseModel):
     do not need to override it.
 
     Note:
+        The class keeps the historical ``Metadata`` name for compatibility,
+        but these objects are best understood as parsed NIP result containers.
+        Top-level NIP models later convert them into shared
+        ``document``/``relay_document`` records when persistence is needed.
+
         Subclasses are expected to declare exactly two fields: ``data``
         (a [BaseData][bigbrotr.nips.base.BaseData] subclass) and ``logs``
         (a [BaseLogs][bigbrotr.nips.base.BaseLogs] subclass). The
@@ -117,9 +190,9 @@ class BaseNipMetadata(BaseModel):
 
     See Also:
         [bigbrotr.nips.nip11.info.Nip11InfoMetadata][bigbrotr.nips.nip11.info.Nip11InfoMetadata]:
-            NIP-11 metadata container with HTTP info retrieval capabilities.
+            NIP-11 result container with HTTP info retrieval capabilities.
         [bigbrotr.nips.nip66.rtt.Nip66RttMetadata][bigbrotr.nips.nip66.rtt.Nip66RttMetadata]:
-            NIP-66 RTT metadata container with relay probe capabilities.
+            NIP-66 RTT result container with relay probe capabilities.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -133,8 +206,9 @@ class BaseNipMetadata(BaseModel):
         """Serialize to a dictionary, delegating to nested ``to_dict()`` methods.
 
         Iterates over model fields and calls ``to_dict()`` on any nested
-        object that supports it (e.g., data and logs sub-models).
-        ``None`` values are excluded.
+        NIP model object (e.g., data and logs sub-models). ``None`` values are
+        excluded. Arbitrary duck-typed objects exposing ``to_dict()`` are
+        rejected instead of being trusted implicitly.
 
         Returns:
             A dictionary suitable for JSON serialization or database storage.
@@ -144,11 +218,32 @@ class BaseNipMetadata(BaseModel):
             value = getattr(self, key)
             if value is None:
                 continue
+            if isinstance(value, BaseModel):
+                if hasattr(value, "to_dict"):
+                    result[key] = value.to_dict()
+                else:
+                    result[key] = value.model_dump(exclude_none=True)
+                continue
             if hasattr(value, "to_dict"):
-                result[key] = value.to_dict()
-            else:
-                result[key] = value
+                raise TypeError(
+                    f"{type(self).__name__}.{key} must be a BaseModel to use to_dict serialization"
+                )
+            result[key] = value
         return result
+
+    @property
+    def succeeded(self) -> bool:
+        """Return the semantic operation outcome for this NIP result."""
+        logs = getattr(self, "logs", None)
+        value = getattr(logs, "succeeded", None)
+        return value if isinstance(value, bool) else False
+
+    @property
+    def failure_reason(self) -> str | None:
+        """Return the semantic failure reason for this NIP result."""
+        logs = getattr(self, "logs", None)
+        value = getattr(logs, "failure_reason", None)
+        return str(value) if isinstance(value, str) else None
 
 
 class BaseLogs(BaseModel):
@@ -180,10 +275,15 @@ class BaseLogs(BaseModel):
     @model_validator(mode="after")
     def validate_semantic(self) -> Self:
         """Enforce success/reason consistency."""
-        if self.success and self.reason is not None:
-            raise ValueError("reason must be None when success is True")
-        if not self.success and self.reason is None:
-            raise ValueError("reason is required when success is False")
+        if self.success:
+            if self.reason is not None:
+                raise ValueError("reason must be None when success is True")
+        else:
+            reason = self.reason
+            if reason is None:
+                raise ValueError("reason is required when success is False")
+            if reason.strip() == "":
+                raise ValueError("reason must be non-empty when success is False")
         return self
 
     @classmethod
@@ -195,25 +295,37 @@ class BaseLogs(BaseModel):
         """Serialize to a dictionary, excluding fields with ``None`` values."""
         return self.model_dump(exclude_none=True)
 
+    @property
+    def succeeded(self) -> bool:
+        """Return the semantic operation outcome."""
+        return self.success
+
+    @property
+    def failure_reason(self) -> str | None:
+        """Return the semantic failure reason."""
+        return self.reason
+
 
 class BaseNipSelection(BaseModel):
-    """Which metadata types to retrieve during a NIP operation.
+    """Which document or probe families to retrieve during a NIP operation.
 
-    Subclasses define boolean fields for each metadata type supported
+    Subclasses define boolean fields for each document or probe family supported
     by the NIP. All fields should default to ``True`` (all enabled).
 
     See Also:
         [BaseNipOptions][bigbrotr.nips.base.BaseNipOptions]:
-            Controls *how* metadata is retrieved.
+            Controls *how* the selected work is executed.
         [bigbrotr.nips.nip11.nip11.Nip11Selection][bigbrotr.nips.nip11.nip11.Nip11Selection]:
             NIP-11 selection (``info`` field).
         [bigbrotr.nips.nip66.nip66.Nip66Selection][bigbrotr.nips.nip66.nip66.Nip66Selection]:
             NIP-66 selection (``rtt``, ``ssl``, ``geo``, ``net``, ``dns``, ``http``).
     """
 
+    model_config = ConfigDict(strict=True)
+
 
 class BaseNipOptions(BaseModel):
-    """How to execute NIP metadata retrieval.
+    """How to execute NIP retrieval or probe work.
 
     Provides the common ``allow_insecure`` option inherited by all
     NIP option models. Subclasses add NIP-specific options
@@ -225,12 +337,14 @@ class BaseNipOptions(BaseModel):
 
     See Also:
         [BaseNipSelection][bigbrotr.nips.base.BaseNipSelection]:
-            Controls *which* metadata is retrieved.
+            Controls *which* document or probe families are enabled.
         [bigbrotr.nips.nip11.nip11.Nip11Options][bigbrotr.nips.nip11.nip11.Nip11Options]:
             NIP-11 options (adds ``max_size``).
         [bigbrotr.nips.nip66.nip66.Nip66Options][bigbrotr.nips.nip66.nip66.Nip66Options]:
             NIP-66 options (inherits only ``allow_insecure``).
     """
+
+    model_config = ConfigDict(strict=True)
 
     allow_insecure: bool = Field(
         default=False,
@@ -256,9 +370,9 @@ class BaseNipDependencies:
 
     See Also:
         [BaseNipSelection][bigbrotr.nips.base.BaseNipSelection]:
-            Controls *which* metadata is retrieved.
+            Controls *which* document or probe families are enabled.
         [BaseNipOptions][bigbrotr.nips.base.BaseNipOptions]:
-            Controls *how* metadata is retrieved.
+            Controls *how* the selected work is executed.
         [bigbrotr.nips.nip11.nip11.Nip11Dependencies][bigbrotr.nips.nip11.nip11.Nip11Dependencies]:
             NIP-11 dependencies (currently empty).
         [bigbrotr.nips.nip66.nip66.Nip66Dependencies][bigbrotr.nips.nip66.nip66.Nip66Dependencies]:
@@ -275,11 +389,14 @@ class BaseNip(BaseModel, ABC):
 
     Subclasses must implement:
 
-    * ``to_relay_metadata_tuple()`` — converts results to database-ready
-      [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata] records.
-    * ``create()`` — async factory that performs I/O and returns a populated
-      instance. Must **never raise exceptions** — errors are captured in
-      the ``logs.success`` / ``logs.reason`` fields of each metadata container.
+    * ``to_relay_document_tuple()`` — converts results to database-ready
+      [RelayDocument][bigbrotr.models.relay_document.RelayDocument] records.
+    * A semantic async factory such as ``fetch()`` or ``probe()`` that
+      performs I/O and returns a populated instance. Concrete subclasses
+      should treat that semantic entrypoint as the public contract. Ordinary
+      operational failures should be captured in the
+      ``succeeded`` / ``failure_reason`` properties of each result container,
+      while cancellation and system-exit style exceptions still propagate.
 
     Note:
         ``BaseNip`` cannot be instantiated directly due to the ABC constraint.
@@ -292,9 +409,10 @@ class BaseNip(BaseModel, ABC):
         [bigbrotr.nips.nip66.nip66.Nip66][bigbrotr.nips.nip66.nip66.Nip66]:
             NIP-66 implementation.
         [BaseNipSelection][bigbrotr.nips.base.BaseNipSelection]:
-            Selection model base controlling which metadata types to retrieve.
+            Selection model base controlling which document or probe families
+            to retrieve.
         [BaseNipOptions][bigbrotr.nips.base.BaseNipOptions]:
-            Options model base controlling how metadata is retrieved.
+            Options model base controlling how NIP work is executed.
         [BaseNipDependencies][bigbrotr.nips.base.BaseNipDependencies]:
             Dependencies base for external objects required by specific tests.
     """
@@ -303,16 +421,11 @@ class BaseNip(BaseModel, ABC):
 
     relay: Relay
     generated_at: StrictInt = Field(
-        default_factory=lambda: int(time()),
+        default_factory=lambda: math.ceil(time()),
         ge=0,
         description="Unix timestamp when this result was generated",
     )
 
     @abstractmethod
-    def to_relay_metadata_tuple(self) -> tuple[Any, ...]:
-        """Convert to a database-ready tuple of RelayMetadata records."""
-
-    @classmethod
-    @abstractmethod
-    async def create(cls, relay: Relay, **kwargs: Any) -> Self:
-        """Async factory method. Never raises — check logs.success."""
+    def to_relay_document_tuple(self) -> tuple[Any, ...]:
+        """Convert to a database-ready tuple of RelayDocument records."""

@@ -1,4 +1,4 @@
-"""Unit tests for utils.http module.
+"""Unit tests for the ``bigbrotr.utils.http`` module.
 
 Tests:
 - _read_bounded() internal helper
@@ -191,6 +191,18 @@ class TestDownloadBoundedFileSuccess:
         assert dest.read_bytes() == data
         assert dest.parent.is_dir()
 
+    async def test_writes_chunked_download(self, tmp_path: Path) -> None:
+        """Chunked downloads are streamed to disk and reassembled correctly."""
+        dest = tmp_path / "chunked.dat"
+
+        with patch(
+            "bigbrotr.utils.http.aiohttp.ClientSession",
+            return_value=_mock_session(b"hello ", b"world"),
+        ):
+            await download_bounded_file("https://example.com/file", dest, max_size=1024)
+
+        assert dest.read_bytes() == b"hello world"
+
     async def test_first_read_requests_max_size_plus_one(self, tmp_path: Path) -> None:
         """First read() call requests max_size + 1 bytes to detect oversized bodies."""
         data = b"small"
@@ -241,6 +253,21 @@ class TestDownloadBoundedFileSizeLimit:
 
         assert not dest.exists()
 
+    async def test_preserves_existing_file_on_oversized_download(self, tmp_path: Path) -> None:
+        """Oversized downloads do not clobber an existing destination file."""
+        dest = tmp_path / "existing.dat"
+        dest.write_bytes(b"previous")
+
+        with (
+            patch(
+                "bigbrotr.utils.http.aiohttp.ClientSession", return_value=_mock_session(b"x" * 101)
+            ),
+            pytest.raises(ValueError, match="Response body too large"),
+        ):
+            await download_bounded_file("https://example.com/file", dest, max_size=100)
+
+        assert dest.read_bytes() == b"previous"
+
 
 # =============================================================================
 # download_bounded_file() Tests - HTTP Errors
@@ -264,6 +291,45 @@ class TestDownloadBoundedFileErrors:
             await download_bounded_file("https://example.com/missing", dest, max_size=1024)
 
         assert not dest.exists()
+
+    @pytest.mark.parametrize("timeout", [True, 0, -1.0, float("nan")])
+    async def test_rejects_invalid_timeout_before_http(
+        self, tmp_path: Path, timeout: object
+    ) -> None:
+        """Malformed timeout budgets fail fast before opening HTTP state."""
+        dest = tmp_path / "error.dat"
+
+        with (
+            patch("bigbrotr.utils.http.aiohttp.ClientSession") as mock_session,
+            pytest.raises(ValueError, match="timeout must be a positive finite number"),
+        ):
+            await download_bounded_file(
+                "https://example.com/missing",
+                dest,
+                max_size=1024,
+                timeout=timeout,  # type: ignore[arg-type]
+            )
+
+        mock_session.assert_not_called()
+
+    @pytest.mark.parametrize("max_size", [True, -1, "1024"])
+    async def test_rejects_invalid_max_size_before_http(
+        self, tmp_path: Path, max_size: object
+    ) -> None:
+        """Malformed max_size values fail fast before opening HTTP state."""
+        dest = tmp_path / "error.dat"
+
+        with (
+            patch("bigbrotr.utils.http.aiohttp.ClientSession") as mock_session,
+            pytest.raises(ValueError, match="max_size must be a non-negative int"),
+        ):
+            await download_bounded_file(
+                "https://example.com/missing",
+                dest,
+                max_size=max_size,  # type: ignore[arg-type]
+            )
+
+        mock_session.assert_not_called()
 
 
 # =============================================================================
@@ -383,6 +449,16 @@ class TestReadBoundedJsonSizeLimit:
 
         with pytest.raises(ValueError, match="Response body too large"):
             await read_bounded_json(resp, max_size=10)
+
+    @pytest.mark.parametrize("max_size", [True, -1, "100"])
+    async def test_rejects_invalid_max_size_before_reading(self, max_size: object) -> None:
+        """Malformed max_size values fail fast before reading response content."""
+        resp = _mock_response(b'{"ok": true}')
+
+        with pytest.raises(ValueError, match="max_size must be a non-negative int"):
+            await read_bounded_json(resp, max_size=max_size)  # type: ignore[arg-type]
+
+        resp.content.read.assert_not_awaited()
 
 
 # =============================================================================

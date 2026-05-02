@@ -1,5 +1,5 @@
 """
-NIP-66 RTT metadata container with relay probe capabilities.
+NIP-66 RTT result container with relay probe capabilities.
 
 Tests a relay's round-trip time by measuring connection open, event
 read, and event write latencies as defined by
@@ -27,10 +27,11 @@ See Also:
         Data model for RTT measurements.
     [bigbrotr.nips.nip66.logs.Nip66RttMultiPhaseLogs][bigbrotr.nips.nip66.logs.Nip66RttMultiPhaseLogs]:
         Multi-phase log model with per-phase success/reason.
+    [bigbrotr.nips.nip66.rtt.Nip66RttDependencies][bigbrotr.nips.nip66.rtt.Nip66RttDependencies]:
+        Higher layers inject signing keys, event builders, and read filters for
+        the write-capable RTT probe.
     [bigbrotr.utils.protocol.connect_relay][bigbrotr.utils.protocol.connect_relay]:
         Transport function used for the open phase.
-    [bigbrotr.utils.keys.KeysConfig][bigbrotr.utils.keys.KeysConfig]:
-        Key management -- RTT probes require signing keys for the write phase.
 """
 
 from __future__ import annotations
@@ -38,16 +39,17 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import timedelta
-from time import perf_counter
+from time import monotonic, perf_counter
 from typing import TYPE_CHECKING, Any, NamedTuple, Self
 
 from nostr_sdk import Filter, NostrSdkError, RelayUrl
 
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
+from bigbrotr.nips._validation import normalize_allow_insecure, normalize_proxy_url
 from bigbrotr.nips.base import BaseNipMetadata
-from bigbrotr.utils.transport import DEFAULT_TIMEOUT
 
+from ._validation import normalize_timeout_budget
 from .data import Nip66RttData
 from .logs import Nip66RttMultiPhaseLogs
 
@@ -57,6 +59,13 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger("bigbrotr.nips.nip66")
+
+
+def _exception_reason(exc: BaseException) -> str:
+    reason = str(exc).strip()
+    if reason:
+        return reason
+    return type(exc).__name__
 
 
 class Nip66RttDependencies(NamedTuple):
@@ -80,20 +89,21 @@ class Nip66RttDependencies(NamedTuple):
 class Nip66RttMetadata(BaseNipMetadata):
     """Container for RTT measurement data and multi-phase probe logs.
 
-    Provides the ``execute()`` class method that connects to a relay and
+    Provides the ``probe()`` class method that connects to a relay and
     measures open, read, and write round-trip times.
 
     Warning:
-        The ``execute()`` method **never raises exceptions** for transport
-        errors or missing dependencies. All failures are captured in the
+        The ``probe()`` method does not raise for ordinary transport errors
+        or missing dependencies. Those failures are captured in the
         [Nip66RttMultiPhaseLogs][bigbrotr.nips.nip66.logs.Nip66RttMultiPhaseLogs]
         fields. Overlay network relays tested without a proxy URL receive
         an immediate failure result (all phases marked as failed).
+        Cancellation and system-exit style exceptions still propagate.
 
     See Also:
         [bigbrotr.nips.nip66.nip66.Nip66][bigbrotr.nips.nip66.nip66.Nip66]:
             Top-level model that orchestrates this alongside other tests.
-        [bigbrotr.models.metadata.MetadataType][bigbrotr.models.metadata.MetadataType]:
+        [bigbrotr.models.document.DocumentType][bigbrotr.models.document.DocumentType]:
             The ``NIP66_RTT`` variant used when storing these results.
     """
 
@@ -101,7 +111,7 @@ class Nip66RttMetadata(BaseNipMetadata):
     logs: Nip66RttMultiPhaseLogs
 
     @classmethod
-    async def execute(
+    async def probe(
         cls,
         relay: Relay,
         deps: Nip66RttDependencies,
@@ -126,12 +136,14 @@ class Nip66RttMetadata(BaseNipMetadata):
         Returns:
             An ``Nip66RttMetadata`` instance with measurement data and logs.
         """
-        timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
+        timeout = normalize_timeout_budget(timeout)
+        proxy_url = normalize_proxy_url(proxy_url)
+        allow_insecure = normalize_allow_insecure(allow_insecure)
         logger.debug("rtt_started relay=%s timeout_s=%s proxy=%s", relay.url, timeout, proxy_url)
 
         overlay_networks = (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
         if proxy_url is None and relay.network in overlay_networks:
-            reason = f"overlay network {relay.network.value} requires proxy"
+            reason = f"overlay network {relay.network.display_name} requires proxy"
             return cls(
                 data=Nip66RttData(),
                 logs=Nip66RttMultiPhaseLogs(
@@ -205,8 +217,9 @@ class Nip66RttMetadata(BaseNipMetadata):
     @classmethod
     def _build_result(cls, rtt_data: dict[str, Any], logs: dict[str, Any]) -> Self:
         """Construct the final Nip66RttMetadata from raw data and logs dicts."""
+        data_report = Nip66RttData.parse_report(rtt_data)
         return cls(
-            data=Nip66RttData.model_validate(Nip66RttData.parse(rtt_data)),
+            data=Nip66RttData.model_validate(data_report.parsed),
             logs=Nip66RttMultiPhaseLogs.model_validate(logs),
         )
 
@@ -239,7 +252,7 @@ class Nip66RttMetadata(BaseNipMetadata):
             logger.debug("rtt_open_ok relay=%s rtt_open_ms=%s", relay.url, rtt_open)
             return client, rtt_open
         except (OSError, TimeoutError, NostrSdkError, ValueError) as e:
-            reason = str(e) or type(e).__name__
+            reason = _exception_reason(e)
             logger.debug("rtt_open_failed relay=%s reason=%s", relay.url, reason)
             # Cascading failure: mark all phases as failed
             logs["open_success"] = False
@@ -282,8 +295,9 @@ class Nip66RttMetadata(BaseNipMetadata):
                 result["read_reason"] = "no events returned"
                 logger.debug("rtt_read_no_events relay=%s", relay_url_str)
         except (OSError, TimeoutError, NostrSdkError) as e:
-            result["read_reason"] = str(e)
-            logger.debug("rtt_read_failed relay=%s reason=%s", relay_url_str, str(e))
+            reason = _exception_reason(e)
+            result["read_reason"] = reason
+            logger.debug("rtt_read_failed relay=%s reason=%s", relay_url_str, reason)
 
         return result
 
@@ -298,15 +312,24 @@ class Nip66RttMetadata(BaseNipMetadata):
         """Test the write capability by publishing an event and verifying storage.
 
         Returns a result dict with ``write_success``, ``write_reason``, and
-        ``rtt_write`` (milliseconds, only set on verified success).
+        ``rtt_write`` (milliseconds, only set on verified success). The
+        timeout budget is shared across the publish and verification steps.
         """
         result: dict[str, Any] = {"write_success": False, "write_reason": None, "rtt_write": None}
+        deadline = monotonic() + timeout
+
+        def _remaining_timeout(error_message: str) -> float:
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                raise TimeoutError(error_message)
+            return remaining
 
         try:
             logger.debug("rtt_writing relay=%s", relay_url_str)
             start = perf_counter()
             output = await asyncio.wait_for(
-                client.send_event_builder(event_builder), timeout=timeout
+                client.send_event_builder(event_builder),
+                timeout=_remaining_timeout("write timeout during publish"),
             )
             rtt_write = int((perf_counter() - start) * 1000)
 
@@ -320,7 +343,10 @@ class Nip66RttMetadata(BaseNipMetadata):
                 )
                 # Verify the event can be retrieved back from the relay
                 verify_result = await Nip66RttMetadata._verify_write(
-                    client, output.id, timeout, relay_url_str
+                    client,
+                    output.id,
+                    _remaining_timeout("write timeout during verification"),
+                    relay_url_str,
                 )
                 if verify_result["verified"]:
                     result["rtt_write"] = rtt_write
@@ -331,8 +357,9 @@ class Nip66RttMetadata(BaseNipMetadata):
                 result["write_reason"] = "no response from relay"
                 logger.debug("rtt_write_no_response relay=%s", relay_url_str)
         except (OSError, TimeoutError, NostrSdkError) as e:
-            result["write_reason"] = str(e)
-            logger.debug("rtt_write_failed relay=%s reason=%s", relay_url_str, str(e))
+            reason = _exception_reason(e)
+            result["write_reason"] = reason
+            logger.debug("rtt_write_failed relay=%s reason=%s", relay_url_str, reason)
 
         return result
 
@@ -366,12 +393,17 @@ class Nip66RttMetadata(BaseNipMetadata):
             )
             return {"verified": False, "reason": "unverified: accepted but not retrievable"}
         except (OSError, TimeoutError, NostrSdkError) as e:
-            logger.debug("rtt_write_unverified relay=%s reason=%s", relay_url_str, str(e))
-            return {"verified": False, "reason": str(e)}
+            reason = _exception_reason(e)
+            logger.debug("rtt_write_unverified relay=%s reason=%s", relay_url_str, reason)
+            return {"verified": False, "reason": reason}
 
     @staticmethod
     async def _cleanup(client: Client) -> None:
-        """Shut down the client and release Rust-side memory."""
+        """Shut down the client and release Rust-side memory.
+
+        Expected transport or SDK teardown failures stay best-effort; truly
+        unexpected cleanup bugs still propagate from the shared shutdown helper.
+        """
         from bigbrotr.utils.protocol import shutdown_client  # noqa: PLC0415
 
         await shutdown_client(client)

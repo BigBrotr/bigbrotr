@@ -1,28 +1,27 @@
-"""NIP-90 Data Vending Machine service for Nostr protocol database queries.
+"""NIP-90 Data Vending Machine service for public readable-resource queries.
 
-Listens for NIP-90 job requests on configured relays, executes
-read-only queries via the shared
-[Catalog][bigbrotr.services.common.catalog.Catalog], and publishes
-results as job-result events (request kind + 1000).  Per-table pricing via
-[TableConfig][bigbrotr.services.common.configs.TableConfig]
-enables the NIP-90 bid/payment-required mechanism.
+The adapter listens for NIP-90 job requests on configured relays, executes
+read-only queries through the shared
+[ReadCore][bigbrotr.services.common.read_models.ReadCore], and publishes job
+results as NIP-90 result events. The external transport still uses the
+historical ``read_model`` request parameter and adapter-local
+[ReadModelPolicy][bigbrotr.services.common.configs.ReadModelPolicy] pricing.
 
-Each ``run()`` cycle polls for new job requests using ``fetch_events()``
-with a ``since`` timestamp filter, processes them, and publishes results
-or error feedback.
+Each ``run()`` cycle drains job requests buffered by a long-lived NIP-90
+subscription, processes them in cursor order, and publishes results or
+error feedback.
 
 Note:
     Event IDs are deduplicated in-memory (capped at 10,000) to avoid
-    processing the same job twice within the ``since`` overlap window.
-    The ``since`` timestamp filter provides a secondary deduplication
-    boundary so that the in-memory set only needs to cover the current
-    cycle.
+    processing the same job twice within the current process. A persisted
+    `(timestamp, event_id)` cursor provides restart-safe replay protection
+    for the long-lived subscription.
 
 See Also:
     [DvmConfig][bigbrotr.services.dvm.DvmConfig]: Configuration model
         for relays, pricing, and NIP-90 settings.
-    [Catalog][bigbrotr.services.common.catalog.Catalog]: Schema
-        introspection and query builder shared with the API service.
+    [ReadCore][bigbrotr.services.common.read_models.ReadCore]: Shared
+        protocol-agnostic read core used by the API service too.
     [BaseService][bigbrotr.core.base_service.BaseService]: Abstract
         base class providing lifecycle and metrics.
 
@@ -31,8 +30,8 @@ Examples:
     from bigbrotr.core import Brotr
     from bigbrotr.services import Dvm
 
-    brotr = Brotr.from_yaml("config/brotr.yaml")
-    dvm = Dvm.from_yaml("config/services/dvm.yaml", brotr=brotr)
+    brotr = Brotr.from_yaml("deployments/bigbrotr/config/brotr.yaml")
+    dvm = Dvm.from_yaml("deployments/bigbrotr/config/services/dvm.yaml", brotr=brotr)
 
     async with brotr:
         async with dvm:
@@ -42,57 +41,57 @@ Examples:
 
 from __future__ import annotations
 
-import contextlib
+import asyncio
 import time
-from datetime import timedelta
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from nostr_sdk import Client, Filter, Kind, RelayUrl, Timestamp
+import asyncpg
 
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
-from bigbrotr.services.common.catalog import CatalogError
-from bigbrotr.services.common.mixins import CatalogAccessMixin
-from bigbrotr.utils.protocol import create_client
+from bigbrotr.services.common.read_models import ReadCore
+from bigbrotr.services.common.state_store import ServiceStateStore
+from bigbrotr.services.common.types import DvmRequestCursor
+from bigbrotr.utils.protocol import NostrClientManager
 
 from .configs import DvmConfig
-from .utils import (
-    build_announcement_event,
-    build_error_event,
-    build_payment_required_event,
-    build_result_event,
-    parse_job_params,
-    parse_query_filters,
-)
+from .jobs import JobExecutionContext, JobRuntime, process_request_event
+from .publishing import AnnouncementContext, publish_announcement, send_event
+from .subscriptions import start_request_subscription, stop_request_subscription
 
 
 if TYPE_CHECKING:
     from types import TracebackType
 
+    from nostr_sdk import Client, Keys
+
     from bigbrotr.core.brotr import Brotr
 
 _MAX_PROCESSED_IDS = 10_000
 _MIN_TAG_LEN = 2
+_REQUEST_CURSOR_KEY = "job_requests"
+_REQUEST_CURSOR_DEFAULT_ID = "0" * 64
 
 
-class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
-    """NIP-90 Data Vending Machine for BigBrotr database queries.
+class Dvm(BaseService[DvmConfig]):
+    """NIP-90 adapter for BigBrotr public readable resources.
 
-    Processes NIP-90 job requests (default Kind 5050) by executing
-    read-only database queries and publishing results (Kind 6050).
-    Supports per-table pricing with bid/payment-required negotiation.
+    Processes NIP-90 job requests (default Kind 5050) by executing read-only
+    resource queries and publishing result events (Kind 6050 by default). The
+    adapter keeps the stable historical ``read_model`` parameter while pricing
+    and enablement come from the per-adapter exposure policy.
 
     Lifecycle:
         1. ``__aenter__``: discover schema, create Nostr client, connect
            to relays, optionally publish NIP-89 announcement.
-        2. ``run()``: fetch new job requests, process each, publish results.
+        2. ``run()``: drain buffered subscription events, process each, publish results.
         3. ``__aexit__``: disconnect client.
 
     See Also:
-        [DvmConfig][bigbrotr.services.dvm.DvmConfig]: Configuration
-            model for this service.
+        [DvmConfig][bigbrotr.services.dvm.DvmConfig]: Configuration model for
+            this adapter.
         [Api][bigbrotr.services.api.Api]: Sibling service that exposes
-            the same Catalog data via HTTP REST.
+            the same readable-resource data via HTTP REST.
     """
 
     SERVICE_NAME: ClassVar[ServiceName] = ServiceName.DVM
@@ -101,35 +100,84 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
     def __init__(self, brotr: Brotr, config: DvmConfig | None = None) -> None:
         super().__init__(brotr=brotr, config=config)
         self._config: DvmConfig
+        self._read_core = ReadCore(policy_source=lambda: self._config.exposure_policy)
         self._client: Client | None = None
+        self._client_manager = NostrClientManager(
+            keys=self._config.keys.keys,
+            allow_insecure=self._config.allow_insecure,
+        )
+        self._notification_task: asyncio.Task[None] | None = None
+        self._request_events: asyncio.Queue[Any] | None = None
+        self._request_subscription_id: str | None = None
+        self._state_store = ServiceStateStore(self._brotr)
+        self._keys: Keys = self._config.keys.keys
         self._last_fetch_ts: int = 0
+        self._last_fetch_id: str = _REQUEST_CURSOR_DEFAULT_ID
         self._processed_ids: set[str] = set()
 
     async def __aenter__(self) -> Dvm:
         await super().__aenter__()
-
-        client = await create_client(
-            keys=self._config.keys, allow_insecure=self._config.allow_insecure
+        await self._read_core.discover(self._brotr, logger=self._logger)
+        keys = self._keys
+        manager = self._client_manager
+        session = await manager.connect_session(
+            "dvm-read-relays",
+            self._config.relays,
+            timeout=self._config.fetch_timeout,
         )
+        client = session.client
+        connect_result = session.connect_result
         self._client = client
 
-        pubkey = self._config.keys.public_key().to_hex()
+        pubkey = keys.public_key().to_hex()
         self._logger.info("client_created", pubkey=pubkey)
+        for relay_url in connect_result.connected:
+            self._logger.info("relay_connected", url=relay_url)
+        for relay_url, error in connect_result.failed.items():
+            self._logger.warning("relay_connect_failed", url=relay_url, error=error)
+        if not connect_result.connected:
+            await manager.disconnect()
+            self._client = None
+            raise TimeoutError("dvm could not connect to any relay")
 
-        for relay in self._config.relays:
-            await client.add_relay(RelayUrl.parse(relay.url))
-            self._logger.info("relay_connected", url=relay.url)
-        await client.connect()
-
-        if self._config.announce:
-            await self._publish_announcement()
+        try:
+            cursor = (
+                await self._state_store.fetch_cursors(
+                    ServiceName.DVM,
+                    [_REQUEST_CURSOR_KEY],
+                    DvmRequestCursor,
+                )
+            )[0]
+            if cursor.timestamp > 0:
+                self._last_fetch_ts = cursor.timestamp
+                self._last_fetch_id = cursor.id
+                self._logger.info(
+                    "request_cursor_restored",
+                    timestamp=cursor.timestamp,
+                    event_id=cursor.id,
+                )
+            else:
+                timestamp = int(time.time())
+                await self._store_request_cursor(timestamp, _REQUEST_CURSOR_DEFAULT_ID)
+                self._logger.info(
+                    "request_cursor_initialized",
+                    timestamp=timestamp,
+                    event_id=_REQUEST_CURSOR_DEFAULT_ID,
+                )
+            await self._start_request_subscription(connect_result.connected)
+            if self._config.announce:
+                await self._publish_announcement()
+        except (asyncpg.PostgresError, OSError, RuntimeError, TimeoutError):
+            await self._stop_request_subscription()
+            await manager.disconnect()
+            self._client = None
+            raise
 
         self.set_gauge(
-            "tables_exposed",
-            sum(1 for n in self._catalog.tables if self._is_table_enabled(n)),
+            "readable_resources_exposed",
+            len(self._read_core.enabled_resource_ids("dvm")),
         )
 
-        self._last_fetch_ts = int(time.time())
         return self
 
     async def __aexit__(
@@ -139,53 +187,94 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         _exc_tb: TracebackType | None,
     ) -> None:
         if self._client is not None:
-            from bigbrotr.utils.protocol import shutdown_client  # noqa: PLC0415
-
-            await shutdown_client(self._client)
+            await self._stop_request_subscription()
+            await self._client_manager.disconnect()
             self._client = None
             self._logger.info("client_disconnected")
         await super().__aexit__(_exc_type, _exc_val, _exc_tb)
 
     async def cleanup(self) -> int:
-        """No-op: Dvm does not use service state."""
+        """No-op: Dvm keeps a request cursor but has no stale state cleanup."""
         return 0
 
     async def run(self) -> None:
         """Fetch and process NIP-90 job requests for one cycle.
 
-        Captures the current timestamp before fetching so that events
-        arriving during processing are not lost (the dedup set handles
-        the overlap window).  After processing, updates metrics and
-        manages the dedup set size.
+        Drains the subscription buffer, processes new requests in cursor
+        order, persists the newest replay boundary, then updates metrics
+        and manages the dedup set size.
         """
         if self._client is None:
             return
 
-        # Capture timestamp before fetching so events arriving during
-        # processing are not lost (dedup set handles the overlap)
-        fetch_ts = int(time.time())
-        events = await self._fetch_job_requests()
+        task = self._notification_task
+        if task is not None and task.done():
+            if task.cancelled():
+                raise RuntimeError("dvm request subscription was cancelled unexpectedly")
+            error = task.exception()
+            if error is None:
+                raise RuntimeError("dvm request subscription stopped unexpectedly")
+            raise RuntimeError("dvm request subscription failed") from error
+
+        events: list[Any] = []
+        if self._request_events is not None:
+            while True:
+                try:
+                    events.append(self._request_events.get_nowait())
+                except asyncio.QueueEmpty:
+                    break
+            events.sort(key=lambda event: (event.created_at().as_secs(), event.id().to_hex()))
         if not events:
-            self._last_fetch_ts = fetch_ts
-            self._report_metrics(0, 0, 0, 0)
+            readable_resources_exposed = len(self._read_core.enabled_resource_ids("dvm"))
+            self.inc_counter("requests_total", 0)
+            self.inc_counter("requests_failed", 0)
+            self.set_gauge("readable_resources_exposed", readable_resources_exposed)
+            self._logger.info(
+                "cycle_stats",
+                jobs_received=0,
+                processed=0,
+                failed=0,
+                payment_required=0,
+                readable_resources_exposed=readable_resources_exposed,
+            )
             return
 
         received = 0
         processed = 0
         failed = 0
         payment_required = 0
-        pubkey_hex = self._config.keys.public_key().to_hex()
+        keys = self._keys
+        pubkey_hex = keys.public_key().to_hex()
+        latest_ts = self._last_fetch_ts
+        latest_id = self._last_fetch_id
 
         for event in events:
+            event_ts, event_id = event.created_at().as_secs(), event.id().to_hex()
+            if (event_ts, event_id) <= (latest_ts, latest_id):
+                continue
             r, p, f, pr = await self._process_event(event, pubkey_hex)
             received += r
             processed += p
             failed += f
             payment_required += pr
+            latest_ts, latest_id = event_ts, event_id
 
-        self._manage_dedup_set()
-        self._last_fetch_ts = fetch_ts
-        self._report_metrics(received, processed, failed, payment_required)
+        if len(self._processed_ids) >= _MAX_PROCESSED_IDS:
+            self._processed_ids.clear()
+        if (latest_ts, latest_id) != (self._last_fetch_ts, self._last_fetch_id):
+            await self._store_request_cursor(latest_ts, latest_id)
+        readable_resources_exposed = len(self._read_core.enabled_resource_ids("dvm"))
+        self.inc_counter("requests_total", received)
+        self.inc_counter("requests_failed", failed)
+        self.set_gauge("readable_resources_exposed", readable_resources_exposed)
+        self._logger.info(
+            "cycle_stats",
+            jobs_received=received,
+            processed=processed,
+            failed=failed,
+            payment_required=payment_required,
+            readable_resources_exposed=readable_resources_exposed,
+        )
 
     # ── Event processing ──────────────────────────────────────────
 
@@ -194,198 +283,99 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         event: Any,
         pubkey_hex: str,
     ) -> tuple[int, int, int, int]:
-        """Process a single NIP-90 job request event.
-
-        Returns:
-            Tuple of (received, processed, failed, payment_required) deltas.
-        """
-        event_id = event.id().to_hex()
-
-        if event_id in self._processed_ids:
-            return 0, 0, 0, 0
-
-        # Check p-tag targets us (cache as_vec to avoid repeated FFI calls)
-        p_tags: list[str] = []
-        for tag in event.tags().to_vec():
-            values = tag.as_vec()
-            if len(values) >= _MIN_TAG_LEN and values[0] == "p":
-                p_tags.append(values[1])
-        if p_tags and pubkey_hex not in p_tags:
-            return 0, 0, 0, 0
-
-        self._processed_ids.add(event_id)
-
-        customer_pubkey = event.author().to_hex()
-        params = parse_job_params(event)
-        table = params.get("table", "")
-
-        self._logger.info(
-            "job_received",
-            event_id=event_id,
-            table=table,
-            customer=customer_pubkey,
+        """Process a single NIP-90 job request event."""
+        return await process_request_event(
+            event=event,
+            pubkey_hex=pubkey_hex,
+            processed_ids=self._processed_ids,
+            runtime=JobRuntime(
+                logger=self._logger,
+                send_event=self._send_event,
+                query_resource=self._query_resource,
+            ),
+            context=JobExecutionContext(
+                read_core=self._read_core,
+                exposure_policy=self._config.exposure_policy,
+                default_page_size=self._config.default_page_size,
+                max_page_size=self._config.max_page_size,
+                request_kind=self._config.kind,
+            ),
         )
 
-        try:
-            return await self._handle_job(event_id, customer_pubkey, params, table)
-        except (CatalogError, OSError, TimeoutError) as e:
-            with contextlib.suppress(OSError, TimeoutError):
-                await self._send_event(build_error_event(event_id, customer_pubkey, str(e)))
-            self._logger.error("job_failed", event_id=event_id, error=str(e))
-            return 1, 0, 1, 0
-
-    async def _handle_job(
-        self,
-        event_id: str,
-        customer_pubkey: str,
-        params: dict[str, Any],
-        table: str,
-    ) -> tuple[int, int, int, int]:
-        """Handle a validated job request: check access, pricing, execute query.
-
-        Returns:
-            Tuple of (received, processed, failed, payment_required) deltas.
-        """
-        if not table or not self._is_table_enabled(table):
-            await self._send_event(
-                build_error_event(event_id, customer_pubkey, f"Invalid or disabled table: {table}")
-            )
-            return 1, 0, 1, 0
-
-        price = self._get_table_price(table)
-        if price > 0:
-            bid = params.get("bid", 0)
-            if bid < price:
-                await self._send_event(
-                    build_payment_required_event(event_id, customer_pubkey, price)
-                )
-                self._logger.info(
-                    "job_payment_required",
-                    event_id=event_id,
-                    price=price,
-                    bid=bid,
-                )
-                return 1, 0, 0, 1
-
-        try:
-            limit = int(params.get("limit", self._config.default_page_size))
-            offset = int(params.get("offset", 0))
-        except (ValueError, TypeError):
-            await self._send_event(
-                build_error_event(event_id, customer_pubkey, "Invalid limit or offset value")
-            )
-            return 1, 0, 1, 0
-
-        start = time.monotonic()
-        result = await self._catalog.query(
-            self._brotr,
-            table,
-            limit=limit,
-            offset=offset,
-            max_page_size=self._config.max_page_size,
-            filters=parse_query_filters(params.get("filter", "")),
-            sort=params.get("sort") or None,
-        )
-        duration_ms = (time.monotonic() - start) * 1000
-
-        await self._send_event(
-            build_result_event(self._config.kind, event_id, customer_pubkey, result, price)
-        )
-        self._logger.info(
-            "job_completed",
-            event_id=event_id,
-            table=table,
-            rows=len(result.rows),
-            duration_ms=round(duration_ms, 1),
-        )
-        return 1, 1, 0, 0
-
-    # ── Metrics & dedup ───────────────────────────────────────────
-
-    def _manage_dedup_set(self) -> None:
-        """Clear the processed IDs set when it exceeds the maximum size.
-
-        Replay protection: cleared at ``_MAX_PROCESSED_IDS`` to bound memory.
-        The ``since`` timestamp filter on subscription provides a secondary
-        deduplication window, limiting replays to the current cycle.
-        """
-        if len(self._processed_ids) >= _MAX_PROCESSED_IDS:
-            self._processed_ids.clear()
-
-    def _report_metrics(
-        self,
-        received: int,
-        processed: int,
-        failed: int,
-        payment_required: int,
-    ) -> None:
-        """Update Prometheus metrics and log cycle stats."""
-        self.inc_counter("requests_total", received)
-        self.inc_counter("requests_failed", failed)
-        self.set_gauge(
-            "tables_exposed",
-            sum(1 for n in self._catalog.tables if self._is_table_enabled(n)),
-        )
-        self._logger.info(
-            "cycle_stats",
-            jobs_received=received,
-            processed=processed,
-            failed=failed,
-            payment_required=payment_required,
-        )
-
-    # ── Table policy helpers ──────────────────────────────────────
-
-    def _is_table_enabled(self, name: str) -> bool:
-        if name not in self._catalog.tables:
-            return False
-        return super()._is_table_enabled(name)
-
-    def _get_table_price(self, name: str) -> int:
-        policy = self._config.tables.get(name)
-        if policy is None:
-            return 0
-        return policy.price
+    # ── Read-model policy helpers ─────────────────────────────────
 
     # ── Event fetching ────────────────────────────────────────────
 
-    async def _fetch_job_requests(self) -> list[Any]:
-        """Fetch new NIP-90 job request events since last timestamp."""
-        if self._client is None:
-            return []
-
-        f = Filter().kind(Kind(self._config.kind)).since(Timestamp.from_secs(self._last_fetch_ts))
-        events_obj = await self._client.fetch_events(
-            f,
-            timedelta(seconds=self._config.fetch_timeout),
+    async def _store_request_cursor(self, timestamp: int, event_id: str) -> None:
+        """Persist the current request cursor after a successful cycle."""
+        self._last_fetch_ts = timestamp
+        self._last_fetch_id = event_id
+        await self._state_store.upsert_cursors(
+            ServiceName.DVM,
+            [
+                DvmRequestCursor(
+                    key=_REQUEST_CURSOR_KEY,
+                    timestamp=timestamp,
+                    id=event_id,
+                )
+            ],
         )
-        return list(events_obj.to_vec())
+
+    async def _start_request_subscription(self, connected_relays: tuple[str, ...]) -> None:
+        """Subscribe the DVM client to long-lived job request notifications."""
+        if self._client is None:
+            return
+        subscription = await start_request_subscription(
+            client=self._client,
+            connected_relays=connected_relays,
+            kind=self._config.kind,
+            since=self._last_fetch_ts,
+            logger=self._logger,
+        )
+        self._request_events = subscription.queue
+        self._request_subscription_id = subscription.subscription_id
+        self._notification_task = subscription.task
+
+    async def _stop_request_subscription(self) -> None:
+        """Stop the long-lived DVM request subscription notification loop."""
+        task = self._notification_task
+        self._notification_task = None
+        self._request_events = None
+        self._request_subscription_id = None
+        await stop_request_subscription(task, logger=self._logger)
 
     # ── Event publishing ──────────────────────────────────────────
 
-    async def _send_event(self, builder: Any) -> None:
+    async def _query_resource(self, resource: Any, query: Any) -> Any:
+        """Execute one resolved readable-resource query through the shared read core."""
+        return await self._read_core.query_resource(self._brotr, resource, query)
+
+    async def _send_event(
+        self,
+        builder: Any,
+        *,
+        require_success: bool = False,
+    ) -> tuple[tuple[str, ...], dict[str, str]]:
         """Sign and send an event via the connected client.
 
         No-op if the client is not connected.
         """
-        if self._client is not None:
-            await self._client.send_event_builder(builder)
+        return await send_event(
+            client=self._client,
+            builder=builder,
+            require_success=require_success,
+        )
 
     async def _publish_announcement(self) -> None:
         """Publish a NIP-89 handler announcement (kind 31990)."""
-        tables_info = [
-            name for name in sorted(self._catalog.tables) if self._is_table_enabled(name)
-        ]
-        builder = build_announcement_event(
-            d_tag=self._config.d_tag,
-            kind=self._config.kind,
-            name=self._config.name,
-            about=self._config.about,
-            tables=tables_info,
-        )
-        await self._send_event(builder)
-        self._logger.info(
-            "announcement_published",
-            kind=31990,
-            relays=len(self._config.relays),
+        await publish_announcement(
+            client=self._client,
+            logger=self._logger,
+            context=AnnouncementContext(
+                d_tag=self._config.d_tag,
+                kind=self._config.kind,
+                name=self._config.name,
+                about=self._config.about,
+                read_models=self._read_core.enabled_resource_ids("dvm"),
+            ),
         )

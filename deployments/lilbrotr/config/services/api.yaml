@@ -2,7 +2,9 @@
 # API Service Configuration (LilBrotr)
 # =============================================================================
 # Read-only HTTP API for querying relay and event data.
-# Only values that differ from defaults are specified here.
+# This deployment file keeps deployment-local overrides and a few restated
+# operator-facing defaults. See docs/user-guide/services.md and
+# src/bigbrotr/services/api/configs.py for the full config contract.
 # =============================================================================
 
 title: "LilBrotr API"
@@ -14,38 +16,50 @@ pool:
 
 interval: 60.0
 
-tables:
-  relay:
+# Adapter-local protocol exposure policy over public readable resources.
+# Resources not listed here remain unavailable on this protocol surface.
+read_models:
+  relays:
     enabled: true
-  event:
+  events:
     enabled: true
-  event_relay:
+  event-observations:
     enabled: true
-  metadata:
+  documents:
     enabled: true
-  relay_metadata:
+  relay-document-history:
     enabled: true
-  relay_metadata_latest:
+  relay-document-current:
     enabled: true
-  event_stats:
+  pubkey-stats:
     enabled: true
-  relay_stats:
+  kind-stats:
     enabled: true
-  kind_counts:
+  relay-stats:
     enabled: true
-  kind_counts_by_relay:
+  pubkey-relay-stats:
     enabled: true
-  pubkey_counts:
+  pubkey-kind-stats:
     enabled: true
-  pubkey_counts_by_relay:
+  relay-kind-stats:
     enabled: true
-  network_stats:
+  relay-software-counts:
     enabled: true
-  relay_software_counts:
+  supported-nip-counts:
     enabled: true
-  supported_nip_counts:
+  daily-counts:
     enabled: true
-  event_daily_counts:
+  replaceable-events-current:
+    enabled: true
+  addressable-events-current:
+    enabled: true
+  nip85-pubkey-stats:
+    enabled: true
+  nip85-event-stats:
+    enabled: true
+  nip85-addressable-stats:
+    enabled: true
+  nip85-identifier-stats:
     enabled: true
 
 metrics:

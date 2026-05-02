@@ -17,14 +17,35 @@ See Also:
 
 from __future__ import annotations
 
+import contextlib
 import json
+import math
+import tempfile
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import aiohttp
 
 
 if TYPE_CHECKING:
-    from pathlib import Path
+    from collections.abc import AsyncIterator
+
+
+def _normalize_timeout(timeout: object) -> float:
+    """Return one canonical positive finite HTTP timeout budget."""
+    if isinstance(timeout, bool) or not isinstance(timeout, int | float):
+        raise ValueError("timeout must be a positive finite number")
+    normalized = float(timeout)
+    if not math.isfinite(normalized) or normalized <= 0:
+        raise ValueError("timeout must be a positive finite number")
+    return normalized
+
+
+def _normalize_max_size(max_size: object) -> int:
+    """Return one canonical non-negative body-size budget."""
+    if isinstance(max_size, bool) or not isinstance(max_size, int) or max_size < 0:
+        raise ValueError("max_size must be a non-negative int")
+    return max_size
 
 
 async def download_bounded_file(
@@ -35,10 +56,10 @@ async def download_bounded_file(
 ) -> None:
     """Download a file with size enforcement.
 
-    Accumulates chunks from the response stream until EOF or ``max_size``
-    is exceeded. If the body exceeds ``max_size``, raises ``ValueError``
-    *before* writing, preventing disk exhaustion from oversized payloads.
-    Creates parent directories if they do not exist.
+    Streams chunks from the response body into a temporary file until EOF or
+    ``max_size`` is exceeded. Successful downloads are atomically moved into
+    place only after the size check completes, preventing partially written
+    destination files.
 
     Args:
         url: Download URL.
@@ -51,6 +72,8 @@ async def download_bounded_file(
         TimeoutError: If the request exceeds *timeout*.
         ValueError: If the downloaded file exceeds *max_size*.
     """
+    max_size = _normalize_max_size(max_size)
+    timeout = _normalize_timeout(timeout)
     dest.parent.mkdir(parents=True, exist_ok=True)
     client_timeout = aiohttp.ClientTimeout(total=timeout)
     async with (
@@ -58,8 +81,50 @@ async def download_bounded_file(
         session.get(url) as response,
     ):
         response.raise_for_status()
-        data = await _read_bounded(response, max_size)
-        dest.write_bytes(data)  # noqa: ASYNC240  # small atomic write, async I/O overhead unnecessary
+        await _write_bounded_file(response, dest, max_size)
+
+
+async def _iter_bounded_chunks(
+    response: aiohttp.ClientResponse,
+    max_size: int,
+) -> AsyncIterator[bytes]:
+    """Yield response chunks while enforcing a total size limit."""
+    total = 0
+    while True:
+        chunk = await response.content.read(max_size + 1 - total)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_size:
+            raise ValueError(f"Response body too large: >{max_size} bytes")
+        yield chunk
+
+
+async def _write_bounded_file(
+    response: aiohttp.ClientResponse,
+    dest: Path,
+    max_size: int,
+) -> None:
+    """Stream a bounded response body into a temporary file and atomically replace."""
+    tmp_path: Path | None = None
+    completed = False
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            delete=False,
+            dir=dest.parent,
+            prefix=f".{dest.name}.",
+            suffix=".tmp",
+        ) as handle:
+            tmp_path = Path(handle.name)
+            async for chunk in _iter_bounded_chunks(response, max_size):
+                handle.write(chunk)
+        tmp_path.replace(dest)
+        completed = True
+    finally:
+        if not completed and tmp_path is not None:
+            with contextlib.suppress(FileNotFoundError):
+                tmp_path.unlink()
 
 
 async def _read_bounded(response: aiohttp.ClientResponse, max_size: int) -> bytes:
@@ -80,17 +145,11 @@ async def _read_bounded(response: aiohttp.ClientResponse, max_size: int) -> byte
     Raises:
         ValueError: If the response body exceeds *max_size*.
     """
-    chunks: list[bytes] = []
-    total = 0
-    while True:
-        chunk = await response.content.read(max_size + 1 - total)
-        if not chunk:
-            break
-        total += len(chunk)
-        if total > max_size:
-            raise ValueError(f"Response body too large: >{max_size} bytes")
-        chunks.append(chunk)
-    return b"".join(chunks)
+    max_size = _normalize_max_size(max_size)
+    body = bytearray()
+    async for chunk in _iter_bounded_chunks(response, max_size):
+        body.extend(chunk)
+    return bytes(body)
 
 
 async def read_bounded_json(response: aiohttp.ClientResponse, max_size: int) -> Any:

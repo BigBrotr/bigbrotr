@@ -1612,6 +1612,892 @@
         "x": 0,
         "y": 88
       },
+      "id": 850,
+      "title": "Ranker",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 3600
+              },
+              {
+                "color": "red",
+                "value": 86400
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 89
+      },
+      "id": 851,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "time() - service_gauge{service=\"ranker\", name=\"last_cycle_timestamp\"}",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Last Cycle",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 300
+              },
+              {
+                "color": "red",
+                "value": 900
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 89
+      },
+      "id": 852,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, rate(cycle_duration_seconds_bucket{service=\"ranker\"}[1h]))",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Cycle Duration (p95)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 3
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 89
+      },
+      "id": 853,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "service_gauge{service=\"ranker\", name=\"consecutive_failures\"}",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Consecutive Failures",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 3600
+              },
+              {
+                "color": "red",
+                "value": 86400
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 89
+      },
+      "id": 854,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "service_gauge{service=\"ranker\", name=\"checkpoint_lag_seconds\"}",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Checkpoint Lag",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 89
+      },
+      "id": 855,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "service_gauge{service=\"ranker\", name=\"graph_nodes\"}",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Graph Nodes",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 89
+      },
+      "id": 856,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(service_gauge{service=\"ranker\", name=~\"pubkey_scores_written|non_user_scores_written\"})",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Scores Written",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "pointSize": 5,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "unit": "reqps"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Errors"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 93
+      },
+      "id": 860,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "service_gauge{service=\"ranker\", name=~\"changed_followers_synced|sync_batches_processed|pubkey_scores_written|non_user_scores_written\"}",
+          "legendFormat": "{{name}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Ranker Cycle Activity",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 99
+      },
+      "id": 870,
+      "title": "Assertor",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 3600
+              },
+              {
+                "color": "red",
+                "value": 86400
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 100
+      },
+      "id": 871,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "time() - service_gauge{service=\"assertor\", name=\"last_cycle_timestamp\"}",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Last Cycle",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 300
+              },
+              {
+                "color": "red",
+                "value": 900
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 100
+      },
+      "id": 872,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, rate(cycle_duration_seconds_bucket{service=\"assertor\"}[1h]))",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Cycle Duration (p95)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 3
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 100
+      },
+      "id": 873,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "service_gauge{service=\"assertor\", name=\"consecutive_failures\"}",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Consecutive Failures",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 3
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 100
+      },
+      "id": 874,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(service_gauge{service=\"assertor\", name=~\"assertions_failed|provider_profiles_failed|trusted_provider_lists_failed\"})",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Publish Failures",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 100
+      },
+      "id": 875,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "service_gauge{service=\"assertor\", name=\"assertions_published\"}",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Assertions Published",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 100
+      },
+      "id": 876,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(service_gauge{service=\"assertor\", name=~\"provider_profiles_published|trusted_provider_lists_published\"})",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Provider Package Published",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "pointSize": 5,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "unit": "reqps"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Errors"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 104
+      },
+      "id": 880,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "service_gauge{service=\"assertor\", name=~\"assertions_(published|skipped|failed)|provider_profiles_(published|skipped|failed)|trusted_provider_lists_(published|skipped|failed)\"}",
+          "legendFormat": "{{name}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Assertor Publish Outcomes",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 110
+      },
       "id": 900,
       "title": "Database Health",
       "type": "row"
@@ -1653,7 +2539,7 @@
         "h": 5,
         "w": 4,
         "x": 0,
-        "y": 89
+        "y": 111
       },
       "id": 901,
       "options": {
@@ -1717,7 +2603,7 @@
         "h": 5,
         "w": 4,
         "x": 4,
-        "y": 89
+        "y": 111
       },
       "id": 902,
       "options": {
@@ -1770,7 +2656,7 @@
         "h": 5,
         "w": 4,
         "x": 8,
-        "y": 89
+        "y": 111
       },
       "id": 903,
       "options": {
@@ -1828,7 +2714,7 @@
         "h": 5,
         "w": 12,
         "x": 12,
-        "y": 89
+        "y": 111
       },
       "id": 904,
       "options": {
@@ -1900,7 +2786,7 @@
         "h": 6,
         "w": 12,
         "x": 0,
-        "y": 94
+        "y": 116
       },
       "id": 905,
       "options": {
@@ -1981,7 +2867,7 @@
         "h": 6,
         "w": 12,
         "x": 12,
-        "y": 94
+        "y": 116
       },
       "id": 906,
       "options": {
@@ -2033,7 +2919,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 100
+        "y": 122
       },
       "id": 1000,
       "title": "Data Overview",
@@ -2066,7 +2952,7 @@
         "h": 6,
         "w": 12,
         "x": 0,
-        "y": 101
+        "y": 123
       },
       "id": 1001,
       "options": {
@@ -2139,7 +3025,7 @@
         "h": 6,
         "w": 12,
         "x": 12,
-        "y": 101
+        "y": 123
       },
       "id": 1002,
       "options": {
@@ -2162,13 +3048,13 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "bigbrotr_matview_row_estimates_approx_rows",
-          "legendFormat": "{{view_name}}",
+          "expr": "bigbrotr_row_estimates_approx_rows{table_name=~\".*_(current|stats|counts)$|^daily_counts$\"}",
+          "legendFormat": "{{table_name}}",
           "instant": true,
           "refId": "A"
         }
       ],
-      "title": "Matview Row Estimates",
+      "title": "Derived Table Row Estimates",
       "type": "bargauge",
       "transformations": [
         {
@@ -2212,7 +3098,7 @@
         "h": 6,
         "w": 12,
         "x": 0,
-        "y": 107
+        "y": 129
       },
       "id": 1003,
       "options": {
@@ -2285,7 +3171,7 @@
         "h": 6,
         "w": 12,
         "x": 12,
-        "y": 107
+        "y": 129
       },
       "id": 1004,
       "options": {
@@ -2308,13 +3194,13 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "bigbrotr_matview_sizes_total_bytes",
-          "legendFormat": "{{view_name}}",
+          "expr": "bigbrotr_table_sizes_total_bytes{table_name=~\".*_(current|stats|counts)$|^daily_counts$\"}",
+          "legendFormat": "{{table_name}}",
           "instant": true,
           "refId": "A"
         }
       ],
-      "title": "Matview Sizes",
+      "title": "Derived Table Sizes",
       "type": "bargauge",
       "transformations": [
         {
@@ -2951,12 +3837,12 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "service_gauge{service=\"api\", name=\"tables_exposed\"}",
+          "expr": "service_gauge{service=\"api\", name=\"readable_resources_exposed\"}",
           "instant": true,
           "refId": "A"
         }
       ],
-      "title": "Tables Exposed",
+      "title": "Readable Resources Exposed",
       "type": "stat"
     },
     {
@@ -3388,12 +4274,12 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "service_gauge{service=\"dvm\", name=\"tables_exposed\"}",
+          "expr": "service_gauge{service=\"dvm\", name=\"readable_resources_exposed\"}",
           "instant": true,
           "refId": "A"
         }
       ],
-      "title": "Tables Exposed",
+      "title": "Readable Resources Exposed",
       "type": "stat"
     },
     {
@@ -3825,12 +4711,12 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "service_gauge{service=\"refresher\", name=\"views_total\"}",
+          "expr": "service_gauge{service=\"refresher\", name=\"targets_total\"}",
           "instant": true,
           "refId": "A"
         }
       ],
-      "title": "Views Total",
+      "title": "Targets Total",
       "type": "stat"
     },
     {
@@ -3895,7 +4781,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "service_gauge{service=\"refresher\", name=\"views_refreshed\"}",
+          "expr": "service_gauge{service=\"refresher\", name=\"targets_refreshed\"}",
           "instant": true,
           "refId": "A"
         }
@@ -3965,7 +4851,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "service_gauge{service=\"refresher\", name=\"views_failed\"}",
+          "expr": "service_gauge{service=\"refresher\", name=\"targets_failed\"}",
           "instant": true,
           "refId": "A"
         }
@@ -4031,8 +4917,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "service_gauge{service=\"refresher\", name=\"duration_relay_metadata_latest\"}",
-          "legendFormat": "relay_metadata_latest",
+          "expr": "service_gauge{service=\"refresher\", name=\"duration_relay_document_current\"}",
+          "legendFormat": "relay_document_current",
           "instant": true,
           "refId": "A"
         },
@@ -4041,8 +4927,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "service_gauge{service=\"refresher\", name=\"duration_event_stats\"}",
-          "legendFormat": "event_stats",
+          "expr": "service_gauge{service=\"refresher\", name=\"duration_nip85_event_stats\"}",
+          "legendFormat": "nip85_event_stats",
           "instant": true,
           "refId": "B"
         },
@@ -4061,8 +4947,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "service_gauge{service=\"refresher\", name=\"duration_kind_counts\"}",
-          "legendFormat": "kind_counts",
+          "expr": "service_gauge{service=\"refresher\", name=\"duration_kind_stats\"}",
+          "legendFormat": "kind_stats",
           "instant": true,
           "refId": "D"
         },
@@ -4071,8 +4957,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "service_gauge{service=\"refresher\", name=\"duration_kind_counts_by_relay\"}",
-          "legendFormat": "kind_counts_by_relay",
+          "expr": "service_gauge{service=\"refresher\", name=\"duration_relay_kind_stats\"}",
+          "legendFormat": "relay_kind_stats",
           "instant": true,
           "refId": "E"
         },
@@ -4081,8 +4967,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "service_gauge{service=\"refresher\", name=\"duration_pubkey_counts\"}",
-          "legendFormat": "pubkey_counts",
+          "expr": "service_gauge{service=\"refresher\", name=\"duration_pubkey_stats\"}",
+          "legendFormat": "pubkey_stats",
           "instant": true,
           "refId": "F"
         },
@@ -4091,8 +4977,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "service_gauge{service=\"refresher\", name=\"duration_pubkey_counts_by_relay\"}",
-          "legendFormat": "pubkey_counts_by_relay",
+          "expr": "service_gauge{service=\"refresher\", name=\"duration_pubkey_relay_stats\"}",
+          "legendFormat": "pubkey_relay_stats",
           "instant": true,
           "refId": "G"
         },
@@ -4101,8 +4987,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "service_gauge{service=\"refresher\", name=\"duration_network_stats\"}",
-          "legendFormat": "network_stats",
+          "expr": "service_gauge{service=\"refresher\", name=\"duration_contact_lists_current\"}",
+          "legendFormat": "contact_lists_current",
           "instant": true,
           "refId": "H"
         },
@@ -4111,8 +4997,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "service_gauge{service=\"refresher\", name=\"duration_event_daily_counts\"}",
-          "legendFormat": "event_daily_counts",
+          "expr": "service_gauge{service=\"refresher\", name=\"duration_daily_counts\"}",
+          "legendFormat": "daily_counts",
           "instant": true,
           "refId": "I"
         },
@@ -4137,7 +5023,7 @@
           "refId": "K"
         }
       ],
-      "title": "Refresh Duration per View",
+      "title": "Refresh Duration per Target",
       "type": "bargauge",
       "transformations": [
         {
@@ -4525,7 +5411,7 @@
         "h": 6,
         "w": 12,
         "x": 0,
-        "y": 113
+        "y": 135
       },
       "fieldConfig": {
         "defaults": {
@@ -4588,7 +5474,7 @@
         "h": 6,
         "w": 12,
         "x": 12,
-        "y": 113
+        "y": 135
       },
       "fieldConfig": {
         "defaults": {
@@ -4633,7 +5519,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "bigbrotr_partition_distribution_approx_rows{parent_table=\"event_relay\"} / on() group_left sum(bigbrotr_partition_distribution_approx_rows{parent_table=\"event_relay\"}) * 100",
+          "expr": "bigbrotr_partition_distribution_approx_rows{parent_table=\"event_observation\"} / on() group_left sum(bigbrotr_partition_distribution_approx_rows{parent_table=\"event_observation\"}) * 100",
           "legendFormat": "{{partition_name}}",
           "refId": "A"
         }

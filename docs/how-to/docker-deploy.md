@@ -1,6 +1,8 @@
 # Docker Compose Deployment
 
-Deploy the full BigBrotr stack using Docker Compose, including PostgreSQL, PGBouncer, Tor proxy, all application services, and the monitoring stack.
+Deploy one of the built-in BigBrotr reference deployments with Docker Compose,
+including PostgreSQL, PgBouncer, relay-facing services, public adapters, and
+the bundled monitoring stack.
 
 ---
 
@@ -35,9 +37,13 @@ DB_ADMIN_PASSWORD=your_admin_password          # openssl rand -base64 32
 DB_WRITER_PASSWORD=your_writer_password        # openssl rand -base64 32
 DB_READER_PASSWORD=your_reader_password        # openssl rand -base64 32
 DB_REFRESHER_PASSWORD=your_refresher_password  # openssl rand -base64 32
+DB_RANKER_PASSWORD=your_ranker_password        # openssl rand -base64 32
 
-# Required -- application secrets
-NOSTR_PRIVATE_KEY=your_hex_private_key           # openssl rand -hex 32
+# Optional -- service-specific Nostr keys for stable identities
+NOSTR_PRIVATE_KEY_MONITOR=your_hex_private_key
+NOSTR_PRIVATE_KEY_SYNCHRONIZER=your_hex_private_key
+NOSTR_PRIVATE_KEY_DVM=your_hex_private_key
+NOSTR_PRIVATE_KEY_ASSERTOR=your_hex_private_key
 GRAFANA_PASSWORD=your_grafana_password     # openssl rand -base64 16
 
 # Optional -- metrics port overrides (host ports, all map to container port 8000)
@@ -46,8 +52,10 @@ VALIDATOR_METRICS_PORT=8002
 MONITOR_METRICS_PORT=8003
 SYNCHRONIZER_METRICS_PORT=8004
 REFRESHER_METRICS_PORT=8005
+RANKER_METRICS_PORT=8009
 API_METRICS_PORT=8006
 DVM_METRICS_PORT=8007
+ASSERTOR_METRICS_PORT=8008
 ```
 
 !!! danger "Protect your `.env` file"
@@ -59,7 +67,9 @@ DVM_METRICS_PORT=8007
 docker compose up -d
 ```
 
-This starts all containers: PostgreSQL, PGBouncer, Tor, Seeder, Finder, Validator, Monitor, Synchronizer, Refresher, Api, Dvm, Prometheus, Alertmanager, and Grafana.
+This starts all containers: PostgreSQL, PgBouncer, Tor, Seeder, Finder,
+Validator, Monitor, Synchronizer, Refresher, Ranker, Assertor, API, DVM,
+Prometheus, Alertmanager, Grafana, and postgres-exporter.
 
 ### 4. Verify deployment
 
@@ -70,8 +80,8 @@ docker compose ps
 # Watch the seeder complete its one-shot run
 docker compose logs -f seeder
 
-# Follow service logs
-docker compose logs -f finder validator monitor synchronizer refresher api dvm
+# Follow long-lived service logs
+docker compose logs -f finder validator monitor synchronizer refresher ranker assertor api dvm
 ```
 
 !!! tip
@@ -87,16 +97,21 @@ graph TD
     Prometheus -->|scrapes /metrics| Monitor["Monitor :8003"]
     Prometheus -->|scrapes /metrics| Synchronizer["Synchronizer :8004"]
     Prometheus -->|scrapes /metrics| Refresher["Refresher :8005"]
-    Prometheus -->|scrapes /metrics| Api["Api :8006"]
-    Prometheus -->|scrapes /metrics| Dvm["Dvm :8007"]
+    Prometheus -->|scrapes /metrics| Ranker["Ranker :8009"]
+    Prometheus -->|scrapes /metrics| API["API :8006"]
+    Prometheus -->|scrapes /metrics| DVM["DVM :8007"]
+    Prometheus -->|scrapes /metrics| Assertor["Assertor :8008"]
     Prometheus -->|scrapes /metrics| PGExporter["PG Exporter :9187"]
+    Prometheus -->|routes alerts| Alertmanager["Alertmanager :9093"]
     Finder --> PGBouncer["PGBouncer :6432"]
     Validator --> PGBouncer
     Monitor --> PGBouncer
     Synchronizer --> PGBouncer
     Refresher --> PGBouncer
-    Api --> PGBouncer
-    Dvm --> PGBouncer
+    Ranker --> PGBouncer
+    Assertor --> PGBouncer
+    API --> PGBouncer
+    DVM --> PGBouncer
     PGBouncer --> PostgreSQL["PostgreSQL :5432"]
     PGExporter --> PostgreSQL
     Validator --> Tor["Tor :9050"]
@@ -111,7 +126,7 @@ Each deployment creates two Docker bridge networks:
 | Network | Members | Purpose |
 |---------|---------|---------|
 | **data-network** | PostgreSQL, PGBouncer, Tor, all services | Database and relay connectivity |
-| **monitoring-network** | Prometheus, Grafana, all services | Metrics scraping and dashboards |
+| **monitoring-network** | Prometheus, Grafana, Alertmanager, postgres-exporter, all services | Metrics scraping, alert routing, and dashboards |
 
 PostgreSQL is only on the data network. Grafana is only on the monitoring network. Application services bridge both networks.
 
@@ -155,10 +170,13 @@ All ports bind to `127.0.0.1` (localhost only).
 | Monitor Metrics | 8003 | 9003 |
 | Synchronizer Metrics | 8004 | 9004 |
 | Refresher Metrics | 8005 | 9005 |
-| Api HTTP | 8080 | 8081 |
-| Api Metrics | 8006 | 9006 |
-| Dvm Metrics | 8007 | 9007 |
+| Ranker Metrics | 8009 | 9009 |
+| API HTTP | 8080 | 8081 |
+| API Metrics | 8006 | 9006 |
+| DVM Metrics | 8007 | 9007 |
+| Assertor Metrics | 8008 | 9008 |
 | Prometheus | 9090 | 9091 |
+| Alertmanager | 9093 | 9094 |
 | Grafana | 3000 | 3001 |
 
 !!! note

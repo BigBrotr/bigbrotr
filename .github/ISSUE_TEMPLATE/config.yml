@@ -1,8 +1,11 @@
 blank_issues_enabled: false
 contact_links:
   - name: Documentation
-    url: https://github.com/BigBrotr/bigbrotr/tree/main/docs
+    url: https://docs.bigbrotr.com
     about: Check the documentation before opening an issue
   - name: Discussions
     url: https://github.com/BigBrotr/bigbrotr/discussions
     about: Ask questions and discuss ideas
+  - name: Security Policy
+    url: https://github.com/BigBrotr/bigbrotr/security/policy
+    about: Report vulnerabilities through the private security process

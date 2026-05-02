@@ -1,9 +1,9 @@
 """
-NIP-11 metadata container with HTTP info retrieval capabilities.
+NIP-11 info result container with HTTP retrieval capabilities.
 
 Pairs [Nip11InfoData][bigbrotr.nips.nip11.data.Nip11InfoData] with
 [Nip11InfoLogs][bigbrotr.nips.nip11.logs.Nip11InfoLogs] and provides
-the ``execute()`` class method that performs the actual HTTP request to
+the semantic ``fetch()`` class method that performs the actual HTTP request to
 retrieve a relay's
 [NIP-11](https://github.com/nostr-protocol/nips/blob/master/11.md)
 information document.
@@ -17,15 +17,17 @@ Note:
     The SSL fallback strategy mirrors
     [connect_relay][bigbrotr.utils.protocol.connect_relay]: clearnet relays
     try verified SSL first, then fall back to ``CERT_NONE`` if
-    ``allow_insecure=True``. Overlay networks always use an insecure SSL
-    context because the overlay provides its own encryption layer.
+    ``allow_insecure=True`` while still sharing one timeout budget across both
+    attempts. Overlay relays are canonicalized to ``ws://`` by
+    [Relay][bigbrotr.models.relay.Relay], so their NIP-11 fetches stay on
+    plain ``http://`` with no SSL context at all.
 
 See Also:
     [bigbrotr.nips.nip11.nip11.Nip11][bigbrotr.nips.nip11.nip11.Nip11]:
         Top-level model that wraps this container.
     [bigbrotr.nips.base.BaseNipMetadata][bigbrotr.nips.base.BaseNipMetadata]:
         Base class providing ``from_dict()`` / ``to_dict()`` interface.
-    [bigbrotr.models.metadata.MetadataType][bigbrotr.models.metadata.MetadataType]:
+    [bigbrotr.models.document.DocumentType][bigbrotr.models.document.DocumentType]:
         The ``NIP11_INFO`` variant used when storing these results.
 """
 
@@ -33,15 +35,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import ssl
+import time
 from http import HTTPStatus
 from typing import Any, ClassVar, Self
 
 import aiohttp
 from aiohttp_socks import ProxyConnector
 
-from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
+from bigbrotr.nips._validation import normalize_allow_insecure, normalize_proxy_url
 from bigbrotr.nips.base import BaseNipMetadata
 from bigbrotr.utils.http import read_bounded_json
 from bigbrotr.utils.transport import DEFAULT_TIMEOUT
@@ -54,28 +58,51 @@ logger = logging.getLogger("bigbrotr.nips.nip11")
 
 
 class Nip11InfoMetadata(BaseNipMetadata):
-    """Container for NIP-11 info data and operation logs.
+    """Result container for NIP-11 info data and operation logs.
 
-    Provides the ``execute()`` class method for retrieving a relay's NIP-11
+    Provides the ``fetch()`` class method for retrieving a relay's NIP-11
     document over HTTP(S). The result always contains both a
     [Nip11InfoData][bigbrotr.nips.nip11.data.Nip11InfoData] object and a
     [Nip11InfoLogs][bigbrotr.nips.nip11.logs.Nip11InfoLogs] object --
-    check ``logs.success`` for the operation status.
+    check ``succeeded`` for the operation status.
 
     Warning:
-        The ``execute()`` method **never raises exceptions**. All errors are
-        captured in the ``logs.reason`` field. Callers must always check
-        ``logs.success`` before accessing data fields.
+        The ``fetch()`` method does not raise for ordinary HTTP or parsing
+        failures. Those errors are captured in the ``failure_reason``
+        property. Callers must always check ``succeeded`` before accessing
+        data fields. Cancellation and system-exit style exceptions still
+        propagate.
 
     See Also:
-        [bigbrotr.nips.nip11.nip11.Nip11.create][bigbrotr.nips.nip11.nip11.Nip11.create]:
-            Factory method that delegates to ``execute()``.
+        [bigbrotr.nips.nip11.nip11.Nip11.fetch][bigbrotr.nips.nip11.nip11.Nip11.fetch]:
+            Factory method that delegates to ``fetch()``.
     """
 
     data: Nip11InfoData
     logs: Nip11InfoLogs
 
     _INFO_MAX_SIZE: ClassVar[int] = 65_536  # 64 KB
+
+    @classmethod
+    def _normalize_timeout(cls, timeout: float | None) -> float:
+        """Return a canonical positive finite timeout budget."""
+        if timeout is None:
+            return DEFAULT_TIMEOUT
+        if isinstance(timeout, bool) or not isinstance(timeout, int | float):
+            raise ValueError("timeout must be a positive finite number")
+        normalized = float(timeout)
+        if not math.isfinite(normalized) or normalized <= 0:
+            raise ValueError("timeout must be a positive finite number")
+        return normalized
+
+    @classmethod
+    def _normalize_max_size(cls, max_size: int | None) -> int:
+        """Return a canonical positive response-size budget."""
+        if max_size is None:
+            return cls._INFO_MAX_SIZE
+        if isinstance(max_size, bool) or not isinstance(max_size, int) or max_size < 1:
+            raise ValueError("max_size must be a positive int")
+        return max_size
 
     @staticmethod
     async def _request(  # noqa: PLR0913
@@ -184,7 +211,7 @@ class Nip11InfoMetadata(BaseNipMetadata):
             )
 
     @classmethod
-    async def execute(  # noqa: PLR0913
+    async def fetch(  # noqa: PLR0913
         cls,
         relay: Relay,
         timeout: float | None = None,  # noqa: ASYNC109
@@ -200,12 +227,16 @@ class Nip11InfoMetadata(BaseNipMetadata):
         header per the NIP-11 specification.
 
         For clearnet HTTPS, verifies the certificate first and falls back to
-        insecure if *allow_insecure* is True. Overlay networks always use an
-        insecure SSL context (the overlay provides encryption). Plain HTTP
+        insecure if *allow_insecure* is True. The public ``timeout`` budget is
+        shared across the verified attempt and any insecure fallback. Overlay
+        relays are stored canonically as ``ws://`` URLs, so their NIP-11
+        fetches stay on plain HTTP with no SSL context. Plain HTTP
         connections use no SSL.
 
-        This method never raises and never returns None. Check
-        ``logs.success`` for the operation outcome.
+        This method never returns ``None`` and does not raise for ordinary
+        HTTP or parsing failures. Check ``succeeded`` for the operation
+        outcome. Cancellation and system-exit style exceptions still
+        propagate.
 
         Args:
             relay: Relay to fetch from.
@@ -222,8 +253,10 @@ class Nip11InfoMetadata(BaseNipMetadata):
         Returns:
             An ``Nip11InfoMetadata`` instance with data and logs.
         """
-        timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
-        max_size = max_size if max_size is not None else cls._INFO_MAX_SIZE
+        timeout = cls._normalize_timeout(timeout)
+        max_size = cls._normalize_max_size(max_size)
+        proxy_url = normalize_proxy_url(proxy_url)
+        allow_insecure = normalize_allow_insecure(allow_insecure)
 
         # Build the HTTP URL from the relay's WebSocket URL components
         protocol = "https" if relay.scheme == "wss" else "http"
@@ -233,32 +266,23 @@ class Nip11InfoMetadata(BaseNipMetadata):
         http_url = f"{protocol}://{formatted_host}{port_suffix}{relay.path or ''}"
 
         headers = {"Accept": "application/nostr+json"}
-        is_overlay = relay.network in (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
-
         data: dict[str, Any] = {}
         logs: dict[str, Any] = {"success": False, "reason": None}
         ssl_fallback = False
+        deadline = time.monotonic() + timeout
+
+        def _remaining_timeout(error_message: str) -> float:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(error_message)
+            return remaining
 
         try:
-            if is_overlay:
-                ctx = ssl.create_default_context()
-                ctx.check_hostname = False
-                ctx.verify_mode = ssl.CERT_NONE
+            if protocol == "http":
                 data = await cls._info(
                     http_url,
                     headers,
-                    timeout,
-                    max_size,
-                    ctx,
-                    proxy_url,
-                    session=session,
-                )
-
-            elif protocol == "http":
-                data = await cls._info(
-                    http_url,
-                    headers,
-                    timeout,
+                    _remaining_timeout("timeout fetching NIP-11 info"),
                     max_size,
                     ssl_context=False,
                     proxy_url=proxy_url,
@@ -271,7 +295,7 @@ class Nip11InfoMetadata(BaseNipMetadata):
                     data = await cls._info(
                         http_url,
                         headers,
-                        timeout,
+                        _remaining_timeout("timeout fetching NIP-11 info"),
                         max_size,
                         ssl_context=True,
                         proxy_url=proxy_url,
@@ -287,7 +311,7 @@ class Nip11InfoMetadata(BaseNipMetadata):
                     data = await cls._info(
                         http_url,
                         headers,
-                        timeout,
+                        _remaining_timeout("timeout fetching NIP-11 info"),
                         max_size,
                         ctx,
                         proxy_url,
@@ -302,8 +326,10 @@ class Nip11InfoMetadata(BaseNipMetadata):
             logs["success"] = False
             logs["reason"] = str(e) or type(e).__name__
 
+        data_report = Nip11InfoData.parse_report(data)
+        Nip11InfoData.log_parse_issues(logger, relay.url, data_report)
         result = cls(
-            data=Nip11InfoData.model_validate(Nip11InfoData.parse(data)),
+            data=Nip11InfoData.model_validate(data_report.parsed),
             logs=Nip11InfoLogs.model_validate(logs),
         )
 

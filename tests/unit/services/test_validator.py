@@ -6,10 +6,13 @@ Covers configuration models, database queries, utility functions, and service lo
 from __future__ import annotations
 
 import asyncio
+import math
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.models.constants import NetworkType, ServiceName
@@ -32,6 +35,7 @@ from bigbrotr.services.validator import (
 from bigbrotr.services.validator.queries import (
     count_candidates,
     delete_exhausted_candidates,
+    delete_invalid_candidates,
     delete_promoted_candidates,
     fail_candidates,
     fetch_candidates,
@@ -104,6 +108,11 @@ class TestProcessingConfig:
         with pytest.raises(ValueError):
             ProcessingConfig(chunk_size=value)
 
+    @pytest.mark.parametrize("value", ["100", 100.0, True])
+    def test_rejects_non_integer_chunk_size_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"chunk_size: expected integer, got"):
+            ProcessingConfig(chunk_size=value)
+
     def test_max_candidates_valid(self) -> None:
         assert ProcessingConfig(max_candidates=None).max_candidates is None
         assert ProcessingConfig(max_candidates=1).max_candidates == 1
@@ -112,6 +121,15 @@ class TestProcessingConfig:
         with pytest.raises(ValueError):
             ProcessingConfig(max_candidates=0)
 
+    def test_rejects_boolean_max_candidates_alias(self) -> None:
+        with pytest.raises(ValueError, match="max_candidates: expected integer, got bool"):
+            ProcessingConfig(max_candidates=True)
+
+    @pytest.mark.parametrize("value", ["5000", 5000.0])
+    def test_rejects_non_integer_max_candidates_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"max_candidates: expected integer, got"):
+            ProcessingConfig(max_candidates=value)
+
     def test_interval_bounds(self) -> None:
         assert ProcessingConfig(interval=0.0).interval == 0.0
         assert ProcessingConfig(interval=604_800.0).interval == 604_800.0
@@ -119,6 +137,28 @@ class TestProcessingConfig:
     def test_interval_above_max_rejected(self) -> None:
         with pytest.raises(ValueError):
             ProcessingConfig(interval=604_801.0)
+
+    def test_rejects_boolean_interval_alias(self) -> None:
+        with pytest.raises(ValueError, match="interval: expected number, got bool"):
+            ProcessingConfig(interval=True)
+
+    @pytest.mark.parametrize("value", ["3600", "3600.0"])
+    def test_rejects_non_numeric_interval_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"interval: expected number, got"):
+            ProcessingConfig(interval=value)
+
+    @pytest.mark.parametrize("value", ["true", 1, 0])
+    def test_rejects_non_boolean_allow_insecure_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"allow_insecure: expected bool, got"):
+            ProcessingConfig(allow_insecure=value)
+
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            ProcessingConfig.model_validate({b"chunk_size": 200})
+
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            ProcessingConfig.model_validate({"max_relays": 5})
 
 
 # ============================================================================
@@ -143,6 +183,28 @@ class TestCleanupConfig:
     def test_max_failures_zero_rejected(self) -> None:
         with pytest.raises(ValueError):
             CleanupConfig(max_failures=0)
+
+    def test_rejects_boolean_max_failures_alias(self) -> None:
+        with pytest.raises(ValueError, match="max_failures: expected integer, got bool"):
+            CleanupConfig(max_failures=True)
+
+    @pytest.mark.parametrize("value", ["100", 100.0])
+    def test_rejects_non_integer_max_failures_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"max_failures: expected integer, got"):
+            CleanupConfig(max_failures=value)
+
+    @pytest.mark.parametrize("value", ["false", 1, 0])
+    def test_rejects_non_boolean_enabled_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"enabled: expected bool, got"):
+            CleanupConfig(enabled=value)
+
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            CleanupConfig.model_validate({b"max_failures": 50})
+
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            CleanupConfig.model_validate({"retry_limit": 5})
 
 
 # ============================================================================
@@ -171,19 +233,107 @@ class TestValidatorConfig:
         with pytest.raises(ValueError):
             ValidatorConfig(max_consecutive_failures=101)
 
+    @pytest.mark.parametrize("value", ["5", 5.0])
+    def test_max_consecutive_failures_aliases_rejected(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"max_consecutive_failures: expected integer, got"):
+            ValidatorConfig(max_consecutive_failures=value)
+
     def test_nested_processing_via_dict(self) -> None:
         cfg = ValidatorConfig(processing={"chunk_size": 200, "max_candidates": 5000})
         assert cfg.processing.chunk_size == 200
         assert cfg.processing.max_candidates == 5000
+
+    def test_nested_processing_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            ValidatorConfig.model_validate({"processing": {b"chunk_size": 200}})
+
+    def test_nested_processing_unknown_field_names_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            ValidatorConfig.model_validate({"processing": {"max_relays": 5}})
+
+    @pytest.mark.parametrize("value", ["120", "120.5"])
+    def test_nested_processing_interval_aliases_rejected(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"interval: expected number, got"):
+            ValidatorConfig(processing={"interval": value})
+
+    @pytest.mark.parametrize(
+        ("field_name", "field_value"),
+        [
+            ("chunk_size", "200"),
+            ("chunk_size", 200.0),
+            ("max_candidates", "5000"),
+            ("max_candidates", 5000.0),
+        ],
+    )
+    def test_nested_processing_integer_aliases_rejected(
+        self, field_name: str, field_value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected integer, got"):
+            ValidatorConfig(processing={field_name: field_value})
 
     def test_nested_cleanup_via_dict(self) -> None:
         cfg = ValidatorConfig(cleanup={"enabled": True, "max_failures": 50})
         assert cfg.cleanup.enabled is True
         assert cfg.cleanup.max_failures == 50
 
+    @pytest.mark.parametrize("value", ["50", 50.0])
+    def test_nested_cleanup_max_failures_aliases_rejected(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"max_failures: expected integer, got"):
+            ValidatorConfig(cleanup={"enabled": True, "max_failures": value})
+
+    def test_nested_cleanup_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            ValidatorConfig.model_validate({"cleanup": {b"max_failures": 50}})
+
+    def test_nested_cleanup_unknown_field_names_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            ValidatorConfig.model_validate({"cleanup": {"retry_limit": 5}})
+
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            ValidatorConfig.model_validate({b"cleanup": {"max_failures": 50}})
+
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            ValidatorConfig.model_validate({"validator_limits": {"chunk_size": 200}})
+
+    @pytest.mark.parametrize(
+        ("section", "field_name", "field_value"),
+        [
+            ("processing", "allow_insecure", "true"),
+            ("processing", "allow_insecure", 1),
+            ("cleanup", "enabled", "false"),
+            ("cleanup", "enabled", 0),
+        ],
+    )
+    def test_nested_validator_boolean_aliases_rejected(
+        self, section: str, field_name: str, field_value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected bool, got"):
+            ValidatorConfig(**{section: {field_name: field_value}})
+
     def test_nested_networks(self) -> None:
         cfg = ValidatorConfig(networks=NetworksConfig(tor=TorConfig(enabled=True)))
         assert cfg.networks.tor.enabled is True
+
+    def test_nested_networks_unknown_root_field_names_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            ValidatorConfig.model_validate({"networks": {"tor_proxy": {"enabled": True}}})
+
+    @pytest.mark.parametrize("value", ["true", 1])
+    def test_nested_network_enabled_aliases_rejected(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"enabled: expected boolean, got"):
+            ValidatorConfig(networks={"tor": {"enabled": value}})
+
+    @pytest.mark.parametrize("value", ["10", 10.0])
+    def test_nested_network_max_tasks_aliases_rejected(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"max_tasks: expected integer, got"):
+            ValidatorConfig(networks={"tor": {"max_tasks": value}})
+
+    @pytest.mark.parametrize("value", ["30", "30.0"])
+    def test_nested_network_timeout_aliases_rejected(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"timeout: expected number, got"):
+            ValidatorConfig(networks={"tor": {"timeout": value}})
 
     def test_processing_validation_propagated(self) -> None:
         with pytest.raises(ValueError):
@@ -224,13 +374,103 @@ class TestDeleteExhaustedCandidates:
         sql = args[0][0]
         assert "DELETE FROM service_state" in sql
         assert "failures" in sql
+        assert "jsonb_typeof(state_value->'failures') = 'number'" in sql
+        assert "jsonb_typeof(state_value->'timestamp') != 'number'" in sql
+        assert "COALESCE(state_value->>'network', '') != ALL($4::text[])" in sql
         assert ">= $3" in sql
         assert args[0][3] == 5
+        assert args[0][4] == ["clearnet", "tor", "i2p", "loki"]
         assert result == 3
 
     async def test_returns_zero_when_none(self, query_brotr: MagicMock) -> None:
         query_brotr.fetchval = AsyncMock(return_value=0)
         assert await delete_exhausted_candidates(query_brotr, max_failures=5) == 0
+
+
+# ============================================================================
+# delete_invalid_candidates
+# ============================================================================
+
+
+class TestDeleteInvalidCandidates:
+    async def test_deletes_unprocessable_candidate_rows(self, query_brotr: MagicMock) -> None:
+        query_brotr.fetch = AsyncMock(
+            return_value=[
+                _row(
+                    {
+                        "state_key": f"ws://{'a' * 56}.onion",
+                        "state_value": {"network": "clearnet", "failures": 0, "timestamp": 1},
+                    }
+                ),
+                _row(
+                    {
+                        "state_key": "wss://good.com",
+                        "state_value": {"network": "clearnet", "failures": 0, "timestamp": 1},
+                    }
+                ),
+            ]
+        )
+        query_brotr.delete_service_state = AsyncMock(return_value=1)
+
+        result = await delete_invalid_candidates(query_brotr)
+
+        query_brotr.fetch.assert_awaited_once_with(
+            "SELECT * FROM service_state_get($1, $2, $3)",
+            ServiceName.VALIDATOR,
+            ServiceStateType.CHECKPOINT,
+            None,
+        )
+        query_brotr.delete_service_state.assert_awaited_once_with(
+            [ServiceName.VALIDATOR],
+            [ServiceStateType.CHECKPOINT],
+            [f"ws://{'a' * 56}.onion"],
+        )
+        assert result == 1
+
+    async def test_deletes_rows_with_non_mapping_payloads(self, query_brotr: MagicMock) -> None:
+        query_brotr.fetch = AsyncMock(
+            return_value=[
+                _row(
+                    {
+                        "state_key": f"ws://{'a' * 56}.onion",
+                        "state_value": ["not", "a", "mapping"],
+                    }
+                ),
+                _row(
+                    {
+                        "state_key": "wss://good.com",
+                        "state_value": {"network": "clearnet", "failures": 0, "timestamp": 1},
+                    }
+                ),
+            ]
+        )
+        query_brotr.delete_service_state = AsyncMock(return_value=1)
+
+        result = await delete_invalid_candidates(query_brotr)
+
+        query_brotr.delete_service_state.assert_awaited_once_with(
+            [ServiceName.VALIDATOR],
+            [ServiceStateType.CHECKPOINT],
+            [f"ws://{'a' * 56}.onion"],
+        )
+        assert result == 1
+
+    async def test_returns_zero_when_all_candidates_are_valid(self, query_brotr: MagicMock) -> None:
+        query_brotr.fetch = AsyncMock(
+            return_value=[
+                _row(
+                    {
+                        "state_key": "wss://good.com",
+                        "state_value": {"network": "clearnet", "failures": 0, "timestamp": 1},
+                    }
+                )
+            ]
+        )
+
+        result = await delete_invalid_candidates(query_brotr)
+
+        query_brotr.delete_service_state.assert_not_awaited()
+        assert result == 0
 
 
 # ============================================================================
@@ -250,8 +490,12 @@ class TestCountCandidates:
         args = query_brotr.fetchval.call_args
         sql = args[0][0]
         assert "count(*)::int" in sql
-        assert "service_name = $1" in sql
+        assert "owner = $1" in sql
         assert "state_type = $2" in sql
+        assert "jsonb_typeof(state_value->'failures') = 'number'" in sql
+        assert "jsonb_typeof(state_value->'timestamp') = 'number'" in sql
+        assert "failures_count IS NOT NULL" in sql
+        assert "attempted_at IS NOT NULL" in sql
         assert args[0][1] == ServiceName.VALIDATOR
         assert args[0][2] == ServiceStateType.CHECKPOINT
         assert args[0][3] == [NetworkType.CLEARNET, NetworkType.TOR]
@@ -271,9 +515,16 @@ class TestFetchCandidates:
         args = query_brotr.fetch.call_args
         sql = args[0][0]
         assert "state_key, state_value" in sql
+        assert "jsonb_typeof(state_value->'failures') = 'number'" in sql
+        assert "jsonb_typeof(state_value->'timestamp') = 'number'" in sql
+        assert "failures_count IS NOT NULL" in sql
+        assert "attempted_at IS NOT NULL" in sql
         assert "LIMIT $5" in sql
+        assert "OFFSET $6" in sql
+        assert "state_key ASC" in sql
         assert args[0][1] == ServiceName.VALIDATOR
         assert args[0][5] == 50
+        assert args[0][6] == 0
 
     async def test_returns_checkpoint_objects(self, query_brotr: MagicMock) -> None:
         query_brotr.fetch = AsyncMock(
@@ -325,6 +576,283 @@ class TestFetchCandidates:
         result = await fetch_candidates(query_brotr, [NetworkType.CLEARNET], 0, 50)
         assert len(result) == 1
 
+    async def test_skips_invalid_relay_keys(self, query_brotr: MagicMock) -> None:
+        query_brotr.fetch = AsyncMock(
+            return_value=[
+                _row(
+                    {
+                        "state_key": "not-a-relay",
+                        "state_value": {
+                            "failures": 0,
+                            "network": "clearnet",
+                            "timestamp": 0,
+                        },
+                    }
+                ),
+                _row(
+                    {
+                        "state_key": "wss://good.com",
+                        "state_value": {
+                            "failures": 0,
+                            "network": "clearnet",
+                            "timestamp": 0,
+                        },
+                    }
+                ),
+            ]
+        )
+
+        result = await fetch_candidates(query_brotr, [NetworkType.CLEARNET], 0, 50)
+
+        assert result == [
+            CandidateCheckpoint(
+                key="wss://good.com",
+                timestamp=0,
+                network=NetworkType.CLEARNET,
+                failures=0,
+            )
+        ]
+
+    async def test_skips_mismatched_relay_networks(self, query_brotr: MagicMock) -> None:
+        query_brotr.fetch = AsyncMock(
+            return_value=[
+                _row(
+                    {
+                        "state_key": f"ws://{'a' * 56}.onion",
+                        "state_value": {
+                            "failures": 0,
+                            "network": "clearnet",
+                            "timestamp": 0,
+                        },
+                    }
+                ),
+                _row(
+                    {
+                        "state_key": "wss://good.com",
+                        "state_value": {
+                            "failures": 0,
+                            "network": "clearnet",
+                            "timestamp": 0,
+                        },
+                    }
+                ),
+            ]
+        )
+
+        result = await fetch_candidates(query_brotr, [NetworkType.CLEARNET], 0, 50)
+
+        assert result == [
+            CandidateCheckpoint(
+                key="wss://good.com",
+                timestamp=0,
+                network=NetworkType.CLEARNET,
+                failures=0,
+            )
+        ]
+
+    async def test_skips_invalid_typed_payloads(self, query_brotr: MagicMock) -> None:
+        query_brotr.fetch = AsyncMock(
+            return_value=[
+                _row(
+                    {
+                        "state_key": "wss://bad.com",
+                        "state_value": {
+                            "failures": 0,
+                            "network": "clearnet",
+                            "timestamp": True,
+                        },
+                    }
+                ),
+                _row(
+                    {
+                        "state_key": "wss://good.com",
+                        "state_value": {
+                            "failures": 1,
+                            "network": "clearnet",
+                            "timestamp": 2,
+                        },
+                    }
+                ),
+            ]
+        )
+
+        result = await fetch_candidates(
+            query_brotr,
+            [NetworkType.CLEARNET, NetworkType.TOR],
+            0,
+            50,
+        )
+
+        assert result == [
+            CandidateCheckpoint(
+                key="wss://good.com",
+                timestamp=2,
+                network=NetworkType.CLEARNET,
+                failures=1,
+            )
+        ]
+
+    async def test_skips_payloads_missing_required_fields(self, query_brotr: MagicMock) -> None:
+        query_brotr.fetch = AsyncMock(
+            return_value=[
+                _row(
+                    {
+                        "state_key": "wss://missing-timestamp.com",
+                        "state_value": {
+                            "failures": 0,
+                            "network": "clearnet",
+                        },
+                    }
+                ),
+                _row(
+                    {
+                        "state_key": "wss://missing-network.com",
+                        "state_value": {
+                            "failures": 0,
+                            "timestamp": 0,
+                        },
+                    }
+                ),
+                _row(
+                    {
+                        "state_key": "wss://missing-failures.com",
+                        "state_value": {
+                            "network": "tor",
+                            "timestamp": 5,
+                        },
+                    }
+                ),
+                _row(
+                    {
+                        "state_key": "wss://good.com",
+                        "state_value": {
+                            "failures": 1,
+                            "network": "clearnet",
+                            "timestamp": 2,
+                        },
+                    }
+                ),
+            ]
+        )
+
+        result = await fetch_candidates(
+            query_brotr,
+            [NetworkType.CLEARNET, NetworkType.TOR],
+            10,
+            50,
+        )
+
+        assert result == [
+            CandidateCheckpoint(
+                key="wss://good.com",
+                timestamp=2,
+                network=NetworkType.CLEARNET,
+                failures=1,
+            )
+        ]
+
+    async def test_skips_negative_candidate_fields(self, query_brotr: MagicMock) -> None:
+        query_brotr.fetch = AsyncMock(
+            return_value=[
+                _row(
+                    {
+                        "state_key": "wss://negative-failures.com",
+                        "state_value": {
+                            "failures": -1,
+                            "network": "clearnet",
+                            "timestamp": 0,
+                        },
+                    }
+                ),
+                _row(
+                    {
+                        "state_key": "wss://negative-timestamp.com",
+                        "state_value": {
+                            "failures": 0,
+                            "network": "tor",
+                            "timestamp": -5,
+                        },
+                    }
+                ),
+                _row(
+                    {
+                        "state_key": "wss://good.com",
+                        "state_value": {
+                            "failures": 1,
+                            "network": "clearnet",
+                            "timestamp": 2,
+                        },
+                    }
+                ),
+            ]
+        )
+
+        result = await fetch_candidates(
+            query_brotr,
+            [NetworkType.CLEARNET, NetworkType.TOR],
+            10,
+            50,
+        )
+
+        assert result == [
+            CandidateCheckpoint(
+                key="wss://good.com",
+                timestamp=2,
+                network=NetworkType.CLEARNET,
+                failures=1,
+            )
+        ]
+
+    async def test_scans_past_invalid_leading_rows_to_fill_limit(
+        self, query_brotr: MagicMock
+    ) -> None:
+        query_brotr.fetch = AsyncMock(
+            side_effect=[
+                [
+                    _row(
+                        {
+                            "state_key": "not-a-relay",
+                            "state_value": {
+                                "failures": 0,
+                                "network": "clearnet",
+                                "timestamp": 0,
+                            },
+                        }
+                    )
+                ],
+                [
+                    _row(
+                        {
+                            "state_key": "wss://good.com",
+                            "state_value": {
+                                "failures": 0,
+                                "network": "clearnet",
+                                "timestamp": 0,
+                            },
+                        }
+                    )
+                ],
+            ]
+        )
+
+        result = await fetch_candidates(query_brotr, [NetworkType.CLEARNET], 0, 1)
+
+        assert result == [
+            CandidateCheckpoint(
+                key="wss://good.com",
+                timestamp=0,
+                network=NetworkType.CLEARNET,
+                failures=0,
+            )
+        ]
+        assert query_brotr.fetch.await_count == 2
+        first_call = query_brotr.fetch.await_args_list[0].args
+        second_call = query_brotr.fetch.await_args_list[1].args
+        assert first_call[5] == 1
+        assert first_call[6] == 0
+        assert second_call[5] == 1
+        assert second_call[6] == 1
+
     async def test_empty_result(self, query_brotr: MagicMock) -> None:
         assert await fetch_candidates(query_brotr, [NetworkType.CLEARNET], 0, 50) == []
 
@@ -349,6 +877,16 @@ class TestPromoteCandidates:
             ["wss://promoted.com"],
         )
         assert result == 1
+
+    async def test_rounds_fractional_relay_stored_at_up(self, query_brotr: MagicMock) -> None:
+        query_brotr.insert_relay = AsyncMock(return_value=1)
+        query_brotr.delete_service_state = AsyncMock(return_value=1)
+
+        with patch("bigbrotr.models.relay.time", return_value=1000.1):
+            await promote_candidates(query_brotr, [_candidate("wss://promoted.com")])
+
+        relays = query_brotr.insert_relay.call_args[0][0]
+        assert relays[0].stored_at == 1001
 
     async def test_empty_list(self, query_brotr: MagicMock) -> None:
         assert await promote_candidates(query_brotr, []) == 0
@@ -403,9 +941,21 @@ class TestFailCandidates:
         assert isinstance(records[0].state_value["timestamp"], int)
         assert records[0].state_value["timestamp"] > 0
 
+    async def test_rounds_fractional_failure_timestamp_up(self, query_brotr: MagicMock) -> None:
+        query_brotr.upsert_service_state = AsyncMock(return_value=1)
+
+        with patch("bigbrotr.services.validator.queries.time.time", return_value=1000.2):
+            await fail_candidates(query_brotr, [_candidate()])
+
+        records = query_brotr.upsert_service_state.call_args[0][0]
+        assert records[0].state_value["timestamp"] == 1001
+
     async def test_preserves_network(self, query_brotr: MagicMock) -> None:
         query_brotr.upsert_service_state = AsyncMock(return_value=1)
-        await fail_candidates(query_brotr, [_candidate(network=NetworkType.TOR)])
+        await fail_candidates(
+            query_brotr,
+            [_candidate(url=f"ws://{'a' * 56}.onion", network=NetworkType.TOR)],
+        )
         records = query_brotr.upsert_service_state.call_args[0][0]
         assert records[0].state_value["network"] == "tor"
 
@@ -496,6 +1046,54 @@ class TestValidatorRun:
     async def test_completes_with_no_candidates(self, validator_brotr: Brotr) -> None:
         validator_brotr._pool.fetch = AsyncMock(return_value=[])
         await Validator(validator_brotr).run()
+
+
+# ============================================================================
+# Validator planning helpers
+# ============================================================================
+
+
+class TestValidationPlanning:
+    def test_build_validation_cycle_plan_returns_none_when_no_networks_enabled(
+        self,
+        validator_brotr: Brotr,
+    ) -> None:
+        cfg = ValidatorConfig(networks=NetworksConfig(clearnet=ClearnetConfig(enabled=False)))
+        assert Validator(validator_brotr, config=cfg)._build_validation_cycle_plan() is None
+
+    def test_build_validation_cycle_plan_computes_budget_and_cutoff(
+        self,
+        validator_brotr: Brotr,
+    ) -> None:
+        cfg = ValidatorConfig(
+            processing={"chunk_size": 250, "max_candidates": 500, "interval": 120.0},
+            networks=NetworksConfig(
+                clearnet=ClearnetConfig(enabled=True, max_tasks=7),
+                tor=TorConfig(enabled=True, max_tasks=5),
+            ),
+        )
+        validator = Validator(validator_brotr, config=cfg)
+
+        plan = validator._build_validation_cycle_plan(now=1_000)
+
+        assert plan is not None
+        assert plan.networks == (NetworkType.CLEARNET, NetworkType.TOR)
+        assert plan.attempted_before == math.ceil(1_000 - cfg.processing.interval)
+        assert plan.chunk_size == 250
+        assert plan.max_candidates == 500
+        assert plan.max_concurrency == 12
+
+    def test_build_validation_cycle_plan_rounds_fractional_retry_cutoff_up(
+        self,
+        validator_brotr: Brotr,
+    ) -> None:
+        cfg = ValidatorConfig(processing={"interval": 120.9})
+        validator = Validator(validator_brotr, config=cfg)
+
+        plan = validator._build_validation_cycle_plan(now=1_000)
+
+        assert plan is not None
+        assert plan.attempted_before == 880
 
 
 # ============================================================================
@@ -678,6 +1276,52 @@ class TestValidate:
 
 
 # ============================================================================
+# Validator chunk helpers
+# ============================================================================
+
+
+class TestValidationChunks:
+    async def test_validate_candidate_page_classifies_results(
+        self,
+        validator_brotr: Brotr,
+    ) -> None:
+        validator = Validator(validator_brotr)
+        good = _candidate("wss://good.com")
+        bad = _candidate("wss://bad.com")
+
+        async def relay_check(relay, proxy, timeout, **kwargs):
+            return "good" in relay.url
+
+        with patch(f"{_SVC}.validate_candidate", side_effect=relay_check):
+            outcome = await validator._validate_candidate_page(
+                [good, bad],
+                max_concurrency=2,
+            )
+
+        assert outcome.valid == (good,)
+        assert outcome.invalid == (bad,)
+
+    async def test_persist_validation_chunk_promotes_and_fails(
+        self,
+        validator_brotr: Brotr,
+    ) -> None:
+        validator = Validator(validator_brotr)
+        outcome = Validator.ValidationChunkOutcome(
+            valid=(_candidate("wss://good.com"),),
+            invalid=(_candidate("wss://bad.com"),),
+        )
+
+        with (
+            patch(f"{_SVC}.promote_candidates", new_callable=AsyncMock) as promote,
+            patch(f"{_SVC}.fail_candidates", new_callable=AsyncMock) as fail,
+        ):
+            await validator._persist_validation_chunk(outcome)
+
+        promote.assert_awaited_once_with(validator_brotr, [_candidate("wss://good.com")])
+        fail.assert_awaited_once_with(validator_brotr, [_candidate("wss://bad.com")])
+
+
+# ============================================================================
 # Validator._validate_worker
 # ============================================================================
 
@@ -699,7 +1343,7 @@ class TestValidationWorker:
 
     async def test_unknown_network_returns_false(self, validator_brotr: Brotr) -> None:
         v = Validator(validator_brotr)
-        c = _candidate(network=NetworkType.UNKNOWN)
+        c = SimpleNamespace(key="wss://relay.example.com", network=NetworkType.UNKNOWN)
         results = [r async for r in v._validate_worker(c)]
         assert results == [(c, False)]
 
@@ -794,6 +1438,27 @@ class TestNetworkRouting:
         assert proxy == "socks5://lokinet:1080"
         assert timeout == 30.0
 
+    async def test_nested_proxy_url_is_trimmed(self, validator_brotr: Brotr) -> None:
+        cfg = ValidatorConfig(
+            networks={"tor": {"enabled": True, "proxy_url": " socks5://tor:9050 ", "timeout": 45.0}}
+        )
+        proxy, timeout = await self._run(
+            validator_brotr,
+            cfg,
+            _candidate(f"ws://{'a' * 56}.onion", NetworkType.TOR),
+        )
+        assert proxy == "socks5://tor:9050"
+        assert timeout == 45.0
+
+    @pytest.mark.parametrize(
+        "value", [True, "", "   ", "garbage", "socks5://:9050", "socks5://x:0"]
+    )
+    async def test_nested_proxy_url_aliases_rejected(self, value: object) -> None:
+        with pytest.raises(
+            ValidationError, match="proxy_url must be a valid proxy URL with scheme and hostname"
+        ):
+            ValidatorConfig(networks={"tor": {"enabled": True, "proxy_url": value}})
+
     async def test_allow_insecure_passed(self, validator_brotr: Brotr) -> None:
         cfg = ValidatorConfig(processing=ProcessingConfig(allow_insecure=True))
         v = Validator(validator_brotr, config=cfg)
@@ -820,6 +1485,25 @@ class TestCleanup:
         assert "AND EXISTS" in validator_brotr.fetchval.call_args_list[0][0][0]
         assert result == 6  # 3 promoted + 3 exhausted (both fetchval calls return 3)
 
+    async def test_delete_invalid_candidates_runs_even_when_exhausted_cleanup_disabled(
+        self, validator_brotr: Brotr
+    ) -> None:
+        validator_brotr.fetchval = AsyncMock(return_value=0)
+        cfg = ValidatorConfig(cleanup={"enabled": False})
+        with (
+            patch(
+                f"{_SVC}.delete_invalid_candidates",
+                new_callable=AsyncMock,
+                return_value=4,
+            ) as mock_invalid,
+            patch(f"{_SVC}.delete_exhausted_candidates", new_callable=AsyncMock) as mock_exhausted,
+        ):
+            result = await Validator(validator_brotr, config=cfg).cleanup()
+
+        mock_invalid.assert_awaited_once()
+        mock_exhausted.assert_not_awaited()
+        assert result == 4
+
     async def test_delete_exhausted_when_enabled(self, validator_brotr: Brotr) -> None:
         validator_brotr.fetchval = AsyncMock(return_value=0)
         cfg = ValidatorConfig(cleanup={"enabled": True, "max_failures": 10})
@@ -842,13 +1526,20 @@ class TestCleanup:
     async def test_returns_sum(self, validator_brotr: Brotr) -> None:
         validator_brotr.fetchval = AsyncMock(return_value=4)
         cfg = ValidatorConfig(cleanup={"enabled": True, "max_failures": 5})
-        with patch(
-            f"{_SVC}.delete_exhausted_candidates",
-            new_callable=AsyncMock,
-            return_value=6,
+        with (
+            patch(
+                f"{_SVC}.delete_invalid_candidates",
+                new_callable=AsyncMock,
+                return_value=2,
+            ),
+            patch(
+                f"{_SVC}.delete_exhausted_candidates",
+                new_callable=AsyncMock,
+                return_value=6,
+            ),
         ):
             result = await Validator(validator_brotr, config=cfg).cleanup()
-        assert result == 10
+        assert result == 12
 
 
 # ============================================================================

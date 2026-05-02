@@ -5,6 +5,8 @@
 | **Validator** | Verifies URLs are live Nostr relays via WebSocket | Continuous |
 | **Monitor** | Runs NIP-11 + NIP-66 health checks, publishes kind 10166/30166 events | Continuous |
 | **Synchronizer** | Collects events from relays using cursor-based pagination | Continuous |
-| **Refresher** | Refreshes materialized views for analytics queries | Continuous |
-| **Api** | Exposes the database as a read-only REST API with paginated endpoints | Continuous |
-| **Dvm** | NIP-90 Data Vending Machine for Nostr database queries | Continuous |
+| **Refresher** | Refreshes narrow current winner tables, shared analytics facts, operational contact-graph facts, and periodic reconciliation targets | Continuous |
+| **Ranker** | Computes deterministic NIP-85 public scores in private DuckDB and exports them | Continuous |
+| **Assertor** | Publishes the NIP-85 provider package from facts and public scores | Continuous |
+| **API** | HTTP adapter exposing enabled public readable resources | Continuous |
+| **DVM** | NIP-90 adapter exposing the same public readable resources | Continuous |

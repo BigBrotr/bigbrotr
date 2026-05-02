@@ -39,8 +39,11 @@ Examples:
     from bigbrotr.core import Brotr
     from bigbrotr.services import Validator
 
-    brotr = Brotr.from_yaml("config/brotr.yaml")
-    validator = Validator.from_yaml("config/services/validator.yaml", brotr=brotr)
+    brotr = Brotr.from_yaml("deployments/bigbrotr/config/brotr.yaml")
+    validator = Validator.from_yaml(
+        "deployments/bigbrotr/config/services/validator.yaml",
+        brotr=brotr,
+    )
 
     async with brotr:
         async with validator:
@@ -50,7 +53,6 @@ Examples:
 
 from __future__ import annotations
 
-import time
 from typing import TYPE_CHECKING, ClassVar
 
 from bigbrotr.core.base_service import BaseService
@@ -62,10 +64,22 @@ from .configs import ValidatorConfig
 from .queries import (
     count_candidates,
     delete_exhausted_candidates,
+    delete_invalid_candidates,
     delete_promoted_candidates,
     fail_candidates,
     fetch_candidates,
     promote_candidates,
+)
+from .runtime import (
+    ValidationChunkOutcome as ValidatorValidationChunkOutcome,
+)
+from .runtime import (
+    ValidationCyclePlan as ValidatorValidationCyclePlan,
+)
+from .runtime import (
+    build_validation_cycle_plan,
+    persist_validation_chunk,
+    validate_candidate_page,
 )
 from .utils import validate_candidate
 
@@ -107,19 +121,62 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
 
     SERVICE_NAME: ClassVar[ServiceName] = ServiceName.VALIDATOR
     CONFIG_CLASS: ClassVar[type[ValidatorConfig]] = ValidatorConfig
+    ValidationCyclePlan = ValidatorValidationCyclePlan
+    ValidationChunkOutcome = ValidatorValidationChunkOutcome
 
     def __init__(self, brotr: Brotr, config: ValidatorConfig | None = None) -> None:
         config = config or ValidatorConfig()
         super().__init__(brotr=brotr, config=config, networks=config.networks)
         self._config: ValidatorConfig
 
+    def _build_validation_cycle_plan(
+        self,
+        now: int | None = None,
+    ) -> ValidatorValidationCyclePlan | None:
+        """Return the computed network and budget inputs for one validation cycle."""
+        return build_validation_cycle_plan(
+            config=self._config,
+            max_concurrency=self.network_semaphores.max_concurrency(
+                list(self._config.networks.get_enabled_networks())
+            ),
+            now=now,
+        )
+
+    async def _validate_candidate_page(
+        self,
+        candidates: list[CandidateCheckpoint],
+        *,
+        max_concurrency: int,
+    ) -> ValidatorValidationChunkOutcome:
+        """Validate one fetched candidate page and classify its results."""
+        return await validate_candidate_page(
+            candidates=candidates,
+            max_concurrency=max_concurrency,
+            iter_concurrent=self._iter_concurrent,
+            worker=self._validate_worker,
+            inc_gauge=self.inc_gauge,
+        )
+
+    async def _persist_validation_chunk(
+        self,
+        outcome: ValidatorValidationChunkOutcome,
+    ) -> None:
+        """Persist one validated page by promoting and failing candidates."""
+        await persist_validation_chunk(
+            brotr=self._brotr,
+            outcome=outcome,
+            promote_candidates_fn=promote_candidates,
+            fail_candidates_fn=fail_candidates,
+        )
+
     async def run(self) -> None:
         """Execute one complete validation cycle."""
         await self.validate()
 
     async def cleanup(self) -> int:
-        """Remove promoted candidates and exhausted candidates."""
+        """Remove promoted, malformed, and exhausted candidates."""
         removed = await delete_promoted_candidates(self._brotr)
+        removed += await delete_invalid_candidates(self._brotr)
         if self._config.cleanup.enabled:
             removed += await delete_exhausted_candidates(
                 self._brotr, self._config.cleanup.max_failures
@@ -137,14 +194,12 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
         Returns:
             Total number of candidates processed (valid + invalid).
         """
-        networks = self._config.networks.get_enabled_networks()
-        if not networks:
+        plan = self._build_validation_cycle_plan()
+        if plan is None:
             self._logger.warning("no_networks_enabled")
             return 0
 
-        attempted_before = int(time.time() - self._config.processing.interval)
-
-        total = await count_candidates(self._brotr, networks, attempted_before)
+        total = await count_candidates(self._brotr, list(plan.networks), plan.attempted_before)
         validated = 0
         not_validated = 0
 
@@ -154,43 +209,36 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
 
         self._logger.info("candidates_available", total=total)
 
-        chunk_size = self._config.processing.chunk_size
-        max_candidates = self._config.processing.max_candidates
-
         while self.is_running:
-            if max_candidates is not None:
-                budget = max_candidates - validated - not_validated
+            if plan.max_candidates is None:
+                limit = plan.chunk_size
+            else:
+                budget = plan.max_candidates - validated - not_validated
                 if budget <= 0:
                     break
-                limit = min(chunk_size, budget)
-            else:
-                limit = chunk_size
+                limit = min(plan.chunk_size, budget)
 
-            candidates = await fetch_candidates(self._brotr, networks, attempted_before, limit)
+            candidates = await fetch_candidates(
+                self._brotr,
+                list(plan.networks),
+                plan.attempted_before,
+                limit,
+            )
             if not candidates:
                 break
 
-            chunk_valid: list[CandidateCheckpoint] = []
-            chunk_invalid: list[CandidateCheckpoint] = []
-
-            async for candidate, is_valid in self._iter_concurrent(
-                candidates, self._validate_worker
-            ):
-                if is_valid:
-                    chunk_valid.append(candidate)
-                    validated += 1
-                else:
-                    chunk_invalid.append(candidate)
-                    not_validated += 1
-                self.inc_gauge("validated" if is_valid else "not_validated")
-
-            await promote_candidates(self._brotr, chunk_valid)
-            await fail_candidates(self._brotr, chunk_invalid)
+            outcome = await self._validate_candidate_page(
+                candidates,
+                max_concurrency=plan.max_concurrency,
+            )
+            validated += outcome.validated_count
+            not_validated += outcome.not_validated_count
+            await self._persist_validation_chunk(outcome)
 
             self._logger.info(
                 "chunk_completed",
-                validated=len(chunk_valid),
-                not_validated=len(chunk_invalid),
+                validated=outcome.validated_count,
+                not_validated=outcome.not_validated_count,
                 remaining=total - validated - not_validated,
             )
 

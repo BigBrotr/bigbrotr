@@ -1,12 +1,15 @@
 # Services
 
-Deep dive into BigBrotr's eight independent services: how relays are discovered, validated, monitored, how events are archived, how analytics views are refreshed, and how data is exposed via REST API and Nostr.
+Deep dive into BigBrotr's ten independent services: how relays are discovered,
+validated, and monitored; how events and documents are archived; how shared
+facts and public scores are produced; and how the public read adapters expose
+data over HTTP and Nostr.
 
 ---
 
 ## Overview
 
-BigBrotr uses eight independent async services that share a PostgreSQL database. Each service runs as its own process and can be started, stopped, and scaled independently:
+BigBrotr uses ten independent async services that share a PostgreSQL database. Each service runs as its own process and can be started, stopped, and scaled independently:
 
 --8<-- "docs/_snippets/pipeline.md"
 
@@ -29,15 +32,22 @@ flowchart LR
         MO["Monitor"]
         SY["Synchronizer"]
         RE2["Refresher"]
+        RA["Ranker"]
+        AS["Assertor"]
+        AP["API"]
+        DV["DVM"]
     end
 
     subgraph Database
         SS["service_state"]
         RE["relay"]
-        MD["metadata"]
-        RM["relay_metadata"]
+        MD["document"]
+        RM["relay_document"]
         EV["event"]
-        ER["event_relay"]
+        ER["event_observation"]
+        CT["current winner tables"]
+        ST["analytics and operational facts"]
+        RK["score tables"]
         MV["materialized views"]
     end
 
@@ -54,7 +64,19 @@ flowchart LR
     SY -->|"cursors"| SS
     SY -->|"write"| EV
     SY -->|"junctions"| ER
+    RE2 -->|"refresh"| CT
+    RE2 -->|"refresh"| ST
     RE2 -->|"refresh"| MV
+    RA -->|"read"| CT
+    RA -->|"read"| ST
+    RA -->|"snapshot export"| RK
+    AS -->|"read"| ST
+    AS -->|"read"| RK
+    AS -->|"checkpoints"| SS
+    AP -->|"read"| RE
+    AP -->|"read"| MV
+    DV -->|"read"| RE
+    DV -->|"read"| MV
 ```
 
 ---
@@ -120,7 +142,7 @@ flowchart TD
 
 **Discovery sources:**
 
-1. **Event scanning** -- extracts relay URLs from event `tagvalues` regardless of event kind. Any tagvalue that parses as a valid relay URL (`wss://` or `ws://`) becomes a candidate. Scanning is cursor-paginated per relay with `(seen_at, event_id)` tie-breaking.
+1. **Event scanning** -- extracts relay URLs from event `tagvalues` regardless of event kind. Any tagvalue that parses as a valid relay URL (`wss://` or `ws://`) becomes a candidate. Scanning is cursor-paginated per relay with `(observed_at, event_id)` tie-breaking.
 
 2. **API fetching** -- HTTP requests to external sources:
     - Default: nostr.watch online/offline relay list endpoints
@@ -211,7 +233,7 @@ flowchart TD
 **Mode**: Continuous (`run_forever`)
 
 **Reads**: `relay` (validated relays)
-**Writes**: `metadata`, `relay_metadata` (health check results); publishes Nostr kind 0, 10166, 30166 events
+**Writes**: `document`, `relay_document` (health-check results); publishes Nostr kind 0, 10166, 30166 events
 
 ### How It Works
 
@@ -221,12 +243,11 @@ to `nips/event_builders.py`.
 
 **Orchestration flow:**
 
-1. `run()` -- update geo databases, open geo readers, publish profile/announcement, delegate to `monitor()`
-2. `monitor()` -- count relays, fetch in chunks, check concurrently via `_iter_concurrent()`, persist metadata, update checkpoints
-3. `check_relay(relay)` -- run NIP-11 + all NIP-66 checks, return `CheckResult`
-4. `publish_discovery(relay, result)` -- build and broadcast kind 30166 per successful check
-5. `publish_announcement()` -- kind 10166 (monitor capabilities)
-6. `publish_profile()` -- kind 0 (monitor profile metadata)
+1. `run()` -- update geo databases, open geo readers, run the control-plane publication phase, then delegate to `monitor()`
+2. `_run_publication_phase()` -- publish kind 0, kind 10002, and kind 10166 if their intervals are due
+3. `monitor()` -- count relays, fetch in chunks, check concurrently via `_iter_concurrent()`, persist relay documents, update checkpoints, then run best-effort kind 30166 publication for successful results
+4. `check_relay(relay)` -- run NIP-11 + all NIP-66 checks, return `CheckResult`
+5. `publish_discovery(relay, result)` -- build and broadcast kind 30166 after persistence; publication failures do not discard the stored health-check result
 
 **CheckResult** (what each relay check produces):
 
@@ -265,14 +286,16 @@ The Monitor uses two types of `CHECKPOINT` records in `service_state`:
 |-------|------|---------|-------------|
 | `processing.chunk_size` | int | `100` | Relays per batch |
 | `processing.max_relays` | int or null | `null` | Max relays per cycle |
-| `processing.compute.*` | bool | `true` | Enable computation per metadata type |
-| `processing.store.*` | bool | `true` | Enable persistence per metadata type |
+| `processing.compute.*` | bool | `true` | Enable computation per document type |
+| `processing.store.*` | bool | `true` | Enable persistence per document type |
 | `discovery.enabled` | bool | `true` | Publish kind 30166 events |
 | `announcement.enabled` | bool | `true` | Publish kind 10166 events |
 | `networks` | NetworkConfig | -- | Per-network timeouts and concurrency |
 
 !!! warning
-    The Monitor requires the `NOSTR_PRIVATE_KEY` environment variable for signing published Nostr events and performing NIP-66 write tests.
+    The Monitor uses `NOSTR_PRIVATE_KEY_MONITOR` for signing published Nostr
+    events and performing NIP-66 write tests. If the variable is blank or
+    unset, the config generates one ephemeral key once at startup.
 
 !!! tip "API Reference"
     See [`bigbrotr.services.monitor`](../reference/services/monitor/index.md) for the complete Monitor API.
@@ -286,7 +309,7 @@ The Monitor uses two types of `CHECKPOINT` records in `service_state`:
 **Mode**: Continuous (`run_forever`)
 
 **Reads**: `relay` (validated relays), `service_state` (cursors)
-**Writes**: `event`, `event_relay` (archived events and junctions), `service_state` (updated cursors)
+**Writes**: `event`, `event_observation` (archived events and junctions), `service_state` (updated cursors)
 
 ### How It Works
 
@@ -301,7 +324,7 @@ flowchart TD
     G --> H["stream_events()<br/><small>windowing with binary-split fallback</small>"]
     H --> I["Buffer events"]
     I --> J{Buffer full?}
-    J -->|Yes| K["insert_event_relays()<br/><small>cascade insert</small>"]
+    J -->|Yes| K["insert_event_observations()<br/><small>cascade insert</small>"]
     J -->|No| L{Stream done?}
     L -->|Yes| K
     L -->|No| I
@@ -312,7 +335,7 @@ flowchart TD
 1. `run()` delegates to `synchronize()` -- fetch cursors ordered by sync progress ascending (most behind first), distribute work
 2. `synchronize()` -- `_iter_concurrent()` with `_sync_worker` async generators and per-network semaphores
 3. For each relay: `_sync_relay_events()` connects via WebSocket, streams events using `stream_events()` with data-driven windowing and binary-split fallback for completeness
-4. Events are buffered and batch-inserted via `insert_event_relays()` (cascade insert to `event` + `event_relay`)
+4. Events are buffered and batch-inserted via `insert_event_observations()` (cascade insert to `event` + `event_observation`)
 5. Per-relay cursor tracking via `ServiceState` with `ServiceStateType.CURSOR`, cursors saved in batch via `upsert_sync_cursors()` at each buffer flush
 6. Cursor set to `end_time` on completion, or last event's `created_at` on partial completion
 
@@ -332,6 +355,11 @@ flowchart TD
 | `timeouts.max_duration` | float | `14400.0` | Maximum seconds for the entire sync phase |
 | `networks` | NetworksConfig | -- | Per-network timeouts and concurrency |
 
+!!! note "NIP-42 Auth Key"
+    The Synchronizer uses `NOSTR_PRIVATE_KEY_SYNCHRONIZER` when a relay
+    requires authenticated reads via NIP-42. If blank or unset, the config
+    generates one ephemeral key once at startup.
+
 !!! tip "API Reference"
     See [`bigbrotr.services.synchronizer`](../reference/services/synchronizer/index.md) for the complete Synchronizer API.
 
@@ -339,52 +367,188 @@ flowchart TD
 
 ## Refresher
 
-**Purpose**: Refresh materialized views that power analytics queries.
+**Purpose**: Refresh narrow current winner tables, shared analytics facts, operational contact-graph facts, and periodic reconciliation tasks that power downstream services.
 
 **Mode**: Continuous (`run_forever`)
 
-**Reads**: Base tables (indirectly, via `REFRESH MATERIALIZED VIEW CONCURRENTLY`)
-**Writes**: 11 materialized views
+**Reads**: Base tables (indirectly, via refresh functions)
+**Writes**: current winner tables, shared analytics tables, operational contact facts, and service checkpoints
 
 ### How It Works
 
-1. Iterate over the configured list of materialized views
-2. Refresh each view individually via its stored function (e.g., `relay_metadata_latest_refresh()`)
-3. Log per-view timing and success/failure
-4. A failure on one view does not prevent subsequent views from refreshing
+1. Resolve the configured `current.targets` and `analytics.targets` into canonical dependency-safe order
+2. Incrementally refresh each narrow current winner table from its source watermark range
+3. Incrementally refresh each shared analytics or operational-fact table from its source watermark range
+4. Run enabled periodic reconciliations (`rolling_windows`, `relay_stats_document`, `nip85_followers`) and emit per-target timing, row, watermark-lag, and failure metrics
 
-The Refresher calls views in dependency order: `relay_metadata_latest` first (because `relay_software_counts` and `supported_nip_counts` depend on it), then all remaining views.
+Each target is isolated by default: one failed refresh does not stop the rest of the cycle unless `processing.continue_on_target_error` is disabled.
+Incremental source processing is also window-bounded by default, so a single target refresh
+does not have to consume an arbitrarily large backlog in one cycle.
+
+For destructive maintenance windows, the repository also ships
+`tools/rebuild_refresher_state.py`, which replays the same Refresher-owned
+target registry offline instead of introducing a second derivation owner.
 
 ### Configuration
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `refresh.views` | list[string] | all 11 views | Materialized views to refresh |
+| `current.targets` | list[string] | canonical narrow current set | Narrow winner-map current tables to refresh incrementally |
+| `analytics.targets` | list[string] | canonical analytics set | Shared analytics and operational-fact tables to refresh incrementally |
+| `periodic.rolling_windows` | bool | `true` | Recompute rolling time-window columns |
+| `periodic.relay_stats_document` | bool | `true` | Refresh `relay_stats` document-backed fields |
+| `periodic.nip85_followers` | bool | `true` | Recompute NIP-85 follower/following counts |
+| `processing.max_source_window` | int or null | `86400` | Maximum source timestamp span consumed by one incremental target slice |
+| `processing.max_duration` | float or null | `null` | Maximum seconds for one refresh cycle |
+| `processing.max_targets_per_cycle` | int or null | `null` | Maximum targets attempted per cycle |
+| `processing.continue_on_target_error` | bool | `true` | Continue after isolated target failures |
+| `cleanup.enabled` | bool | `true` | Remove stale checkpoints for targets no longer configured |
 
 !!! tip "API Reference"
     See [`bigbrotr.services.refresher`](../reference/services/refresher/index.md) for the complete Refresher API.
 
 ---
 
-## Api
+## Ranker
 
-**Purpose**: Expose the BigBrotr database as a read-only REST API via FastAPI.
+**Purpose**: Compute deterministic NIP-85 scores in a private DuckDB store and export the public score outputs back to PostgreSQL.
+
+**Mode**: Continuous (`run_forever`)
+
+**Reads**: `contact_lists_current`, `contact_list_edges_current`, `nip85_event_stats`, `nip85_addressable_stats`, `nip85_identifier_stats`
+**Writes**: `pubkey_score`, `event_score`, `addressable_score`, `identifier_score`, private DuckDB graph state + checkpoint file
+
+DuckDB-local run bookkeeping stays private to the service and is not part of
+the shared score contract.
+
+### How It Works
+
+1. Open the private DuckDB store for the service lifetime and load the incremental PostgreSQL -> DuckDB graph checkpoint
+2. Pull changed canonical contact lists and follow edges from PostgreSQL current tables
+3. Apply the graph delta in DuckDB, then reload non-user fact stages (`event`, `addressable`, `identifier`)
+4. Compute deterministic pubkey PageRank (`30382`) plus derived non-user ranks (`30383`, `30384`, `30385`)
+5. Export one complete `algorithm_id` score set back to PostgreSQL for downstream assertion publishing
+
+### Configuration
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `algorithm_id` | string | `global-pagerank` | Namespace written into exported public score outputs |
+| `storage.path` | path | `/app/data/ranker.duckdb` | Private DuckDB database path |
+| `storage.checkpoint_path` | path | `/app/data/ranker.checkpoint.json` | Optional legacy JSON checkpoint import path |
+| `processing.max_duration` | float or null | `null` | Maximum seconds for one ranker cycle |
+| `graph.damping` | float | `0.85` | PageRank damping factor for pubkey ranking |
+| `graph.iterations` | int | `20` | Deterministic PageRank iteration count |
+| `sync.batch_size` | int | `1000` | Changed followers synced per PostgreSQL batch |
+| `sync.max_batches` | int or null | `null` | Maximum follow-graph sync batches per cycle |
+| `sync.max_followers_per_cycle` | int or null | `null` | Maximum changed followers synced per cycle |
+| `facts_stage.batch_size` | int | `1000` | Rows fetched per non-user fact staging batch |
+| `facts_stage.max_event_rows` | int or null | `null` | Maximum event fact rows staged per cycle |
+| `facts_stage.max_addressable_rows` | int or null | `null` | Maximum addressable fact rows staged per cycle |
+| `facts_stage.max_identifier_rows` | int or null | `null` | Maximum identifier fact rows staged per cycle |
+| `export.batch_size` | int | `1000` | Rows exported per public-score batch |
+| `export.max_batches_per_subject` | int or null | `null` | Maximum export batches per score subject per cycle |
+| `cleanup.rank_runs_retention` | int or null | `100` | DuckDB-local rank run records to keep |
+
+!!! tip "API Reference"
+    See [`bigbrotr.services.ranker`](../reference/services/ranker/index.md) for the complete Ranker API.
+
+---
+
+## Assertor
+
+**Purpose**: Publish the full NIP-85 provider package for an algorithm-scoped service key: trusted assertions, optional provider profile, and optional trusted-provider list.
+
+**Mode**: Continuous (`run_forever`)
+
+**Reads**: `nip85_pubkey_stats`, `nip85_event_stats`, `nip85_addressable_stats`, `nip85_identifier_stats`, `pubkey_score`, `event_score`, `addressable_score`, `identifier_score`, `pubkey_stats`, `service_state`
+**Writes**: `service_state` (checkpoints), published Nostr events (kinds 30382-30385, optional kind 0)
+
+### How It Works
+
+1. On startup (`__aenter__`), build a Nostr client from the configured signing key and connect to relays
+2. During each `run()` cycle, query eligible user, event, addressable, and identifier facts joined with the current algorithm's public scores
+3. Hash each assertion payload and compare it against `service_state` using `<algorithm_id>:<kind>:<subject_id>` checkpoint keys
+4. Publish only changed assertions, optionally publish a Kind 0 provider profile and a Kind 10040 trusted-provider list, then persist the new hashes
+5. Remove stale or non-canonical checkpoints after the cycle, keeping only current canonical state for the active algorithm namespace
+
+### Configuration
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `algorithm_id` | string | `global-pagerank` | Stable namespace for checkpoint keys and provider identity |
+| `keys.keys_env` | string | `NOSTR_PRIVATE_KEY_ASSERTOR` | Environment variable that supplies the signing key |
+| `publishing.relays` | list[string] | 3 public relays | Relays used for NIP-85 publishing |
+| `selection.kinds` | list[int] | `[30382, 30383, 30384, 30385]` | Assertion kinds to publish |
+| `selection.batch_size` | int | `500` | Maximum eligible subjects per cycle |
+| `selection.min_events` | int | `1` | Minimum total events required for user assertions |
+| `selection.top_topics` | int | `5` | Maximum topic tags included in user assertions |
+| `cleanup.remove_stale_checkpoints` | bool | `true` | Remove stale or non-canonical checkpoints after each cycle |
+| `provider_profile.enabled` | bool | `false` | Publish a Kind 0 provider profile for the assertor identity |
+| `trusted_provider_list.enabled` | bool | `false` | Publish a Kind 10040 trusted-provider list for the assertor identity |
+| `trusted_provider_list.relay_hint` | string/null | first publishing relay | Canonical relay hint advertised in Kind 10040 declarations |
+| `trusted_provider_list.tag_names` | list[string] | `["rank"]` | Assertion tag names declared for each enabled assertion kind |
+| `trusted_provider_list.content` | string | `""` | Optional Kind 10040 event content |
+
+!!! note "Assertor Key Lifecycle"
+    The shipped BigBrotr and LilBrotr deployments configure the Assertor with
+    `keys.keys_env: NOSTR_PRIVATE_KEY_ASSERTOR`. If that variable is blank or
+    unset, the config generates one ephemeral key once at startup. To keep a
+    stable NIP-85 identity across restarts, set the variable explicitly. Per
+    NIP-85, use a distinct service key for each distinct algorithm or
+    personalized point of view.
+
+!!! note "Trusted Provider Declarations"
+    When `trusted_provider_list.enabled` is true, Assertor publishes a Kind
+    `10040` event that declares the configured service key as a provider for
+    each enabled assertion kind and each configured tag name. The event uses
+    the configured `relay_hint` when present, otherwise the first publishing
+    relay.
+
+!!! tip "API Reference"
+    See [`bigbrotr.services.assertor`](../reference/services/assertor/index.md) for the complete Assertor API.
+
+---
+
+## API
+
+**Purpose**: Expose BigBrotr public readable resources as a read-only HTTP API via FastAPI.
 
 **Mode**: Continuous (HTTP server runs alongside the `run_forever` cycle)
 
-**Reads**: All tables, views, and materialized views (via Catalog)
+**Reads**: Enabled public readable resources resolved through `ReadCore` over catalog-backed relations
 **Writes**: -- (read-only; emits Prometheus metrics)
 
 ### How It Works
 
-1. On startup (`__aenter__`), discover the database schema via the shared Catalog
-2. Build a FastAPI application with auto-generated routes for each enabled table
-3. Register list endpoints (`GET /api/v1/{table}`) with pagination (`limit`, `offset`, `sort`, filters)
-4. Register detail endpoints (`GET /api/v1/{table}/{pk}`) for tables with a primary key
+1. On startup (`__aenter__`), discover the backing catalog and initialize the shared `ReadCore`
+2. Build a FastAPI application with discovery endpoints for enabled public readable resources
+3. Register list endpoints (`GET /api/v1/{read_model}`) with the stable transport query params:
+   `limit`, `sort`, column filters, optional `cursor`, optional `include_total`,
+   and `offset` only as a compatibility fallback
+4. Register detail endpoints (`GET /api/v1/{read_model}/{pk}`) for resources with a primary key
 5. Start uvicorn as a background asyncio task
 6. Each `run()` cycle logs request statistics (total, failed) and updates Prometheus gauges
 
-Endpoints also include `/health` (readiness check) and `/api/v1/schema` (schema introspection).
+Endpoints also include `/health` (readiness check), `GET /api/v1/read-models`, and
+`GET /api/v1/read-models/{read_model}` for public surface discovery.
+
+The discovery surface exposes canonical, product-level read-model IDs such as
+`relays`, `relay-stats`, and `relay-document-current`. Legacy table-shaped aliases
+remain accepted for compatibility, but discovery and deployment configs should prefer
+the canonical IDs.
+
+`GET /api/v1/read-models/{read_model}` describes the public contract in read-model
+terms: `fields`, `identity_fields`, and pagination capabilities, rather than exposing
+raw catalog internals as the primary vocabulary.
+
+For resources with a primary key, list responses default to cursor pagination:
+
+- the request can pass `cursor=<opaque-token>` for the next page
+- the response `meta` can include `next_cursor`
+- `include_total=true` opt-in enables the extra `COUNT(*)` query only when needed
+
+For resources without a stable primary key, the API falls back to offset pagination.
 
 ### Configuration
 
@@ -394,34 +558,49 @@ Endpoints also include `/health` (readiness check) and `/api/v1/schema` (schema 
 | `port` | int | `8080` | HTTP listen port |
 | `max_page_size` | int | `1000` | Hard ceiling on the `limit` query parameter |
 | `default_page_size` | int | `100` | Default `limit` when not specified |
-| `tables` | dict | `{}` | Per-table access policies (`enabled`, `price`) |
+| `read_models` | dict | `{}` | Protocol exposure policy keyed by public readable-resource ID (`enabled`) |
 | `cors_origins` | list | `[]` | Allowed CORS origins (empty disables CORS) |
 | `request_timeout` | float | `30.0` | Timeout in seconds for each database query |
 
 !!! tip "API Reference"
-    See [`bigbrotr.services.api`](../reference/services/api/index.md) for the complete Api service API.
+    See [`bigbrotr.services.api`](../reference/services/api/index.md) for the complete API adapter reference.
 
 ---
 
-## Dvm
+## DVM
 
-**Purpose**: Serve database queries over the Nostr protocol as a NIP-90 Data Vending Machine.
+**Purpose**: Serve public BigBrotr readable-resource queries over the Nostr protocol as a NIP-90 Data Vending Machine.
 
 **Mode**: Continuous (`run_forever`, default interval 60 seconds)
 
-**Reads**: All tables, views, and materialized views (via Catalog)
+**Reads**: Enabled public readable resources resolved through `ReadCore` over catalog-backed relations
 **Writes**: -- (publishes Nostr events: kind 6050 results, kind 7000 feedback)
 
 ### How It Works
 
-1. On startup (`__aenter__`), connect to configured relays and discover the database schema
-2. Optionally publish a NIP-89 handler announcement (kind 31990) advertising available tables
-3. Each `run()` cycle fetches new kind 5050 job request events using a `since` timestamp filter
-4. Parse job parameters from event tags: `table`, `limit`, `offset`, `sort`, `filter`, `columns`
-5. Execute the query via the shared Catalog (same engine as the Api service)
-6. Publish the result as a kind 6050 event, or publish error/payment-required feedback (kind 7000)
+1. On startup (`__aenter__`), connect to configured relays and initialize the shared read core
+2. Optionally publish a NIP-89 handler announcement (kind 31990) advertising available readable resources
+3. Restore a persisted `(timestamp, event_id)` request cursor and open a long-lived kind 5050 subscription on the connected relays
+4. Each `run()` cycle drains buffered subscription notifications in cursor order
+5. Parse job parameters from event tags: `read_model`, `limit`, `sort`, `filter`,
+   optional `cursor`, optional `include_total`, and `offset` only as a compatibility fallback
+6. Execute the query via the shared `ReadCore` (the same shared read engine used by the API service)
+7. Publish the result as a kind 6050 event, or publish error/payment-required feedback (kind 7000)
 
-The Dvm supports per-table pricing via `TableConfig.price`. When a job's bid is below the required price, a payment-required feedback event is published instead of the query result.
+The DVM supports protocol-specific pricing via `ReadModelPolicy.price`. When a
+job's bid is below the configured price for the requested public readable resource, a
+payment-required feedback event is published instead of the query result.
+
+As with the HTTP API, DVM announcements and deployment config should use the canonical
+readable-resource IDs (`relays`, `relay-stats`, `relay-document-current`, ...). Legacy
+table-shaped aliases are still accepted on inbound jobs for compatibility.
+
+When the target resource has a primary key, DVM list jobs default to the same
+cursor-based contract as the API:
+
+- pass `cursor=<opaque-token>` in a `param` tag to continue a prior page
+- inspect `meta.next_cursor` in the result event content
+- request `include_total=true` only when the full filtered count is actually needed
 
 ### Configuration
 
@@ -430,15 +609,17 @@ The Dvm supports per-table pricing via `TableConfig.price`. When a job's bid is 
 | `relays` | list[string] | -- (required) | Relay URLs to listen on and publish to |
 | `kind` | int | `5050` | NIP-90 request event kind (result = kind + 1000) |
 | `max_page_size` | int | `1000` | Hard ceiling on query limit |
-| `tables` | dict | `{}` | Per-table policies: `enabled` (bool), `price` (int, millisats) |
+| `read_models` | dict | `{}` | Protocol exposure policy: `enabled` (bool), `price` (int, millisats) |
 | `announce` | bool | `true` | Publish NIP-89 handler announcement at startup |
-| `fetch_timeout` | float | `30.0` | Timeout for relay event fetching |
+| `fetch_timeout` | float | `30.0` | Timeout for relay subscription setup and initial request replay |
 
 !!! note "Nostr Keys"
-    The Dvm requires a `NOSTR_PRIVATE_KEY` environment variable (secp256k1 hex). See [KeysConfig](../reference/utils/keys.md) for details.
+    The DVM uses `NOSTR_PRIVATE_KEY_DVM` (secp256k1 hex or `nsec1...`). If the
+    variable is blank or unset, the config generates one ephemeral key once at
+    startup. See [NostrKeysConfig](../reference/services/common/configs.md) for details.
 
 !!! tip "API Reference"
-    See [`bigbrotr.services.dvm`](../reference/services/dvm/index.md) for the complete Dvm service API.
+    See [`bigbrotr.services.dvm`](../reference/services/dvm/index.md) for the complete DVM adapter reference.
 
 ---
 
@@ -500,9 +681,11 @@ For complete configuration details including all fields, defaults, constraints, 
 | Validator | `processing.chunk_size`, `cleanup.max_failures` | Throughput vs resource usage |
 | Monitor | `processing.compute.*`, `discovery.enabled` | Which checks to run and publish |
 | Synchronizer | `filters`, `limit`, `timeouts.max_duration` | Archival throughput and scope |
-| Refresher | `views`, `interval` | Which views to refresh and how often |
-| Api | `tables`, `max_page_size`, `cors_origins` | Which tables to expose and pagination limits |
-| Dvm | `relays`, `tables`, `kind` | Which relays to listen on and tables to serve |
+| Refresher | `current.targets`, `analytics.targets`, `periodic.*`, `interval` | Which shared derivations run incrementally or periodically and how often |
+| Ranker | `algorithm_id`, `graph.*`, `export.batch_size` | PageRank namespace, graph behavior, and snapshot export throughput |
+| Assertor | `algorithm_id`, `selection.kinds`, `provider_profile.enabled`, `trusted_provider_list.enabled` | Assertion namespace, publish scope, and provider package identity |
+| API | `read_models`, `max_page_size`, `cors_origins` | Adapter-local exposure policy and pagination limits |
+| DVM | `relays`, `read_models`, `kind` | Relay set plus adapter-local exposure policy and pricing |
 
 ---
 

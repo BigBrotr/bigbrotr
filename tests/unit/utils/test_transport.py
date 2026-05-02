@@ -1,13 +1,16 @@
 """
-Unit tests for utils.transport module.
+Unit tests for the ``bigbrotr.utils.transport`` module.
 
 Tests:
 - DEFAULT_TIMEOUT constant
 - _NostrSdkStderrFilter - Stderr suppression for UniFFI tracebacks
+- suppress_nostr_sdk_stderr() - Narrow stderr suppression context
 - InsecureWebSocketAdapter - WebSocket adapter for insecure connections
 - InsecureWebSocketTransport - Custom transport with SSL disabled
 """
 
+import sys
+from io import UnsupportedOperation
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -17,6 +20,9 @@ from bigbrotr.utils.transport import (
     InsecureWebSocketAdapter,
     InsecureWebSocketTransport,
     _NostrSdkStderrFilter,
+    _ScopedStderrSuppressor,
+    install_nostr_sdk_stderr_filter,
+    suppress_nostr_sdk_stderr,
 )
 
 
@@ -132,9 +138,181 @@ class TestNostrSdkStderrFilterGetattr:
         assert f.fileno() == 2
 
 
+class TestInstallNostrSdkStderrFilter:
+    def test_wraps_stderr_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        original = MagicMock()
+        monkeypatch.setattr("bigbrotr.utils.transport.sys.stderr", original)
+
+        install_nostr_sdk_stderr_filter()
+        first = sys.stderr
+        install_nostr_sdk_stderr_filter()
+        second = sys.stderr
+
+        assert isinstance(first, _NostrSdkStderrFilter)
+        assert first is second
+        assert first._original is original
+
+
+class TestScopedStderrSuppressor:
+    def test_single_context_restores_stderr(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        suppressor = _ScopedStderrSuppressor()
+        original = MagicMock()
+        original.fileno.return_value = 2
+        devnull = MagicMock()
+        devnull.fileno.return_value = 99
+        monkeypatch.setattr("bigbrotr.utils.transport.sys.stderr", original)
+
+        with (
+            patch("bigbrotr.utils.transport.open", return_value=devnull, create=True),
+            patch("bigbrotr.utils.transport.os.dup", return_value=55) as mock_dup,
+            patch("bigbrotr.utils.transport.os.dup2") as mock_dup2,
+            patch("bigbrotr.utils.transport.os.close") as mock_close,
+            suppressor(),
+        ):
+            assert sys.stderr is devnull
+
+        assert sys.stderr is original
+        mock_dup.assert_called_once_with(2)
+        assert mock_dup2.call_args_list == [((99, 2),), ((55, 2),)]
+        mock_close.assert_called_once_with(55)
+        devnull.close.assert_called_once()
+
+    def test_nested_contexts_restore_on_last_exit(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        suppressor = _ScopedStderrSuppressor()
+        original = MagicMock()
+        original.fileno.return_value = 2
+        devnull = MagicMock()
+        devnull.fileno.return_value = 99
+        monkeypatch.setattr("bigbrotr.utils.transport.sys.stderr", original)
+
+        with (
+            patch("bigbrotr.utils.transport.open", return_value=devnull, create=True),
+            patch("bigbrotr.utils.transport.os.dup", return_value=55) as mock_dup,
+            patch("bigbrotr.utils.transport.os.dup2") as mock_dup2,
+            patch("bigbrotr.utils.transport.os.close") as mock_close,
+            suppressor(),
+        ):
+            with suppressor():
+                assert suppressor._refcount == 2
+            assert sys.stderr is devnull
+        assert sys.stderr is original
+        assert suppressor._refcount == 0
+        mock_dup.assert_called_once_with(2)
+        assert mock_dup2.call_args_list == [((99, 2),), ((55, 2),)]
+        mock_close.assert_called_once_with(55)
+        devnull.close.assert_called_once()
+
+    def test_refcount_starts_at_zero(self) -> None:
+        suppressor = _ScopedStderrSuppressor()
+        assert suppressor._refcount == 0
+
+    def test_setup_failure_preserves_dup2_error_and_resets_state(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        suppressor = _ScopedStderrSuppressor()
+        original = MagicMock()
+        original.fileno.return_value = 2
+        devnull = MagicMock()
+        devnull.fileno.return_value = 99
+        monkeypatch.setattr("bigbrotr.utils.transport.sys.stderr", original)
+
+        with (
+            patch("bigbrotr.utils.transport.open", return_value=devnull, create=True),
+            patch("bigbrotr.utils.transport.os.dup", return_value=55),
+            patch("bigbrotr.utils.transport.os.dup2", side_effect=OSError("dup2 boom")),
+            patch(
+                "bigbrotr.utils.transport.os.close", side_effect=OSError("close noise")
+            ) as mock_close,
+            pytest.raises(OSError, match="dup2 boom"),
+            suppressor(),
+        ):
+            pass
+
+        assert sys.stderr is original
+        assert suppressor._refcount == 0
+        assert suppressor._saved_stderr is None
+        assert suppressor._saved_fd is None
+        assert suppressor._devnull is None
+        mock_close.assert_called_once_with(55)
+        devnull.close.assert_called_once()
+
+    def test_setup_failure_closes_devnull_when_stderr_has_no_fileno(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        suppressor = _ScopedStderrSuppressor()
+        original = MagicMock()
+        original.fileno.side_effect = UnsupportedOperation("no fileno")
+        devnull = MagicMock()
+        monkeypatch.setattr("bigbrotr.utils.transport.sys.stderr", original)
+
+        with (
+            patch("bigbrotr.utils.transport.open", return_value=devnull, create=True),
+            pytest.raises(UnsupportedOperation, match="no fileno"),
+            suppressor(),
+        ):
+            pass
+
+        assert sys.stderr is original
+        assert suppressor._refcount == 0
+        assert suppressor._saved_stderr is None
+        assert suppressor._saved_fd is None
+        assert suppressor._devnull is None
+        devnull.close.assert_called_once()
+
+
+class TestSuppressNostrSdkStderr:
+    def test_context_restores_filtered_stderr(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        original = MagicMock()
+        original.fileno.return_value = 2
+        devnull = MagicMock()
+        devnull.fileno.return_value = 99
+        monkeypatch.setattr("bigbrotr.utils.transport.sys.stderr", original)
+
+        with (
+            patch("bigbrotr.utils.transport.open", return_value=devnull, create=True),
+            patch("bigbrotr.utils.transport.os.dup", return_value=55) as mock_dup,
+            patch("bigbrotr.utils.transport.os.dup2") as mock_dup2,
+            patch("bigbrotr.utils.transport.os.close") as mock_close,
+            suppress_nostr_sdk_stderr(),
+        ):
+            assert sys.stderr is devnull
+
+        assert isinstance(sys.stderr, _NostrSdkStderrFilter)
+        assert sys.stderr._original is original
+        mock_dup.assert_called_once_with(2)
+        assert mock_dup2.call_args_list == [((99, 2),), ((55, 2),)]
+        mock_close.assert_called_once_with(55)
+        devnull.close.assert_called_once()
+
+
 # =============================================================================
 # InsecureWebSocketAdapter Tests
 # =============================================================================
+
+
+class TestInsecureWebSocketAdapterInit:
+    @pytest.mark.parametrize(
+        ("field_name", "kwargs"),
+        [
+            ("recv_timeout", {"recv_timeout": True}),
+            ("recv_timeout", {"recv_timeout": 0}),
+            ("recv_timeout", {"recv_timeout": -1.0}),
+            ("recv_timeout", {"recv_timeout": float("nan")}),
+            ("close_timeout", {"close_timeout": True}),
+            ("close_timeout", {"close_timeout": 0}),
+            ("close_timeout", {"close_timeout": -1.0}),
+            ("close_timeout", {"close_timeout": float("inf")}),
+        ],
+    )
+    def test_rejects_invalid_timeout_budgets(
+        self,
+        field_name: str,
+        kwargs: dict[str, object],
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name} must be a positive finite number"):
+            InsecureWebSocketAdapter(AsyncMock(), AsyncMock(), **kwargs)
 
 
 class TestInsecureWebSocketAdapterSend:
@@ -331,7 +509,7 @@ class TestInsecureWebSocketAdapterClose:
     async def test_close_handles_ws_exception(self) -> None:
         """Test handling exception during WebSocket close."""
         mock_ws = AsyncMock()
-        mock_ws.close = AsyncMock(side_effect=Exception("close failed"))
+        mock_ws.close = AsyncMock(side_effect=RuntimeError("close failed"))
         mock_session = AsyncMock()
         adapter = InsecureWebSocketAdapter(mock_ws, mock_session)
 
@@ -343,7 +521,7 @@ class TestInsecureWebSocketAdapterClose:
         """Test handling exception during session close."""
         mock_ws = AsyncMock()
         mock_session = AsyncMock()
-        mock_session.close = AsyncMock(side_effect=Exception("session close failed"))
+        mock_session.close = AsyncMock(side_effect=RuntimeError("session close failed"))
         adapter = InsecureWebSocketAdapter(mock_ws, mock_session)
 
         await adapter.close_connection()
@@ -352,6 +530,29 @@ class TestInsecureWebSocketAdapterClose:
 # =============================================================================
 # InsecureWebSocketTransport Tests
 # =============================================================================
+
+
+class TestInsecureWebSocketTransportInit:
+    @pytest.mark.parametrize(
+        ("field_name", "kwargs"),
+        [
+            ("recv_timeout", {"recv_timeout": True}),
+            ("recv_timeout", {"recv_timeout": 0}),
+            ("recv_timeout", {"recv_timeout": -1.0}),
+            ("recv_timeout", {"recv_timeout": float("nan")}),
+            ("close_timeout", {"close_timeout": True}),
+            ("close_timeout", {"close_timeout": 0}),
+            ("close_timeout", {"close_timeout": -1.0}),
+            ("close_timeout", {"close_timeout": float("inf")}),
+        ],
+    )
+    def test_rejects_invalid_timeout_budgets(
+        self,
+        field_name: str,
+        kwargs: dict[str, object],
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name} must be a positive finite number"):
+            InsecureWebSocketTransport(**kwargs)
 
 
 class TestInsecureWebSocketTransport:

@@ -1,13 +1,13 @@
-r"""BigBrotr -- Modular Nostr network observatory.
+r"""BigBrotr -- modular Nostr relay observatory and Python library.
 
-Eight independent async services discover relays, validate connectivity,
-perform NIP-11/NIP-66 health checks, archive events, refresh analytics views,
-and expose data via REST API and NIP-90 Data Vending Machine — across clearnet,
-Tor, I2P, and Lokinet. All services communicate exclusively through a shared
-PostgreSQL database.
+BigBrotr is organized as a library-first codebase plus a set of independent
+async services. Those services discover relays, validate connectivity, collect
+NIP-11 and NIP-66 relay documents, archive events, refresh shared facts,
+compute private ranking state, and expose public data through HTTP and
+NIP-90.
 
-Architecture follows a **diamond DAG** dependency structure where imports
-flow strictly downward:
+The runtime architecture follows a **diamond DAG** dependency structure where
+imports flow strictly downward:
 
 ```text
               services         Business logic and orchestration
@@ -17,46 +17,90 @@ flow strictly downward:
               models           Pure frozen dataclasses (zero I/O)
 ```
 
-Attributes:
-    models: Pure frozen dataclasses. Zero I/O, depends only on stdlib.
-    core: Connection pool, database facade, base service, exceptions,
-        logging, metrics.
-    nips: NIP-11 relay information, NIP-66 relay monitoring. Has I/O.
-    utils: DNS resolution, Nostr key management, WebSocket/HTTP transport.
-    services: Business logic. Eight independent services.
+Public packages:
+    models: Pure frozen dataclasses and enums for the shared storage model.
+        Zero I/O, depends only on the standard library.
+    core: Runtime infrastructure such as the PostgreSQL pool, shared database
+        facade, base-service lifecycle, logging, and metrics.
+    nips: Protocol-aware NIP helpers, static capability registry, and NIP data
+        builders/fetchers.
+    utils: Shared transport, DNS, key-management, and streaming helpers.
+    services: Independent service implementations and public adapter entry
+        points.
 
-Note:
-    For lightweight usage, import directly from subpackages::
+Library usage:
+    Import directly from subpackages when you want the clearest dependency
+    boundary::
 
         from bigbrotr.models import Relay
         from bigbrotr.core import Brotr
 
-    Top-level imports (``from bigbrotr import Relay``) use lazy loading
-    and resolve on first access.
+    Top-level imports such as ``from bigbrotr import Relay`` or
+    ``from bigbrotr import Api`` are also supported. They use lazy loading and
+    resolve on first access so library consumers can reach the common public
+    surface without importing every subpackage eagerly.
 """
 
 import importlib
+import tomllib
+from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _get_version
+from pathlib import Path
 
 
-__version__ = _get_version("bigbrotr")
+def _source_tree_version(pyproject_path: Path | None = None) -> str | None:
+    """Return the version declared in pyproject.toml when running from a source tree."""
+    if pyproject_path is None:
+        pyproject_path = Path(__file__).resolve().parents[2] / "pyproject.toml"
+
+    if not pyproject_path.is_file():
+        return None
+
+    try:
+        pyproject = tomllib.loads(pyproject_path.read_text())
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+
+    project = pyproject.get("project")
+    if not isinstance(project, dict):
+        return None
+
+    version = project.get("version")
+    return version if isinstance(version, str) and version else None
+
+
+def _resolve_version(pyproject_path: Path | None = None) -> str:
+    """Resolve the package version without depending solely on runtime metadata."""
+    source_version = _source_tree_version(pyproject_path)
+    if source_version is not None:
+        return source_version
+
+    try:
+        return _get_version("bigbrotr")
+    except PackageNotFoundError:
+        return "0+unknown"
+
+
+__version__ = _resolve_version()
 
 __all__ = [
     "Api",
     "ApiConfig",
+    "Assertor",
+    "AssertorConfig",
     "BaseService",
     "Brotr",
     "BrotrConfig",
     "ConfigT",
+    "Document",
+    "DocumentType",
     "Dvm",
     "DvmConfig",
     "Event",
-    "EventRelay",
+    "EventObservation",
     "Finder",
     "FinderConfig",
     "Logger",
-    "Metadata",
-    "MetadataType",
     "Monitor",
     "MonitorConfig",
     "NetworkType",
@@ -64,10 +108,12 @@ __all__ = [
     "Nip66",
     "Pool",
     "PoolConfig",
+    "Ranker",
+    "RankerConfig",
     "Refresher",
     "RefresherConfig",
     "Relay",
-    "RelayMetadata",
+    "RelayDocument",
     "Seeder",
     "SeederConfig",
     "Synchronizer",
@@ -85,22 +131,26 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "Pool": ("bigbrotr.core", "Pool"),
     "PoolConfig": ("bigbrotr.core", "PoolConfig"),
     "Event": ("bigbrotr.models", "Event"),
-    "EventRelay": ("bigbrotr.models", "EventRelay"),
-    "Metadata": ("bigbrotr.models", "Metadata"),
-    "MetadataType": ("bigbrotr.models", "MetadataType"),
+    "EventObservation": ("bigbrotr.models", "EventObservation"),
+    "Document": ("bigbrotr.models", "Document"),
+    "DocumentType": ("bigbrotr.models", "DocumentType"),
     "NetworkType": ("bigbrotr.models", "NetworkType"),
     "Relay": ("bigbrotr.models", "Relay"),
-    "RelayMetadata": ("bigbrotr.models", "RelayMetadata"),
+    "RelayDocument": ("bigbrotr.models", "RelayDocument"),
     "Nip11": ("bigbrotr.nips", "Nip11"),
     "Nip66": ("bigbrotr.nips", "Nip66"),
     "Api": ("bigbrotr.services", "Api"),
     "ApiConfig": ("bigbrotr.services", "ApiConfig"),
+    "Assertor": ("bigbrotr.services", "Assertor"),
+    "AssertorConfig": ("bigbrotr.services", "AssertorConfig"),
     "Dvm": ("bigbrotr.services", "Dvm"),
     "DvmConfig": ("bigbrotr.services", "DvmConfig"),
     "Finder": ("bigbrotr.services", "Finder"),
     "FinderConfig": ("bigbrotr.services", "FinderConfig"),
     "Monitor": ("bigbrotr.services", "Monitor"),
     "MonitorConfig": ("bigbrotr.services", "MonitorConfig"),
+    "Ranker": ("bigbrotr.services", "Ranker"),
+    "RankerConfig": ("bigbrotr.services", "RankerConfig"),
     "Refresher": ("bigbrotr.services", "Refresher"),
     "RefresherConfig": ("bigbrotr.services", "RefresherConfig"),
     "Seeder": ("bigbrotr.services", "Seeder"),

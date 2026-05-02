@@ -2,24 +2,82 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+import time
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import asyncpg
 import pytest
+from pydantic import ValidationError
 
-from bigbrotr.core.brotr import Brotr, BrotrConfig
-from bigbrotr.services.refresher import RefreshConfig, Refresher, RefresherConfig
-from bigbrotr.services.refresher.configs import DEFAULT_VIEWS
+from bigbrotr.core.brotr import Brotr
+from bigbrotr.core.brotr_config import BrotrConfig
+from bigbrotr.models.constants import ServiceName
+from bigbrotr.models.service_state import ServiceState, ServiceStateType
+from bigbrotr.services.common.state_store import ServiceStateStore
+from bigbrotr.services.refresher import (
+    AnalyticsRefreshConfig,
+    AnalyticsRefreshTarget,
+    CurrentRefreshConfig,
+    CurrentRefreshTarget,
+    PeriodicRefreshTarget,
+    RefreshCycleResult,
+    Refresher,
+    RefresherConfig,
+)
+from bigbrotr.services.refresher.configs import (
+    DEFAULT_ANALYTICS_TARGETS,
+    DEFAULT_CURRENT_TARGETS,
+    CleanupConfig,
+    PeriodicRefreshConfig,
+    ProcessingConfig,
+    validate_refresh_dependencies,
+)
+from bigbrotr.services.refresher.queries import (
+    WatermarkSource,
+    get_event_observation_watermark,
+    get_incremental_target_spec,
+    get_max_associated_at,
+    get_max_observed_at,
+    get_periodic_target_spec,
+    get_relay_document_watermark,
+    refresh_incremental_target,
+)
+from bigbrotr.services.refresher.service import RefreshCycleTotals, RefreshTargetResult
 
 
-# ============================================================================
-# Fixtures
-# ============================================================================
+def _periodic_config(enabled: bool = False) -> dict[str, bool]:
+    return {
+        "rolling_windows": enabled,
+        "relay_stats_document": enabled,
+        "nip85_followers": enabled,
+    }
+
+
+def _refresher_config(
+    *,
+    current: list[str] | None = None,
+    analytics: list[str] | None = None,
+    periodic: bool = False,
+    processing: dict[str, object] | None = None,
+) -> RefresherConfig:
+    return RefresherConfig.model_validate(
+        {
+            "metrics": {"enabled": False},
+            "current": {"targets": [] if current is None else current},
+            "analytics": {"targets": [] if analytics is None else analytics},
+            "periodic": _periodic_config(periodic),
+            "processing": processing or {},
+        }
+    )
 
 
 @pytest.fixture
 def mock_refresher_brotr(mock_brotr: Brotr) -> Brotr:
-    mock_brotr.refresh_materialized_view = AsyncMock()  # type: ignore[method-assign]
+    mock_brotr.get_service_state = AsyncMock(return_value=[])  # type: ignore[method-assign]
+    mock_brotr.upsert_service_state = AsyncMock(return_value=1)  # type: ignore[method-assign]
+    mock_brotr.delete_service_state = AsyncMock(return_value=0)  # type: ignore[method-assign]
+    mock_brotr.fetchval = AsyncMock(return_value=0)  # type: ignore[method-assign]
+    mock_brotr.execute = AsyncMock()  # type: ignore[method-assign]
 
     mock_config = MagicMock(spec=BrotrConfig)
     mock_config.timeouts = MagicMock()
@@ -29,109 +87,419 @@ def mock_refresher_brotr(mock_brotr: Brotr) -> Brotr:
     return mock_brotr
 
 
-# ============================================================================
-# Configs — RefreshConfig
-# ============================================================================
-
-
-class TestRefreshConfig:
-    def test_default_values(self) -> None:
-        config = RefreshConfig()
-
-        assert config.views == DEFAULT_VIEWS
-        assert len(config.views) == 13
-
-    def test_default_views_dependency_order(self) -> None:
-        config = RefreshConfig()
-        views = config.views
-
-        rml_idx = views.index("relay_metadata_latest")
-        rsc_idx = views.index("relay_software_counts")
-        snc_idx = views.index("supported_nip_counts")
-
-        assert rml_idx < rsc_idx
-        assert rml_idx < snc_idx
-
-    def test_custom_views(self) -> None:
-        config = RefreshConfig(views=["relay_metadata_latest", "event_stats"])
-
-        assert config.views == ["relay_metadata_latest", "event_stats"]
-        assert len(config.views) == 2
-
-    def test_empty_views_rejected(self) -> None:
-        with pytest.raises(ValueError, match="views list must not be empty"):
-            RefreshConfig(views=[])
-
-    @pytest.mark.parametrize(
-        "view_name",
-        [
-            "relay_stats",
-            "event_daily_counts",
-            "a",
-            "_private_view",
-            "view123",
-        ],
-    )
-    def test_valid_view_names_accepted(self, view_name: str) -> None:
-        config = RefreshConfig(views=[view_name])
-        assert config.views == [view_name]
-
-    @pytest.mark.parametrize(
-        "view_name",
-        [
-            "relay-stats",
-            "UPPERCASE",
-            "DROP TABLE",
-            "123starts_with_digit",
-            "has.dot",
-            "semi;colon",
-        ],
-    )
-    def test_invalid_view_names_rejected(self, view_name: str) -> None:
-        with pytest.raises(ValueError, match="invalid view names"):
-            RefreshConfig(views=[view_name])
-
-    def test_default_views_is_independent_copy(self) -> None:
-        config1 = RefreshConfig()
-        config2 = RefreshConfig()
-
-        assert config1.views is not config2.views
-        assert config1.views == config2.views
-
-
-# ============================================================================
-# Configs — RefresherConfig
-# ============================================================================
-
-
-class TestRefresherConfig:
+class TestRefreshTargetConfig:
     def test_default_values(self) -> None:
         config = RefresherConfig()
 
-        assert config.refresh.views == DEFAULT_VIEWS
-        assert config.interval == 86400.0
-        assert config.max_consecutive_failures == 5
+        assert config.current.targets == list(DEFAULT_CURRENT_TARGETS)
+        assert config.analytics.targets == list(DEFAULT_ANALYTICS_TARGETS)
+        assert config.periodic.enabled_targets() == list(PeriodicRefreshTarget)
+        assert config.processing.max_source_window == 86_400
+        assert config.processing.max_duration is None
+        assert config.processing.max_targets_per_cycle is None
+        assert config.processing.continue_on_target_error is True
+        assert config.cleanup.enabled is True
 
-    def test_custom_nested_config(self) -> None:
-        config = RefresherConfig(
-            refresh=RefreshConfig(views=["event_stats"]),
+    def test_default_lists_are_independent_copies(self) -> None:
+        config1 = RefresherConfig()
+        config2 = RefresherConfig()
+
+        assert config1.current.targets is not config2.current.targets
+        assert config1.analytics.targets is not config2.analytics.targets
+
+    @pytest.mark.parametrize(
+        ("payload", "field_name", "expected_type"),
+        [
+            ({"processing": {"max_source_window": True}}, "max_source_window", "integer"),
+            ({"processing": {"max_duration": True}}, "max_duration", "number"),
+            ({"processing": {"max_targets_per_cycle": True}}, "max_targets_per_cycle", "integer"),
+        ],
+    )
+    def test_rejects_boolean_processing_budget_aliases(
+        self,
+        payload: dict[str, object],
+        field_name: str,
+        expected_type: str,
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected {expected_type}, got bool"):
+            RefresherConfig.model_validate(payload)
+
+    def test_rejects_non_string_processing_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            ProcessingConfig.model_validate({b"max_source_window": 3600})
+
+    def test_processing_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            ProcessingConfig.model_validate({"sync_window": 3600})
+
+    def test_nested_processing_raw_field_keys_rejected(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            RefresherConfig.model_validate({"processing": {b"max_source_window": 3600}})
+
+    def test_nested_processing_unknown_field_names_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            RefresherConfig.model_validate({"processing": {"sync_window": 3600}})
+
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("max_source_window", "86400"),
+            ("max_source_window", 86400.0),
+            ("max_targets_per_cycle", "5"),
+            ("max_targets_per_cycle", 5.0),
+        ],
+    )
+    def test_rejects_non_integer_processing_budget_aliases(
+        self, field_name: str, value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected integer, got"):
+            ProcessingConfig(**{field_name: value})
+
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("max_source_window", "86400"),
+            ("max_targets_per_cycle", 5.0),
+        ],
+    )
+    def test_nested_processing_budget_aliases_rejected(
+        self, field_name: str, value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected integer, got"):
+            RefresherConfig.model_validate({"processing": {field_name: value}})
+
+    @pytest.mark.parametrize("value", ["3600", "120.5"])
+    def test_rejects_non_numeric_duration_budget_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"max_duration: expected number, got"):
+            ProcessingConfig(max_duration=value)
+
+    @pytest.mark.parametrize("value", ["3600", "120.5"])
+    def test_nested_duration_budget_aliases_rejected(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"max_duration: expected number, got"):
+            RefresherConfig.model_validate({"processing": {"max_duration": value}})
+
+    @pytest.mark.parametrize("value", ["true", 1, 0])
+    def test_rejects_non_boolean_continue_on_target_error_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"continue_on_target_error: expected bool, got"):
+            ProcessingConfig(continue_on_target_error=value)
+
+    @pytest.mark.parametrize("value", ["false", 1, 0])
+    def test_nested_continue_on_target_error_aliases_rejected(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"continue_on_target_error: expected bool, got"):
+            RefresherConfig.model_validate({"processing": {"continue_on_target_error": value}})
+
+    @pytest.mark.parametrize("value", ["false", 1, 0])
+    def test_rejects_non_boolean_cleanup_enabled_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"enabled: expected bool, got"):
+            CleanupConfig(enabled=value)
+
+    @pytest.mark.parametrize("value", ["false", 1, 0])
+    def test_nested_cleanup_enabled_aliases_rejected(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"enabled: expected bool, got"):
+            RefresherConfig.model_validate({"cleanup": {"enabled": value}})
+
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("rolling_windows", "false"),
+            ("relay_stats_document", 1),
+            ("nip85_followers", 0),
+        ],
+    )
+    def test_rejects_non_boolean_periodic_toggle_aliases(
+        self, field_name: str, value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected bool, got"):
+            PeriodicRefreshConfig(**{field_name: value})
+
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("rolling_windows", "false"),
+            ("relay_stats_document", 1),
+            ("nip85_followers", 0),
+        ],
+    )
+    def test_nested_periodic_toggle_aliases_rejected(self, field_name: str, value: object) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected bool, got"):
+            RefresherConfig.model_validate({"periodic": {field_name: value}})
+
+    def test_rejects_boolean_service_interval_alias(self) -> None:
+        with pytest.raises(ValueError, match=r"interval: expected number, got bool"):
+            RefresherConfig(interval=True)
+
+    @pytest.mark.parametrize("value", ["86400", "120.5"])
+    def test_root_service_interval_aliases_rejected(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"interval: expected number, got"):
+            RefresherConfig.model_validate({"interval": value})
+
+    def test_rejects_non_string_refresher_root_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            RefresherConfig.model_validate({b"processing": {"max_source_window": 3600}})
+
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            RefresherConfig.model_validate({"processing_window": {"max_source_window": 3600}})
+
+    def test_empty_targets_are_allowed(self) -> None:
+        config = _refresher_config()
+
+        assert config.current.targets == []
+        assert config.analytics.targets == []
+        assert config.periodic.enabled_targets() == []
+
+    def test_targets_are_typed_and_canonically_ordered(self) -> None:
+        config = RefresherConfig.model_validate(
+            {
+                "current": {
+                    "targets": [
+                        "replaceable_event_current",
+                    ],
+                },
+                "analytics": {
+                    "targets": [
+                        "contact_list_edges_current",
+                        "relay_stats",
+                        "contact_lists_current",
+                        "pubkey_relay_stats",
+                        "pubkey_kind_stats",
+                        "relay_kind_stats",
+                        "daily_counts",
+                        "pubkey_stats",
+                    ],
+                },
+            }
         )
 
-        assert config.refresh.views == ["event_stats"]
+        assert config.current.targets == [
+            CurrentRefreshTarget.REPLACEABLE_EVENT_CURRENT,
+        ]
+        assert config.analytics.targets == [
+            AnalyticsRefreshTarget.DAILY_COUNTS,
+            AnalyticsRefreshTarget.PUBKEY_KIND_STATS,
+            AnalyticsRefreshTarget.PUBKEY_RELAY_STATS,
+            AnalyticsRefreshTarget.RELAY_KIND_STATS,
+            AnalyticsRefreshTarget.PUBKEY_STATS,
+            AnalyticsRefreshTarget.RELAY_STATS,
+            AnalyticsRefreshTarget.CONTACT_LISTS_CURRENT,
+            AnalyticsRefreshTarget.CONTACT_LIST_EDGES_CURRENT,
+        ]
 
-    def test_from_dict_nested(self) -> None:
-        data = {
-            "refresh": {"views": ["event_stats", "relay_stats"]},
-            "interval": 1800.0,
-        }
-        config = RefresherConfig(**data)
-        assert config.refresh.views == ["event_stats", "relay_stats"]
-        assert config.interval == 1800.0
+    def test_unknown_targets_are_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            CurrentRefreshConfig(targets=["unknown_target"])  # type: ignore[list-item]
+
+        with pytest.raises(ValidationError):
+            AnalyticsRefreshConfig(targets=["unknown_target"])  # type: ignore[list-item]
+
+    def test_duplicate_targets_are_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="duplicate refresher targets"):
+            CurrentRefreshConfig(
+                targets=[
+                    CurrentRefreshTarget.REPLACEABLE_EVENT_CURRENT,
+                    CurrentRefreshTarget.REPLACEABLE_EVENT_CURRENT,
+                ],
+            )
+
+    def test_dependency_validation_accepts_complete_selection(self) -> None:
+        validate_refresh_dependencies(
+            current_targets=[
+                CurrentRefreshTarget.RELAY_DOCUMENT_CURRENT,
+                CurrentRefreshTarget.REPLACEABLE_EVENT_CURRENT,
+            ],
+            analytics_targets=[
+                AnalyticsRefreshTarget.RELAY_SOFTWARE_COUNTS,
+                AnalyticsRefreshTarget.CONTACT_LISTS_CURRENT,
+            ],
+        )
+
+    def test_dependency_validation_rejects_missing_upstream(self) -> None:
+        with pytest.raises(ValueError, match="contact_list_edges_current requires"):
+            validate_refresh_dependencies(
+                current_targets=[],
+                analytics_targets=[AnalyticsRefreshTarget.CONTACT_LIST_EDGES_CURRENT],
+            )
+
+    def test_config_validation_rejects_missing_analytics_dependency(self) -> None:
+        with pytest.raises(ValidationError, match="supported_nip_counts requires"):
+            _refresher_config(analytics=["supported_nip_counts"])
 
 
-# ============================================================================
-# Service — Init
-# ============================================================================
+class TestRefreshQueryRegistry:
+    def test_incremental_registry_covers_all_targets(self) -> None:
+        for target in (*DEFAULT_CURRENT_TARGETS, *DEFAULT_ANALYTICS_TARGETS):
+            spec = get_incremental_target_spec(target)
+
+            assert spec.target is target
+            assert spec.sql_function == f"{target.value}_refresh"
+            assert spec.metric_key == target.value
+
+    @pytest.mark.parametrize(
+        "target",
+        [
+            CurrentRefreshTarget.RELAY_DOCUMENT_CURRENT,
+            AnalyticsRefreshTarget.RELAY_SOFTWARE_COUNTS,
+            AnalyticsRefreshTarget.SUPPORTED_NIP_COUNTS,
+        ],
+    )
+    def test_document_targets_use_relay_document_watermark(
+        self, target: CurrentRefreshTarget | AnalyticsRefreshTarget
+    ) -> None:
+        assert (
+            get_incremental_target_spec(target).watermark_source is WatermarkSource.RELAY_DOCUMENT
+        )
+
+    def test_event_targets_use_event_observation_watermark(self) -> None:
+        assert (
+            get_incremental_target_spec(
+                CurrentRefreshTarget.REPLACEABLE_EVENT_CURRENT
+            ).watermark_source
+            is WatermarkSource.EVENT_OBSERVATION
+        )
+
+    def test_periodic_registry_maps_sql_functions(self) -> None:
+        assert get_periodic_target_spec(PeriodicRefreshTarget.ROLLING_WINDOWS).sql_function == (
+            "rolling_windows_refresh"
+        )
+        assert get_periodic_target_spec(
+            PeriodicRefreshTarget.RELAY_STATS_DOCUMENT
+        ).sql_function == ("relay_stats_document_refresh")
+        assert get_periodic_target_spec(PeriodicRefreshTarget.NIP85_FOLLOWERS).sql_function == (
+            "nip85_follower_count_refresh"
+        )
+
+    async def test_watermark_queries_return_database_values(self) -> None:
+        brotr = MagicMock(spec=Brotr)
+        brotr.fetchval = AsyncMock(side_effect=[123, 456])
+
+        assert await get_event_observation_watermark(brotr) == 123
+        assert await get_relay_document_watermark(brotr) == 456
+
+    @pytest.mark.parametrize(
+        ("value", "expected_exception"),
+        [
+            (True, TypeError),
+            (-1, ValueError),
+        ],
+    )
+    async def test_watermark_queries_reject_invalid_scalar_results(
+        self,
+        value: object,
+        expected_exception: type[Exception],
+    ) -> None:
+        brotr = MagicMock(spec=Brotr)
+        brotr.fetchval = AsyncMock(return_value=value)
+
+        with pytest.raises(expected_exception):
+            await get_event_observation_watermark(brotr)
+
+        with pytest.raises(expected_exception):
+            await get_relay_document_watermark(brotr)
+
+    async def test_incremental_watermarks_hold_checkpoint_without_new_rows(self) -> None:
+        brotr = MagicMock(spec=Brotr)
+        brotr.fetchrow = AsyncMock(
+            side_effect=[
+                {"min_observed_at": None, "max_observed_at": None},
+                {"min_associated_at": None, "max_associated_at": None},
+            ]
+        )
+
+        assert await get_max_observed_at(brotr, 100) == 100
+        assert await get_max_associated_at(brotr, 200) == 200
+
+    async def test_incremental_watermarks_advance_to_source_max_when_rows_exist(self) -> None:
+        brotr = MagicMock(spec=Brotr)
+        brotr.fetchrow = AsyncMock(
+            side_effect=[
+                {"min_observed_at": 125, "max_observed_at": 150},
+                {"min_associated_at": 225, "max_associated_at": 250},
+            ]
+        )
+
+        assert await get_max_observed_at(brotr, 100) == 150
+        assert await get_max_associated_at(brotr, 200) == 250
+
+    async def test_incremental_watermarks_respect_bounded_source_window(self) -> None:
+        brotr = MagicMock(spec=Brotr)
+        brotr.fetchrow = AsyncMock(
+            side_effect=[
+                {"min_observed_at": 100, "max_observed_at": 250},
+                {"min_associated_at": 200, "max_associated_at": 400},
+            ]
+        )
+
+        assert await get_max_observed_at(brotr, 0, 25) == 125
+        assert await get_max_associated_at(brotr, 0, 50) == 250
+
+    @pytest.mark.parametrize(
+        ("row", "expected_exception"),
+        [
+            (
+                {
+                    "min_observed_at": True,
+                    "max_observed_at": 10,
+                    "min_associated_at": True,
+                    "max_associated_at": 10,
+                },
+                TypeError,
+            ),
+            (
+                {
+                    "min_observed_at": 20,
+                    "max_observed_at": 10,
+                    "min_associated_at": 20,
+                    "max_associated_at": 10,
+                },
+                ValueError,
+            ),
+            (
+                {
+                    "min_observed_at": -1,
+                    "max_observed_at": 10,
+                    "min_associated_at": -1,
+                    "max_associated_at": 10,
+                },
+                ValueError,
+            ),
+        ],
+    )
+    async def test_incremental_watermarks_reject_invalid_source_bounds(
+        self,
+        row: dict[str, object],
+        expected_exception: type[Exception],
+    ) -> None:
+        brotr = MagicMock(spec=Brotr)
+        brotr.fetchrow = AsyncMock(side_effect=[row, row])
+
+        with pytest.raises(expected_exception):
+            await get_max_observed_at(brotr, 0)
+
+        with pytest.raises(expected_exception):
+            await get_max_associated_at(brotr, 0)
+
+    @pytest.mark.parametrize(
+        ("value", "expected_exception"),
+        [
+            (True, TypeError),
+            (-1, ValueError),
+        ],
+    )
+    async def test_refresh_incremental_target_rejects_invalid_function_result(
+        self,
+        value: object,
+        expected_exception: type[Exception],
+    ) -> None:
+        brotr = MagicMock(spec=Brotr)
+        brotr.fetchval = AsyncMock(return_value=value)
+
+        with pytest.raises(expected_exception):
+            await refresh_incremental_target(
+                brotr,
+                CurrentRefreshTarget.REPLACEABLE_EVENT_CURRENT,
+                after=0,
+                until=10,
+            )
 
 
 class TestRefresherInit:
@@ -140,217 +508,688 @@ class TestRefresherInit:
 
         assert refresher._brotr is mock_refresher_brotr
         assert refresher.SERVICE_NAME == "refresher"
-        assert refresher.config.refresh.views == DEFAULT_VIEWS
+        assert refresher.config.current.targets == list(DEFAULT_CURRENT_TARGETS)
+        assert refresher.config.analytics.targets == list(DEFAULT_ANALYTICS_TARGETS)
         assert refresher._logger is not None
 
-    def test_init_with_custom_config(self, mock_refresher_brotr: Brotr) -> None:
-        config = RefresherConfig(
-            refresh=RefreshConfig(views=["event_stats"]),
-        )
-        refresher = Refresher(brotr=mock_refresher_brotr, config=config)
+    def test_state_store_is_initialized_once(self, mock_refresher_brotr: Brotr) -> None:
+        refresher = Refresher(brotr=mock_refresher_brotr)
 
-        assert refresher.config.refresh.views == ["event_stats"]
-
-    def test_from_dict(self, mock_refresher_brotr: Brotr) -> None:
-        data = {
-            "refresh": {"views": ["relay_metadata_latest", "event_stats"]},
-        }
-        refresher = Refresher.from_dict(data, brotr=mock_refresher_brotr)
-
-        assert refresher.config.refresh.views == ["relay_metadata_latest", "event_stats"]
+        assert isinstance(refresher._state_store, ServiceStateStore)
+        assert refresher._state_store._brotr is mock_refresher_brotr
 
     def test_config_class_attribute(self) -> None:
         assert Refresher.CONFIG_CLASS is RefresherConfig
 
 
-# ============================================================================
-# Service — cleanup
-# ============================================================================
-
-
 class TestRefresherCleanup:
-    async def test_cleanup_returns_zero(self, mock_refresher_brotr: Brotr) -> None:
-        refresher = Refresher(brotr=mock_refresher_brotr)
+    async def test_cleanup_no_stale(self, mock_refresher_brotr: Brotr) -> None:
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=_refresher_config(current=["replaceable_event_current"]),
+        )
 
         result = await refresher.cleanup()
 
         assert result == 0
 
+    async def test_cleanup_can_be_disabled(self, mock_refresher_brotr: Brotr) -> None:
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=RefresherConfig.model_validate(
+                {
+                    "metrics": {"enabled": False},
+                    "current": {"targets": ["replaceable_event_current"]},
+                    "analytics": {"targets": []},
+                    "periodic": _periodic_config(False),
+                    "cleanup": {"enabled": False},
+                }
+            ),
+        )
 
-# ============================================================================
-# Service — run
-# ============================================================================
+        result = await refresher.cleanup()
+
+        assert result == 0
+        mock_refresher_brotr.get_service_state.assert_not_awaited()
+
+    async def test_cleanup_removes_stale_checkpoints(self, mock_refresher_brotr: Brotr) -> None:
+        stale = ServiceState(
+            owner=ServiceName.REFRESHER,
+            state_type=ServiceStateType.CHECKPOINT,
+            state_key="old_removed_table",
+            state_value={"timestamp": 100},
+        )
+        current = ServiceState(
+            owner=ServiceName.REFRESHER,
+            state_type=ServiceStateType.CHECKPOINT,
+            state_key="pubkey_kind_stats",
+            state_value={"timestamp": 200},
+        )
+        mock_refresher_brotr.get_service_state = AsyncMock(  # type: ignore[method-assign]
+            return_value=[stale, current]
+        )
+        mock_refresher_brotr.delete_service_state = AsyncMock(return_value=1)  # type: ignore[method-assign]
+
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=_refresher_config(analytics=["pubkey_kind_stats"]),
+        )
+
+        result = await refresher.cleanup()
+
+        assert result == 1
+        mock_refresher_brotr.delete_service_state.assert_called_once()
+        call_args = mock_refresher_brotr.delete_service_state.call_args.args
+        assert call_args[2] == ["old_removed_table"]
 
 
 class TestRefresherRun:
-    async def test_run_refreshes_all_views_in_order(self, mock_refresher_brotr: Brotr) -> None:
-        config = RefresherConfig(
-            refresh=RefreshConfig(views=["relay_metadata_latest", "event_stats", "relay_stats"]),
-        )
-        refresher = Refresher(brotr=mock_refresher_brotr, config=config)
+    async def test_run_delegates_to_refresh(self, mock_refresher_brotr: Brotr) -> None:
+        refresher = Refresher(brotr=mock_refresher_brotr, config=_refresher_config())
 
-        await refresher.run()
-
-        assert mock_refresher_brotr.refresh_materialized_view.call_count == 3
-        calls = [
-            call[0][0] for call in mock_refresher_brotr.refresh_materialized_view.call_args_list
-        ]
-        assert calls == ["relay_metadata_latest", "event_stats", "relay_stats"]
-
-    async def test_run_refreshes_all_default_views(self, mock_refresher_brotr: Brotr) -> None:
-        refresher = Refresher(brotr=mock_refresher_brotr)
-
-        await refresher.run()
-
-        assert mock_refresher_brotr.refresh_materialized_view.call_count == 13
-
-    async def test_run_logs_per_view(self, mock_refresher_brotr: Brotr) -> None:
-        config = RefresherConfig(
-            refresh=RefreshConfig(views=["event_stats"]),
-        )
-        refresher = Refresher(brotr=mock_refresher_brotr, config=config)
-
-        with patch.object(refresher._logger, "info") as mock_log:
+        with patch.object(
+            refresher,
+            "refresh",
+            AsyncMock(return_value=RefreshCycleResult()),
+        ) as mock_refresh:
             await refresher.run()
 
-            view_refreshed_calls = [
-                call for call in mock_log.call_args_list if call[0][0] == "view_refreshed"
-            ]
-            assert len(view_refreshed_calls) == 1
-            assert view_refreshed_calls[0][1]["view"] == "event_stats"
+        mock_refresh.assert_awaited_once_with()
 
-    @pytest.mark.parametrize(
-        "error",
-        [
-            asyncpg.PostgresError("db_error"),
-            OSError("connection_reset"),
-        ],
-        ids=["postgres_error", "os_error"],
-    )
-    async def test_run_continues_on_failure(
-        self, mock_refresher_brotr: Brotr, error: Exception
+    def test_build_refresh_cycle_plan_collects_targets_and_totals(
+        self,
+        mock_refresher_brotr: Brotr,
     ) -> None:
-        mock_refresher_brotr.refresh_materialized_view = AsyncMock(  # type: ignore[method-assign]
-            side_effect=[None, error, None]
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=_refresher_config(
+                current=["replaceable_event_current"],
+                analytics=["pubkey_kind_stats"],
+                periodic=True,
+            ),
         )
 
-        config = RefresherConfig(
-            refresh=RefreshConfig(views=["relay_metadata_latest", "event_stats", "relay_stats"]),
+        plan = refresher._build_refresh_cycle_plan(cycle_start=123.0)
+
+        assert plan.cycle_start == 123.0
+        assert [target.value for target in plan.incremental_targets] == [
+            "replaceable_event_current",
+            "pubkey_kind_stats",
+        ]
+        assert [target.value for target in plan.periodic_targets] == [
+            "rolling_windows",
+            "relay_stats_document",
+            "nip85_followers",
+        ]
+        assert plan.totals == RefreshCycleTotals(
+            total=5,
+            current=1,
+            analytics=1,
+            periodic=3,
         )
-        refresher = Refresher(brotr=mock_refresher_brotr, config=config)
 
-        await refresher.run()
-
-        assert mock_refresher_brotr.refresh_materialized_view.call_count == 3
-
-    async def test_run_logs_failure(self, mock_refresher_brotr: Brotr) -> None:
-        mock_refresher_brotr.refresh_materialized_view = AsyncMock(  # type: ignore[method-assign]
-            side_effect=asyncpg.PostgresError("refresh_timeout")
+    async def test_uses_relay_document_watermark_for_document_targets(
+        self, mock_refresher_brotr: Brotr
+    ) -> None:
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=_refresher_config(current=["relay_document_current"]),
         )
 
-        config = RefresherConfig(
-            refresh=RefreshConfig(views=["event_stats"]),
-        )
-        refresher = Refresher(brotr=mock_refresher_brotr, config=config)
-
-        with patch.object(refresher._logger, "error") as mock_error:
+        with (
+            patch(
+                "bigbrotr.services.refresher.service.get_max_associated_at",
+                AsyncMock(return_value=5),
+            ) as mock_associated,
+            patch(
+                "bigbrotr.services.refresher.service.get_max_observed_at", AsyncMock(return_value=5)
+            ) as mock_seen,
+            patch(
+                "bigbrotr.services.refresher.service.refresh_incremental_target",
+                AsyncMock(return_value=1),
+            ),
+            patch(
+                "bigbrotr.services.refresher.service.get_relay_document_watermark",
+                AsyncMock(return_value=5),
+            ),
+        ):
             await refresher.run()
 
-            mock_error.assert_called_once()
-            assert mock_error.call_args[0][0] == "view_refresh_failed"
-            assert mock_error.call_args[1]["view"] == "event_stats"
-            assert "refresh_timeout" in mock_error.call_args[1]["error"]
+        mock_associated.assert_awaited_once_with(mock_refresher_brotr, 0, 86_400)
+        mock_seen.assert_not_called()
 
-    async def test_run_refresh_completed_counts(self, mock_refresher_brotr: Brotr) -> None:
-        mock_refresher_brotr.refresh_materialized_view = AsyncMock(  # type: ignore[method-assign]
-            side_effect=[None, asyncpg.PostgresError("error"), None]
+    async def test_passes_configured_source_window_to_event_watermark_query(
+        self,
+        mock_refresher_brotr: Brotr,
+    ) -> None:
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=_refresher_config(
+                analytics=["pubkey_kind_stats"],
+                processing={"max_source_window": 25},
+            ),
         )
 
-        config = RefresherConfig(
-            refresh=RefreshConfig(views=["relay_metadata_latest", "event_stats", "relay_stats"]),
-        )
-        refresher = Refresher(brotr=mock_refresher_brotr, config=config)
-
-        with patch.object(refresher._logger, "info") as mock_log:
+        with (
+            patch(
+                "bigbrotr.services.refresher.service.get_max_observed_at",
+                AsyncMock(return_value=125),
+            ) as mock_seen,
+            patch(
+                "bigbrotr.services.refresher.service.refresh_incremental_target",
+                AsyncMock(return_value=1),
+            ),
+            patch(
+                "bigbrotr.services.refresher.service.get_event_observation_watermark",
+                AsyncMock(return_value=125),
+            ),
+        ):
             await refresher.run()
 
-            cycle_completed_calls = [
-                call for call in mock_log.call_args_list if call[0][0] == "refresh_completed"
+        mock_seen.assert_awaited_once_with(mock_refresher_brotr, 0, 25)
+
+    @pytest.mark.parametrize("payload", [{"timestamp": True}, {"timestamp": -1}])
+    async def test_invalid_persisted_incremental_checkpoint_defaults_to_zero(
+        self,
+        mock_refresher_brotr: Brotr,
+        payload: dict[str, object],
+    ) -> None:
+        mock_refresher_brotr.get_service_state = AsyncMock(  # type: ignore[method-assign]
+            return_value=[
+                ServiceState(
+                    owner=ServiceName.REFRESHER,
+                    state_type=ServiceStateType.CHECKPOINT,
+                    state_key=AnalyticsRefreshTarget.PUBKEY_KIND_STATS.value,
+                    state_value=payload,
+                )
             ]
-            assert len(cycle_completed_calls) == 1
-            assert cycle_completed_calls[0][1]["refreshed"] == 2
-            assert cycle_completed_calls[0][1]["failed"] == 1
-
-    async def test_run_all_fail(self, mock_refresher_brotr: Brotr) -> None:
-        mock_refresher_brotr.refresh_materialized_view = AsyncMock(  # type: ignore[method-assign]
-            side_effect=asyncpg.PostgresError("db_error")
+        )
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=_refresher_config(analytics=["pubkey_kind_stats"]),
         )
 
-        config = RefresherConfig(
-            refresh=RefreshConfig(views=["event_stats", "relay_stats"]),
+        with (
+            patch(
+                "bigbrotr.services.refresher.service.get_max_observed_at",
+                AsyncMock(return_value=25),
+            ),
+            patch(
+                "bigbrotr.services.refresher.service.refresh_incremental_target",
+                AsyncMock(return_value=7),
+            ) as mock_refresh,
+            patch(
+                "bigbrotr.services.refresher.service.get_event_observation_watermark",
+                AsyncMock(return_value=25),
+            ),
+        ):
+            await refresher.refresh()
+
+        mock_refresh.assert_awaited_once_with(
+            mock_refresher_brotr,
+            AnalyticsRefreshTarget.PUBKEY_KIND_STATS,
+            0,
+            25,
         )
-        refresher = Refresher(brotr=mock_refresher_brotr, config=config)
 
-        with patch.object(refresher._logger, "info") as mock_log:
-            await refresher.run()
+    async def test_run_incremental_cycle_targets_updates_source_checkpoints(
+        self,
+        mock_refresher_brotr: Brotr,
+    ) -> None:
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=_refresher_config(current=["replaceable_event_current"]),
+        )
+        plan = refresher._build_refresh_cycle_plan(cycle_start=123.0)
+        target_results: list[RefreshTargetResult] = []
+        source_checkpoints: dict[WatermarkSource, int] = {}
+        result = RefreshTargetResult(
+            name="replaceable_event_current",
+            target_group="current",
+            rows=4,
+        )
 
-            cycle_completed_calls = [
-                call for call in mock_log.call_args_list if call[0][0] == "refresh_completed"
-            ]
-            assert len(cycle_completed_calls) == 1
-            assert cycle_completed_calls[0][1]["refreshed"] == 0
-            assert cycle_completed_calls[0][1]["failed"] == 2
+        with patch.object(
+            refresher,
+            "_run_incremental_target",
+            AsyncMock(
+                return_value=(
+                    result,
+                    WatermarkSource.EVENT_OBSERVATION,
+                    11,
+                )
+            ),
+        ) as mock_run:
+            cutoff_reason = await refresher._run_incremental_cycle_targets(
+                plan=plan,
+                target_results=target_results,
+                source_checkpoints=source_checkpoints,
+            )
 
+        assert cutoff_reason is None
+        mock_run.assert_awaited_once_with(CurrentRefreshTarget.REPLACEABLE_EVENT_CURRENT)
+        assert target_results == [result]
+        assert source_checkpoints == {WatermarkSource.EVENT_OBSERVATION: 11}
 
-# ============================================================================
-# Metrics
-# ============================================================================
+    async def test_run_periodic_cycle_targets_respects_cutoff_budget(
+        self,
+        mock_refresher_brotr: Brotr,
+    ) -> None:
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=_refresher_config(periodic=True, processing={"max_targets_per_cycle": 1}),
+        )
+        plan = refresher._build_refresh_cycle_plan(cycle_start=123.0)
+        target_results = [
+            RefreshTargetResult(name="already-run", target_group="incremental", rows=1),
+        ]
+
+        with patch.object(refresher, "_run_periodic_target", AsyncMock()) as mock_periodic:
+            cutoff_reason = await refresher._run_periodic_cycle_targets(
+                plan=plan,
+                target_results=target_results,
+                source_checkpoints={},
+            )
+
+        assert cutoff_reason == "max_targets_per_cycle"
+        mock_periodic.assert_not_awaited()
+
+    async def test_no_new_data_skips_incremental_sql(self, mock_refresher_brotr: Brotr) -> None:
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=_refresher_config(analytics=["pubkey_kind_stats"]),
+        )
+
+        with (
+            patch(
+                "bigbrotr.services.refresher.service.get_max_observed_at", AsyncMock(return_value=0)
+            ),
+            patch(
+                "bigbrotr.services.refresher.service.refresh_incremental_target",
+                AsyncMock(),
+            ) as mock_refresh,
+            patch(
+                "bigbrotr.services.refresher.service.get_event_observation_watermark",
+                AsyncMock(return_value=0),
+            ),
+        ):
+            result = await refresher.run()
+
+        assert result is None
+        mock_refresh.assert_not_awaited()
+        mock_refresher_brotr.upsert_service_state.assert_not_awaited()
+
+    async def test_new_data_triggers_current_and_analytics_refresh(
+        self, mock_refresher_brotr: Brotr
+    ) -> None:
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=_refresher_config(
+                current=["replaceable_event_current"],
+                analytics=["pubkey_kind_stats"],
+            ),
+        )
+
+        with (
+            patch(
+                "bigbrotr.services.refresher.service.get_max_observed_at",
+                AsyncMock(side_effect=[11, 22]),
+            ),
+            patch(
+                "bigbrotr.services.refresher.service.refresh_incremental_target",
+                AsyncMock(side_effect=[7, 9]),
+            ) as mock_refresh,
+            patch(
+                "bigbrotr.services.refresher.service.get_event_observation_watermark",
+                AsyncMock(return_value=22),
+            ),
+            patch.object(refresher._logger, "info") as mock_info,
+        ):
+            result = await refresher.refresh()
+
+        assert mock_refresh.await_args_list == [
+            call(mock_refresher_brotr, CurrentRefreshTarget.REPLACEABLE_EVENT_CURRENT, 0, 11),
+            call(mock_refresher_brotr, AnalyticsRefreshTarget.PUBKEY_KIND_STATS, 0, 22),
+        ]
+        assert mock_refresher_brotr.upsert_service_state.await_count == 2
+        assert result.targets_total == 2
+        assert result.targets_current_total == 1
+        assert result.targets_analytics_total == 1
+        assert result.targets_periodic_total == 0
+        assert result.targets_refreshed == 2
+        assert result.targets_failed == 0
+        assert result.rows_refreshed == 16
+
+        refresh_completed = [
+            logged for logged in mock_info.call_args_list if logged.args[0] == "refresh_completed"
+        ]
+        assert len(refresh_completed) == 1
+        assert refresh_completed[0].kwargs["refreshed"] == 2
+        assert refresh_completed[0].kwargs["failed"] == 0
+        assert refresh_completed[0].kwargs["event_watermark_lag_seconds"] == 0
+        assert refresh_completed[0].kwargs["event_backlog_remaining"] is False
+        assert refresh_completed[0].kwargs["document_watermark_lag_seconds"] == 0
+        assert refresh_completed[0].kwargs["document_backlog_remaining"] is False
+
+    async def test_refresh_failures_continue_to_later_targets(
+        self, mock_refresher_brotr: Brotr
+    ) -> None:
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=_refresher_config(
+                current=["replaceable_event_current"],
+                analytics=["pubkey_kind_stats"],
+            ),
+        )
+
+        with (
+            patch(
+                "bigbrotr.services.refresher.service.get_max_observed_at",
+                AsyncMock(side_effect=[11, 22]),
+            ),
+            patch(
+                "bigbrotr.services.refresher.service.refresh_incremental_target",
+                AsyncMock(side_effect=[asyncpg.PostgresError("boom"), 9]),
+            ),
+            patch(
+                "bigbrotr.services.refresher.service.get_event_observation_watermark",
+                AsyncMock(return_value=22),
+            ),
+            patch.object(refresher._logger, "error") as mock_error,
+            patch.object(refresher._logger, "info") as mock_info,
+        ):
+            result = await refresher.refresh()
+
+        error_events = [logged.args[0] for logged in mock_error.call_args_list]
+        assert "incremental_refresh_failed" in error_events
+        assert result.targets_refreshed == 1
+        assert result.targets_failed == 1
+
+        refresh_completed = [
+            logged for logged in mock_info.call_args_list if logged.args[0] == "refresh_completed"
+        ]
+        assert len(refresh_completed) == 1
+        assert refresh_completed[0].kwargs["refreshed"] == 1
+        assert refresh_completed[0].kwargs["failed"] == 1
+        assert refresh_completed[0].kwargs["event_watermark_lag_seconds"] == 0
+        assert refresh_completed[0].kwargs["event_backlog_remaining"] is False
+
+    async def test_fail_fast_mode_raises_after_first_target_failure(
+        self, mock_refresher_brotr: Brotr
+    ) -> None:
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=_refresher_config(
+                current=["replaceable_event_current"],
+                analytics=["pubkey_kind_stats"],
+                processing={"continue_on_target_error": False},
+            ),
+        )
+
+        with (
+            patch(
+                "bigbrotr.services.refresher.service.get_max_observed_at",
+                AsyncMock(return_value=11),
+            ),
+            patch(
+                "bigbrotr.services.refresher.service.refresh_incremental_target",
+                AsyncMock(side_effect=asyncpg.PostgresError("boom")),
+            ) as mock_refresh,
+            patch(
+                "bigbrotr.services.refresher.service.get_event_observation_watermark",
+                AsyncMock(return_value=11),
+            ),
+            pytest.raises(RuntimeError, match="replaceable_event_current"),
+        ):
+            await refresher.refresh()
+
+        assert mock_refresh.await_count == 1
+
+    async def test_fail_fast_mode_raises_after_periodic_target_failure(
+        self, mock_refresher_brotr: Brotr
+    ) -> None:
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=_refresher_config(
+                periodic=True,
+                processing={"continue_on_target_error": False},
+            ),
+        )
+
+        with (
+            patch(
+                "bigbrotr.services.refresher.service.refresh_periodic_target",
+                AsyncMock(side_effect=asyncpg.PostgresError("boom")),
+            ) as mock_periodic,
+            pytest.raises(RuntimeError, match="rolling_windows"),
+        ):
+            await refresher.refresh()
+
+        assert mock_periodic.await_count == 1
+
+    async def test_max_targets_per_cycle_stops_between_periodic_targets(
+        self, mock_refresher_brotr: Brotr
+    ) -> None:
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=_refresher_config(
+                periodic=True,
+                processing={"max_targets_per_cycle": 1},
+            ),
+        )
+
+        with patch(
+            "bigbrotr.services.refresher.service.refresh_periodic_target",
+            AsyncMock(),
+        ) as mock_periodic:
+            result = await refresher.refresh()
+
+        assert result.targets_total == 3
+        assert result.targets_attempted == 1
+        assert result.targets_skipped == 2
+        assert result.cutoff_reason == "max_targets_per_cycle"
+        assert mock_periodic.await_count == 1
+
+    async def test_periodic_failures_continue_when_configured(
+        self, mock_refresher_brotr: Brotr
+    ) -> None:
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=_refresher_config(periodic=True),
+        )
+
+        with patch(
+            "bigbrotr.services.refresher.service.refresh_periodic_target",
+            AsyncMock(side_effect=[asyncpg.PostgresError("boom"), None, None]),
+        ) as mock_periodic:
+            result = await refresher.refresh()
+
+        assert mock_periodic.await_count == 3
+        assert result.targets_failed == 1
+        assert result.targets_refreshed == 2
+
+    async def test_max_targets_per_cycle_stops_before_later_targets(
+        self, mock_refresher_brotr: Brotr
+    ) -> None:
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=_refresher_config(
+                current=["replaceable_event_current"],
+                analytics=["pubkey_kind_stats"],
+                periodic=True,
+                processing={"max_targets_per_cycle": 1},
+            ),
+        )
+
+        with (
+            patch(
+                "bigbrotr.services.refresher.service.get_max_observed_at",
+                AsyncMock(return_value=11),
+            ),
+            patch(
+                "bigbrotr.services.refresher.service.refresh_incremental_target",
+                AsyncMock(return_value=7),
+            ),
+            patch(
+                "bigbrotr.services.refresher.service.refresh_periodic_target",
+                AsyncMock(),
+            ) as mock_periodic,
+            patch(
+                "bigbrotr.services.refresher.service.get_event_observation_watermark",
+                AsyncMock(return_value=11),
+            ),
+        ):
+            result = await refresher.refresh()
+
+        assert result.targets_total == 5
+        assert result.targets_attempted == 1
+        assert result.targets_skipped == 4
+        assert result.cutoff_reason == "max_targets_per_cycle"
+        mock_periodic.assert_not_awaited()
+
+    async def test_max_duration_budget_stops_periodic_targets_when_elapsed(
+        self,
+        mock_refresher_brotr: Brotr,
+    ) -> None:
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=_refresher_config(periodic=True, processing={"max_duration": 1.0}),
+        )
+        plan = refresher._build_refresh_cycle_plan(cycle_start=time.monotonic() - 2.0)
+
+        with patch.object(refresher, "_run_periodic_target", AsyncMock()) as mock_periodic:
+            cutoff_reason = await refresher._run_periodic_cycle_targets(
+                plan=plan,
+                target_results=[],
+                source_checkpoints={},
+            )
+
+        assert cutoff_reason == "max_duration"
+        mock_periodic.assert_not_awaited()
+
+    async def test_disabled_periodic_tasks_are_not_executed(
+        self, mock_refresher_brotr: Brotr
+    ) -> None:
+        refresher = Refresher(brotr=mock_refresher_brotr, config=_refresher_config())
+
+        with patch(
+            "bigbrotr.services.refresher.service.refresh_periodic_target",
+            AsyncMock(),
+        ) as mock_periodic:
+            result = await refresher.refresh()
+
+        assert result.targets_total == 0
+        mock_periodic.assert_not_awaited()
+
+    async def test_watermark_lag_is_reported(self, mock_refresher_brotr: Brotr) -> None:
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=_refresher_config(analytics=["pubkey_kind_stats"]),
+        )
+
+        with (
+            patch(
+                "bigbrotr.services.refresher.service.get_max_observed_at",
+                AsyncMock(return_value=50),
+            ),
+            patch(
+                "bigbrotr.services.refresher.service.refresh_incremental_target",
+                AsyncMock(return_value=1),
+            ),
+            patch(
+                "bigbrotr.services.refresher.service.get_event_observation_watermark",
+                AsyncMock(return_value=55),
+            ),
+        ):
+            result = await refresher.refresh()
+
+        assert result.watermark_event_observation_lag_seconds == 5
+        assert result.event_observation_backlog_remaining is True
+
+    async def test_relay_document_watermark_lag_is_reported(
+        self, mock_refresher_brotr: Brotr
+    ) -> None:
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=_refresher_config(current=["relay_document_current"]),
+        )
+
+        with (
+            patch(
+                "bigbrotr.services.refresher.service.get_max_associated_at",
+                AsyncMock(return_value=50),
+            ),
+            patch(
+                "bigbrotr.services.refresher.service.refresh_incremental_target",
+                AsyncMock(return_value=1),
+            ),
+            patch(
+                "bigbrotr.services.refresher.service.get_relay_document_watermark",
+                AsyncMock(return_value=55),
+            ),
+        ):
+            result = await refresher.refresh()
+
+        assert result.watermark_relay_document_lag_seconds == 5
+        assert result.relay_document_backlog_remaining is True
 
 
 class TestRefresherMetrics:
     async def test_gauges_reset_at_start(self, mock_refresher_brotr: Brotr) -> None:
-        mock_refresher_brotr.refresh_materialized_view = AsyncMock(  # type: ignore[method-assign]
-            side_effect=asyncpg.PostgresError("error")
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=_refresher_config(analytics=["pubkey_kind_stats"], periodic=True),
         )
-        config = RefresherConfig(
-            refresh=RefreshConfig(views=["event_stats"]),
-        )
-        refresher = Refresher(brotr=mock_refresher_brotr, config=config)
 
-        with patch.object(refresher, "set_gauge") as mock_gauge:
+        with (
+            patch(
+                "bigbrotr.services.refresher.service.get_max_observed_at", AsyncMock(return_value=0)
+            ),
+            patch("bigbrotr.services.refresher.service.refresh_incremental_target", AsyncMock()),
+            patch("bigbrotr.services.refresher.service.refresh_periodic_target", AsyncMock()),
+            patch(
+                "bigbrotr.services.refresher.service.get_event_observation_watermark",
+                AsyncMock(return_value=0),
+            ),
+            patch.object(refresher, "set_gauge") as mock_gauge,
+        ):
             await refresher.run()
 
-            first_three = mock_gauge.call_args_list[:3]
-            assert first_three[0] == (("views_total", 1),)
-            assert first_three[1] == (("views_refreshed", 0),)
-            assert first_three[2] == (("views_failed", 0),)
+        first_four = mock_gauge.call_args_list[:4]
+        assert first_four[0] == call("targets_total", 4)
+        assert first_four[1] == call("targets_current_total", 0)
+        assert first_four[2] == call("targets_analytics_total", 1)
+        assert first_four[3] == call("targets_periodic_total", 3)
+        assert call("watermark_event_observation_backlog_remaining", 0) in mock_gauge.call_args_list
+        assert call("watermark_relay_document_backlog_remaining", 0) in mock_gauge.call_args_list
 
-    @pytest.mark.parametrize(
-        ("side_effects", "expected_refreshed", "expected_failed"),
-        [
-            ([None, None], 2, 0),
-            ([asyncpg.PostgresError("e")], 0, 1),
-            ([None, asyncpg.PostgresError("e"), None], 2, 1),
-        ],
-        ids=["all_success", "all_fail", "mixed"],
-    )
-    async def test_set_gauge_counts(
+    async def test_backlog_gauges_reflect_remaining_source_lag(
         self,
         mock_refresher_brotr: Brotr,
-        side_effects: list[Exception | None],
-        expected_refreshed: int,
-        expected_failed: int,
     ) -> None:
-        mock_refresher_brotr.refresh_materialized_view = AsyncMock(  # type: ignore[method-assign]
-            side_effect=side_effects
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=_refresher_config(analytics=["pubkey_kind_stats"]),
         )
-        views = [f"view_{i}" for i in range(len(side_effects))]
-        config = RefresherConfig(refresh=RefreshConfig(views=views))
-        refresher = Refresher(brotr=mock_refresher_brotr, config=config)
 
-        with patch.object(refresher, "set_gauge") as mock_gauge:
-            await refresher.run()
+        with (
+            patch(
+                "bigbrotr.services.refresher.service.get_max_observed_at",
+                AsyncMock(return_value=50),
+            ),
+            patch(
+                "bigbrotr.services.refresher.service.refresh_incremental_target",
+                AsyncMock(return_value=1),
+            ),
+            patch(
+                "bigbrotr.services.refresher.service.get_event_observation_watermark",
+                AsyncMock(return_value=55),
+            ),
+            patch.object(refresher, "set_gauge") as mock_gauge,
+        ):
+            await refresher.refresh()
 
-            final_gauges = {call[0][0]: call[0][1] for call in mock_gauge.call_args_list[2:]}
-            assert final_gauges["views_refreshed"] == expected_refreshed
-            assert final_gauges["views_failed"] == expected_failed
+        emitted = {call_item.args[0]: call_item.args[1] for call_item in mock_gauge.call_args_list}
+        assert emitted["watermark_event_observation_lag_seconds"] == 5
+        assert emitted["watermark_event_observation_backlog_remaining"] == 1
+        assert emitted["watermark_relay_document_backlog_remaining"] == 0

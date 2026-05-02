@@ -1,22 +1,23 @@
 """
-Top-level NIP-11 model with factory method and database serialization.
+Top-level NIP-11 model with semantic fetch entrypoint and database serialization.
 
-Wraps the [Nip11InfoMetadata][bigbrotr.nips.nip11.info.Nip11InfoMetadata]
-container and provides ``create()`` for retrieving a relay's
+Wraps the historical-name
+[Nip11InfoMetadata][bigbrotr.nips.nip11.info.Nip11InfoMetadata] result
+container and provides ``fetch()`` for retrieving a relay's
 [NIP-11](https://github.com/nostr-protocol/nips/blob/master/11.md) information
-document, and ``to_relay_metadata_tuple()`` for converting the result into
-database-ready [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]
+document, and ``to_relay_document_tuple()`` for converting the result into
+database-ready [RelayDocument][bigbrotr.models.relay_document.RelayDocument]
 records.
 
 See Also:
     [bigbrotr.nips.nip11.info.Nip11InfoMetadata][bigbrotr.nips.nip11.info.Nip11InfoMetadata]:
-        The metadata container with HTTP info retrieval capabilities.
-    [bigbrotr.models.metadata.Metadata][bigbrotr.models.metadata.Metadata]:
-        Content-addressed metadata model used for database storage.
-    [bigbrotr.models.metadata.MetadataType][bigbrotr.models.metadata.MetadataType]:
-        The ``NIP11_INFO`` variant used when creating metadata records.
-    [bigbrotr.models.relay_metadata.RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]:
-        Junction model linking a relay to its metadata.
+        The document-backed result container with HTTP info retrieval capabilities.
+    [bigbrotr.models.document.Document][bigbrotr.models.document.Document]:
+        Content-addressed document model used for database storage.
+    [bigbrotr.models.document.DocumentType][bigbrotr.models.document.DocumentType]:
+        The ``NIP11_INFO`` variant used when creating document records.
+    [bigbrotr.models.relay_document.RelayDocument][bigbrotr.models.relay_document.RelayDocument]:
+        Junction model linking a relay to its stored document.
 """
 
 from __future__ import annotations
@@ -25,16 +26,18 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, NamedTuple
 
-from bigbrotr.models.metadata import Metadata, MetadataType
+from pydantic import Field
+
+from bigbrotr.models.document import Document, DocumentType
 from bigbrotr.models.relay import Relay  # noqa: TC001
-from bigbrotr.models.relay_metadata import RelayMetadata
+from bigbrotr.models.relay_document import RelayDocument
+from bigbrotr.nips._validation import normalize_proxy_url
 from bigbrotr.nips.base import (
     BaseNip,
     BaseNipDependencies,
     BaseNipOptions,
     BaseNipSelection,
 )
-from bigbrotr.utils.transport import DEFAULT_TIMEOUT
 
 from .info import Nip11InfoMetadata
 
@@ -47,15 +50,15 @@ logger = logging.getLogger("bigbrotr.nips.nip11")
 
 
 class Nip11Selection(BaseNipSelection):
-    """Which NIP-11 metadata to retrieve.
+    """Which NIP-11 documents to retrieve.
 
     All retrieval types are enabled by default. Set individual fields to
-    ``False`` to skip specific metadata types during
-    [Nip11.create][bigbrotr.nips.nip11.nip11.Nip11.create].
+    ``False`` to skip specific document types during
+    [Nip11.fetch][bigbrotr.nips.nip11.nip11.Nip11.fetch].
 
     See Also:
         [Nip11Options][bigbrotr.nips.nip11.nip11.Nip11Options]:
-            Controls *how* metadata is retrieved (e.g., allow insecure SSL).
+            Controls *how* NIP-11 documents are retrieved (e.g., allow insecure SSL).
         [Nip11Dependencies][bigbrotr.nips.nip11.nip11.Nip11Dependencies]:
             Provides optional dependencies required by specific retrievals.
     """
@@ -64,7 +67,7 @@ class Nip11Selection(BaseNipSelection):
 
 
 class Nip11Options(BaseNipOptions):
-    """How to execute NIP-11 metadata retrieval.
+    """How to execute NIP-11 document retrieval.
 
     Inherits ``allow_insecure`` from
     [BaseNipOptions][bigbrotr.nips.base.BaseNipOptions].
@@ -75,15 +78,19 @@ class Nip11Options(BaseNipOptions):
 
     See Also:
         [Nip11Selection][bigbrotr.nips.nip11.nip11.Nip11Selection]:
-            Controls *which* metadata is retrieved.
+            Controls *which document types are retrieved.
     """
 
-    max_size: int = Nip11InfoMetadata._INFO_MAX_SIZE
+    max_size: int = Field(
+        default=Nip11InfoMetadata._INFO_MAX_SIZE,
+        ge=1,
+        description="Maximum response body size in bytes",
+    )
 
 
 @dataclass(frozen=True, slots=True)
 class Nip11Dependencies(BaseNipDependencies):
-    """Optional dependencies for NIP-11 metadata retrieval.
+    """Optional dependencies for NIP-11 document retrieval.
 
     Currently empty. NIP-11 info retrieval requires no external
     resources. Provided for structural parity with
@@ -96,35 +103,37 @@ class Nip11Dependencies(BaseNipDependencies):
     """
 
 
-class RelayNip11MetadataTuple(NamedTuple):
-    """Database-ready tuple of NIP-11 ``RelayMetadata`` records.
+class RelayNip11DocumentTuple(NamedTuple):
+    """Database-ready tuple of NIP-11 ``RelayDocument`` records.
 
     See Also:
-        [Nip11.to_relay_metadata_tuple][bigbrotr.nips.nip11.nip11.Nip11.to_relay_metadata_tuple]:
+        [Nip11.to_relay_document_tuple][bigbrotr.nips.nip11.nip11.Nip11.to_relay_document_tuple]:
             Method that produces instances of this tuple.
-        [bigbrotr.nips.nip66.nip66.RelayNip66MetadataTuple][bigbrotr.nips.nip66.nip66.RelayNip66MetadataTuple]:
-            Companion tuple for NIP-66 metadata records.
+        [bigbrotr.nips.nip66.nip66.RelayNip66DocumentTuple][bigbrotr.nips.nip66.nip66.RelayNip66DocumentTuple]:
+            Companion tuple for NIP-66 document records.
     """
 
-    nip11_info: RelayMetadata | None
+    nip11_info: RelayDocument | None
 
 
 class Nip11(BaseNip):
     """NIP-11 relay information document.
 
-    Created via the ``create()`` async factory method, which retrieves the
+    Created via the ``fetch()`` async factory method, which retrieves the
     relay's information document over HTTP and packages the result.
 
     Attributes:
         relay: The [Relay][bigbrotr.models.relay.Relay] this document belongs to
             (inherited from [BaseNip][bigbrotr.nips.base.BaseNip]).
-        info: Info data and logs (``None`` if retrieval was not attempted).
+        info: Historical-name result container holding the parsed info document
+            and its logs (``None`` if retrieval was not attempted).
         generated_at: Unix timestamp of when the document was retrieved
             (inherited from [BaseNip][bigbrotr.nips.base.BaseNip]).
 
     Note:
-        The ``create()`` factory method **never raises exceptions**. Always
-        check ``info.logs.success`` for the operation outcome.
+        The ``fetch()`` factory method does not raise for ordinary retrieval
+        failures. Always check ``info.succeeded`` for the operation outcome.
+        Cancellation and system-exit style exceptions still propagate.
         This design allows batch processing of many relays without individual
         error handling.
 
@@ -132,46 +141,46 @@ class Nip11(BaseNip):
         [bigbrotr.nips.nip66.nip66.Nip66][bigbrotr.nips.nip66.nip66.Nip66]:
             Companion NIP-66 model with the same factory/serialization pattern.
         [bigbrotr.services.monitor.Monitor][bigbrotr.services.monitor.Monitor]:
-            Service that calls ``create()`` during health check cycles.
+            Service that calls ``fetch()`` during health check cycles.
 
     Examples:
         ```python
         relay = Relay("wss://relay.damus.io")
         selection = Nip11Selection(info=True)
         options = Nip11Options(allow_insecure=True)
-        nip11 = await Nip11.create(relay, timeout=10.0, selection=selection, options=options)
-        if nip11.info and nip11.info.logs.success:
+        nip11 = await Nip11.fetch(relay, timeout=10.0, selection=selection, options=options)
+        if nip11.info and nip11.info.succeeded:
             print(nip11.info.data.name)  # 'Damus Relay'
         ```
     """
 
     info: Nip11InfoMetadata | None = None
 
-    def to_relay_metadata_tuple(self) -> RelayNip11MetadataTuple:
-        """Convert to a ``RelayMetadata`` tuple for database storage.
+    def to_relay_document_tuple(self) -> RelayNip11DocumentTuple:
+        """Convert to a ``RelayDocument`` tuple for database storage.
 
         Returns:
-            A [RelayNip11MetadataTuple][bigbrotr.nips.nip11.nip11.RelayNip11MetadataTuple]
-            with the info metadata wrapped in a
-            [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata] junction
+            A [RelayNip11DocumentTuple][bigbrotr.nips.nip11.nip11.RelayNip11DocumentTuple]
+            with the info document wrapped in a
+            [RelayDocument][bigbrotr.models.relay_document.RelayDocument] junction
             record tagged as
-            [MetadataType.NIP11_INFO][bigbrotr.models.metadata.MetadataType],
+            [DocumentType.NIP11_INFO][bigbrotr.models.document.DocumentType],
             or ``None`` if no info retrieval was performed.
         """
-        nip11_info: RelayMetadata | None = None
+        nip11_info: RelayDocument | None = None
         if self.info is not None:
-            nip11_info = RelayMetadata(
+            nip11_info = RelayDocument(
                 relay=self.relay,
-                metadata=Metadata(
-                    type=MetadataType.NIP11_INFO,
+                document=Document(
+                    type=DocumentType.NIP11_INFO,
                     data=self.info.to_dict(),
                 ),
-                generated_at=self.generated_at,
+                associated_at=self.generated_at,
             )
-        return RelayNip11MetadataTuple(nip11_info=nip11_info)
+        return RelayNip11DocumentTuple(nip11_info=nip11_info)
 
     @classmethod
-    async def create(  # type: ignore[override]  # noqa: PLR0913  # NIP-specific params widen base signature
+    async def fetch(  # noqa: PLR0913
         cls,
         relay: Relay,
         *,
@@ -189,8 +198,9 @@ class Nip11(BaseNip):
         tuned via the ``options`` parameter. Some retrievals may require
         additional dependencies in the future, provided via ``deps``.
 
-        This method never raises and never returns None. Check
-        ``info.logs.success`` for the outcome.
+        This method never returns ``None`` and does not raise for ordinary
+        retrieval failures. Check ``info.succeeded`` for the outcome.
+        Cancellation and system-exit style exceptions still propagate.
 
         Args:
             relay: Relay to retrieve from.
@@ -200,7 +210,7 @@ class Nip11(BaseNip):
                 provided, the session is reused and the caller retains
                 ownership. When None, a per-request session is created
                 and closed automatically.
-            selection: Which metadata to retrieve (default: all enabled).
+            selection: Which document types to retrieve (default: all enabled).
             options: How to execute the retrieval (default: secure mode).
             deps: Optional dependencies for future extensibility.
 
@@ -210,12 +220,13 @@ class Nip11(BaseNip):
         selection = selection or Nip11Selection()
         options = options or Nip11Options()
         deps = deps or Nip11Dependencies()
-        timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
-        logger.debug("create_started relay=%s timeout_s=%s", relay.url, timeout)
+        timeout = Nip11InfoMetadata._normalize_timeout(timeout)
+        proxy_url = normalize_proxy_url(proxy_url)
+        logger.debug("fetch_started relay=%s timeout_s=%s", relay.url, timeout)
 
         info = None
         if selection.info:
-            info = await Nip11InfoMetadata.execute(
+            info = await Nip11InfoMetadata.fetch(
                 relay,
                 timeout,
                 options.max_size,
@@ -225,8 +236,8 @@ class Nip11(BaseNip):
             )
 
         logger.debug(
-            "create_completed relay=%s info=%s",
+            "fetch_completed relay=%s info=%s",
             relay.url,
-            info is not None and info.logs.success if info else False,
+            info is not None and info.succeeded if info else False,
         )
         return cls(relay=relay, info=info)

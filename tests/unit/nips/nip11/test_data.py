@@ -14,6 +14,10 @@ from bigbrotr.nips.nip11 import (
 )
 
 
+_VALID_PUBKEY = "a" * 64
+_VALID_SELF_PUBKEY = "b" * 64
+
+
 # =============================================================================
 # Nip11InfoDataLimitation Tests
 # =============================================================================
@@ -153,11 +157,17 @@ class TestNip11InfoDataLimitationParse:
         assert Nip11InfoDataLimitation.parse(None) == {}
         assert Nip11InfoDataLimitation.parse([1, 2]) == {}
 
-    def test_parse_negative_int_accepted(self):
-        """Negative integers are accepted (validation is type-only)."""
-        data = {"max_message_length": -100}
+    @pytest.mark.parametrize("kwargs", [{"max_message_length": -100}, {"default_limit": -1}])
+    def test_constructor_rejects_negative_int_fields(self, kwargs: dict[str, int]):
+        """Constructor rejects negative limitation budgets."""
+        with pytest.raises(ValidationError):
+            Nip11InfoDataLimitation(**kwargs)
+
+    def test_parse_negative_int_filtered(self):
+        """Negative limitation budgets are filtered out by parse()."""
+        data = {"max_message_length": -100, "auth_required": True}
         result = Nip11InfoDataLimitation.parse(data)
-        assert result == {"max_message_length": -100}
+        assert result == {"auth_required": True}
 
     def test_parse_zero_accepted(self):
         """Zero is accepted for int fields."""
@@ -234,7 +244,12 @@ class TestNip11InfoDataRetentionEntryConstructor:
     def test_constructor_valid_kind_ranges(self):
         """Constructor accepts tuples for kind ranges."""
         entry = Nip11InfoDataRetentionEntry(kinds=[1, (10000, 19999), 3])
-        assert entry.kinds == [1, (10000, 19999), 3]
+        assert entry.kinds == [1, 3, (10000, 19999)]
+
+    def test_constructor_normalizes_kinds(self):
+        """Constructor deduplicates and stably sorts retention kinds."""
+        entry = Nip11InfoDataRetentionEntry(kinds=[(10000, 19999), 3, 1, (10000, 19999), 3])
+        assert entry.kinds == [1, 3, (10000, 19999)]
 
     def test_constructor_rejects_non_int_time(self):
         """Constructor raises ValidationError for non-int time."""
@@ -246,6 +261,12 @@ class TestNip11InfoDataRetentionEntryConstructor:
         with pytest.raises(ValidationError):
             Nip11InfoDataRetentionEntry(time=True)
 
+    @pytest.mark.parametrize("kwargs", [{"time": -1}, {"count": -1}])
+    def test_constructor_rejects_negative_time_and_count(self, kwargs: dict[str, int]):
+        """Constructor raises ValidationError for negative retention budgets."""
+        with pytest.raises(ValidationError):
+            Nip11InfoDataRetentionEntry(**kwargs)
+
     def test_constructor_rejects_bool_in_kinds(self):
         """Constructor raises ValidationError for bool in kinds list."""
         with pytest.raises(ValidationError):
@@ -255,6 +276,21 @@ class TestNip11InfoDataRetentionEntryConstructor:
         """Constructor raises ValidationError for invalid kinds element."""
         with pytest.raises(ValidationError):
             Nip11InfoDataRetentionEntry(kinds=[1, "two"])
+
+    def test_constructor_rejects_negative_kind(self):
+        """Constructor raises ValidationError for negative kinds."""
+        with pytest.raises(ValidationError):
+            Nip11InfoDataRetentionEntry(kinds=[-1, 3])
+
+    def test_constructor_rejects_negative_kind_range_bound(self):
+        """Constructor raises ValidationError for negative range bounds."""
+        with pytest.raises(ValidationError):
+            Nip11InfoDataRetentionEntry(kinds=[(-1, 2)])
+
+    def test_constructor_rejects_descending_kind_range(self):
+        """Constructor raises ValidationError for descending range bounds."""
+        with pytest.raises(ValidationError, match="kind ranges must be ascending"):
+            Nip11InfoDataRetentionEntry(kinds=[(10, 1)])
 
     def test_constructor_rejects_non_list_kinds(self):
         """Constructor raises ValidationError for non-list kinds."""
@@ -272,19 +308,19 @@ class TestNip11InfoDataRetentionEntryParse:
 
     def test_parse_valid_data(self):
         """Valid data is parsed correctly."""
-        data = {"kinds": [1, 2, 3], "time": 3600, "count": 1000}
+        data = {"kinds": [3, 1, 2, 3], "time": 3600, "count": 1000}
         result = Nip11InfoDataRetentionEntry.parse(data)
         assert result == {"kinds": [1, 2, 3], "time": 3600, "count": 1000}
 
     def test_parse_kind_ranges(self):
-        """Kind ranges are parsed correctly (list to tuple conversion)."""
-        data = {"kinds": [1, [10, 20], 3]}
+        """Kind ranges are parsed correctly with stable normalization."""
+        data = {"kinds": [[10, 20], 3, 1, [10, 20]]}
         result = Nip11InfoDataRetentionEntry.parse(data)
-        assert result == {"kinds": [1, (10, 20), 3]}
+        assert result == {"kinds": [1, 3, (10, 20)]}
 
     def test_parse_invalid_kinds_filtered(self):
         """Invalid kinds are filtered out."""
-        data = {"kinds": [1, "invalid", True, [10, 20], [1, 2, 3]]}
+        data = {"kinds": [[10, 20], 1, "invalid", True, [10, 20], [1, 2, 3]]}
         result = Nip11InfoDataRetentionEntry.parse(data)
         assert result == {"kinds": [1, (10, 20)]}
 
@@ -304,6 +340,30 @@ class TestNip11InfoDataRetentionEntryParse:
         data = {"kinds": [[True, 100]]}
         result = Nip11InfoDataRetentionEntry.parse(data)
         assert result == {}
+
+    def test_parse_negative_kinds_filtered(self):
+        """Negative kinds and ranges are filtered out."""
+        data = {"kinds": [[10, 20], -1, [-1, 2], 3]}
+        result = Nip11InfoDataRetentionEntry.parse(data)
+        assert result == {"kinds": [3, (10, 20)]}
+
+    def test_parse_descending_kind_ranges_filtered(self):
+        """Descending kind ranges are filtered out."""
+        data = {"kinds": [[10, 20], [10, 1], 3]}
+        result = Nip11InfoDataRetentionEntry.parse(data)
+        assert result == {"kinds": [3, (10, 20)]}
+
+    def test_parse_negative_time_and_count_filtered(self):
+        """Negative retention budgets are filtered out."""
+        data = {"kinds": [1], "time": -1, "count": -2}
+        result = Nip11InfoDataRetentionEntry.parse(data)
+        assert result == {"kinds": [1]}
+
+    def test_parse_preserves_explicit_empty_kinds(self):
+        """Explicit empty kinds list is preserved because the constructor accepts it."""
+        data = {"kinds": []}
+        result = Nip11InfoDataRetentionEntry.parse(data)
+        assert result == {"kinds": []}
 
 
 class TestNip11InfoDataRetentionEntryToDict:
@@ -362,6 +422,15 @@ class TestNip11InfoDataFeeEntryConstructor:
         assert entry.period == 2628003
         assert entry.kinds == [4]
 
+    def test_constructor_normalizes_kinds(self):
+        """Constructor deduplicates and sorts fee kinds."""
+        entry = Nip11InfoDataFeeEntry(
+            amount=100,
+            unit="sats",
+            kinds=[42, 4, 42],
+        )
+        assert entry.kinds == [4, 42]
+
     def test_constructor_rejects_non_int_amount(self):
         """Constructor raises ValidationError for non-int amount."""
         with pytest.raises(ValidationError):
@@ -371,6 +440,12 @@ class TestNip11InfoDataFeeEntryConstructor:
         """Constructor raises ValidationError for bool amount (StrictInt)."""
         with pytest.raises(ValidationError):
             Nip11InfoDataFeeEntry(amount=True, unit="sats")
+
+    @pytest.mark.parametrize("kwargs", [{"amount": -1}, {"period": -1}])
+    def test_constructor_rejects_negative_amount_and_period(self, kwargs: dict[str, int]):
+        """Constructor raises ValidationError for negative fee budgets."""
+        with pytest.raises(ValidationError):
+            Nip11InfoDataFeeEntry(**kwargs)
 
     def test_constructor_rejects_bool_in_kinds(self):
         """Constructor raises ValidationError for bool in kinds list."""
@@ -382,10 +457,21 @@ class TestNip11InfoDataFeeEntryConstructor:
         with pytest.raises(ValidationError):
             Nip11InfoDataFeeEntry(amount=1000, unit=42)
 
+    @pytest.mark.parametrize("unit", ["", " ", "\n\t"])
+    def test_constructor_rejects_blank_unit(self, unit: str):
+        """Constructor rejects blank or whitespace-only fee units."""
+        with pytest.raises(ValidationError, match="unit must be a non-empty string"):
+            Nip11InfoDataFeeEntry(amount=1000, unit=unit)
+
     def test_constructor_rejects_invalid_kinds_element(self):
         """Constructor raises ValidationError for non-int in kinds."""
         with pytest.raises(ValidationError):
             Nip11InfoDataFeeEntry(amount=100, unit="sats", kinds=["four"])
+
+    def test_constructor_rejects_negative_kind(self):
+        """Constructor raises ValidationError for negative fee kinds."""
+        with pytest.raises(ValidationError):
+            Nip11InfoDataFeeEntry(amount=100, unit="sats", kinds=[-1, 4])
 
 
 class TestNip11InfoDataFeeEntryParse:
@@ -393,7 +479,7 @@ class TestNip11InfoDataFeeEntryParse:
 
     def test_parse_valid_data(self):
         """Valid data is parsed correctly."""
-        data = {"amount": 1000, "unit": "msats", "period": 30, "kinds": [1, 2]}
+        data = {"amount": 1000, "unit": "msats", "period": 30, "kinds": [2, 1, 2]}
         result = Nip11InfoDataFeeEntry.parse(data)
         assert result == {"amount": 1000, "unit": "msats", "period": 30, "kinds": [1, 2]}
 
@@ -405,9 +491,33 @@ class TestNip11InfoDataFeeEntryParse:
 
     def test_parse_filters_invalid_kinds(self):
         """Invalid kinds elements are filtered out."""
-        data = {"amount": 100, "unit": "sats", "kinds": [1, True, "two", 3]}
+        data = {"amount": 100, "unit": "sats", "kinds": [3, 1, True, "two", 3]}
         result = Nip11InfoDataFeeEntry.parse(data)
         assert result == {"amount": 100, "unit": "sats", "kinds": [1, 3]}
+
+    def test_parse_preserves_explicit_empty_kinds(self):
+        """Explicit empty kinds list is preserved because the constructor accepts it."""
+        data = {"amount": 100, "unit": "sats", "kinds": []}
+        result = Nip11InfoDataFeeEntry.parse(data)
+        assert result == {"amount": 100, "unit": "sats", "kinds": []}
+
+    def test_parse_filters_negative_kinds(self):
+        """Negative fee kinds are filtered out."""
+        data = {"amount": 100, "unit": "sats", "kinds": [3, -1, 1]}
+        result = Nip11InfoDataFeeEntry.parse(data)
+        assert result == {"amount": 100, "unit": "sats", "kinds": [1, 3]}
+
+    def test_parse_filters_negative_amount_and_period(self):
+        """Negative fee budgets are filtered out."""
+        data = {"amount": -100, "unit": "sats", "period": -30, "kinds": [3]}
+        result = Nip11InfoDataFeeEntry.parse(data)
+        assert result == {"unit": "sats", "kinds": [3]}
+
+    def test_parse_filters_blank_unit(self):
+        """Blank or whitespace-only fee units are filtered out."""
+        data = {"amount": 100, "unit": " ", "period": 30, "kinds": [3]}
+        result = Nip11InfoDataFeeEntry.parse(data)
+        assert result == {"amount": 100, "period": 30, "kinds": [3]}
 
 
 class TestNip11InfoDataFeeEntryToDict:
@@ -463,6 +573,22 @@ class TestNip11InfoDataFeesConstructor:
         fees = Nip11InfoDataFees(admission=[{"amount": 1000}])
         assert fees.admission[0].amount == 1000
 
+    def test_constructor_normalizes_fee_entry_order(self):
+        """Constructor sorts fee entries to a stable canonical order."""
+        fees = Nip11InfoDataFees(
+            publication=[
+                {"kinds": [42], "amount": 500, "unit": "msats"},
+                {"amount": 100, "unit": "msats"},
+                {"kinds": [4], "amount": 100, "unit": "msats"},
+            ]
+        )
+        assert fees.publication is not None
+        assert [entry.to_dict() for entry in fees.publication] == [
+            {"amount": 100, "unit": "msats"},
+            {"amount": 100, "unit": "msats", "kinds": [4]},
+            {"amount": 500, "unit": "msats", "kinds": [42]},
+        ]
+
 
 class TestNip11InfoDataFeesParse:
     """Test Nip11InfoDataFees.parse() method."""
@@ -477,6 +603,24 @@ class TestNip11InfoDataFeesParse:
         assert result == {
             "admission": [{"amount": 1000, "unit": "msats"}],
             "subscription": [{"amount": 500, "unit": "msats", "period": 30}],
+        }
+
+    def test_parse_normalizes_fee_entry_order(self):
+        """Fee entry lists are normalized to a stable canonical order."""
+        data = {
+            "publication": [
+                {"kinds": [42], "amount": 500, "unit": "msats"},
+                {"amount": 100, "unit": "msats"},
+                {"kinds": [4], "amount": 100, "unit": "msats"},
+            ]
+        }
+        result = Nip11InfoDataFees.parse(data)
+        assert result == {
+            "publication": [
+                {"amount": 100, "unit": "msats"},
+                {"amount": 100, "unit": "msats", "kinds": [4]},
+                {"amount": 500, "unit": "msats", "kinds": [42]},
+            ]
         }
 
     def test_parse_empty_entries_filtered(self):
@@ -496,6 +640,12 @@ class TestNip11InfoDataFeesParse:
         data = {"admission": [{"invalid": "data"}]}
         result = Nip11InfoDataFees.parse(data)
         assert "admission" not in result
+
+    def test_parse_preserves_explicit_empty_entry_lists(self):
+        """Explicit empty fee lists are preserved because the constructor accepts them."""
+        data = {"admission": []}
+        result = Nip11InfoDataFees.parse(data)
+        assert result == {"admission": []}
 
 
 class TestNip11InfoDataFeesRoundtrip:
@@ -537,6 +687,113 @@ class TestNip11InfoDataConstructor:
         assert data.description == "A test relay"
         assert data.supported_nips == [1, 11, 42]
 
+    def test_constructor_normalizes_supported_nips(self):
+        """Constructor deduplicates and sorts supported_nips."""
+        data = Nip11InfoData(supported_nips=[42, 1, 11, 42, 1])
+        assert data.supported_nips == [1, 11, 42]
+
+    @pytest.mark.parametrize(
+        ("kwargs", "message"),
+        [
+            ({"name": " "}, "name must be a non-empty string"),
+            ({"description": ""}, "description must be a non-empty string"),
+            ({"banner": " "}, "banner must be a non-empty string"),
+            ({"icon": ""}, "icon must be a non-empty string"),
+            ({"pubkey": " "}, "pubkey must be a non-empty string"),
+            ({"self_pubkey": ""}, "self_pubkey must be a non-empty string"),
+            ({"contact": " "}, "contact must be a non-empty string"),
+            ({"software": ""}, "software must be a non-empty string"),
+            ({"version": " "}, "version must be a non-empty string"),
+            ({"privacy_policy": ""}, "privacy_policy must be a non-empty string"),
+            ({"terms_of_service": " "}, "terms_of_service must be a non-empty string"),
+            ({"posting_policy": ""}, "posting_policy must be a non-empty string"),
+            ({"payments_url": " "}, "payments_url must be a non-empty string"),
+        ],
+    )
+    def test_constructor_rejects_blank_scalar_strings(
+        self, kwargs: dict[str, str], message: str
+    ) -> None:
+        """Constructor rejects blank or whitespace-only scalar strings."""
+        with pytest.raises(ValidationError, match=message):
+            Nip11InfoData(**kwargs)
+
+    @pytest.mark.parametrize(
+        ("kwargs", "message"),
+        [
+            ({"pubkey": "not-a-pubkey"}, "pubkey must be a 64-character hex string"),
+            ({"pubkey": "a" * 63}, "pubkey must be a 64-character hex string"),
+            ({"self_pubkey": "xyz789"}, "self_pubkey must be a 64-character hex string"),
+            ({"self_pubkey": "g" * 64}, "self_pubkey must be a 64-character hex string"),
+        ],
+    )
+    def test_constructor_rejects_malformed_pubkeys(
+        self, kwargs: dict[str, str], message: str
+    ) -> None:
+        """Constructor rejects malformed relay and self pubkeys."""
+        with pytest.raises(ValidationError, match=message):
+            Nip11InfoData(**kwargs)
+
+    def test_constructor_normalizes_set_like_string_lists(self):
+        """Constructor deduplicates and sorts set-like string list fields."""
+        data = Nip11InfoData(
+            relay_countries=["us", "DE", "us"],
+            language_tags=["EN-us", "en", "zh-hant-tw", "en-US"],
+            tags=["Bitcoin", "nostr", "bitcoin"],
+            attributes=["Search", "Community", "Search"],
+        )
+        assert data.relay_countries == ["DE", "US"]
+        assert data.language_tags == ["en", "en-US", "zh-Hant-TW"]
+        assert data.tags == ["bitcoin", "nostr"]
+        assert data.attributes == ["Community", "Search"]
+
+    def test_constructor_canonicalizes_language_tag_wildcard(self) -> None:
+        """Wildcard language support collapses mixed language tag payloads to one canonical value."""
+        data = Nip11InfoData(language_tags=["EN-us", "*", "zh-hant-tw"])
+        assert data.language_tags == ["*"]
+
+    @pytest.mark.parametrize(
+        ("kwargs", "message"),
+        [
+            ({"relay_countries": ["", "US"]}, "relay_countries entries must be non-empty strings"),
+            ({"language_tags": [" ", "en"]}, "language_tags entries must be non-empty strings"),
+            ({"tags": ["", "relay"]}, "tags entries must be non-empty strings"),
+            ({"attributes": ["  ", "Search"]}, "attributes entries must be non-empty strings"),
+        ],
+    )
+    def test_constructor_rejects_blank_string_list_entries(
+        self, kwargs: dict[str, list[str]], message: str
+    ) -> None:
+        """Constructor rejects blank or whitespace-only string list entries."""
+        with pytest.raises(ValidationError, match=message):
+            Nip11InfoData(**kwargs)
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            ["USA", "DE"],
+            ["u1", "DE"],
+        ],
+    )
+    def test_constructor_rejects_invalid_relay_country_entries(self, value: list[str]) -> None:
+        """Constructor rejects malformed relay country codes."""
+        with pytest.raises(
+            ValidationError, match="relay_countries entries must be ISO 3166-1 alpha-2 codes"
+        ):
+            Nip11InfoData(relay_countries=value)
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            ["search", "Search"],
+            ["Public Inbox"],
+            ["public-inbox"],
+        ],
+    )
+    def test_constructor_rejects_non_pascal_case_attributes(self, value: list[str]) -> None:
+        """Constructor rejects malformed attribute labels that are not PascalCase."""
+        with pytest.raises(ValidationError, match="attributes entries must be PascalCase strings"):
+            Nip11InfoData(attributes=value)
+
     def test_constructor_rejects_non_str_name(self):
         """Constructor raises ValidationError for non-str name."""
         with pytest.raises(ValidationError):
@@ -546,6 +803,11 @@ class TestNip11InfoDataConstructor:
         """Constructor raises ValidationError for bool in supported_nips."""
         with pytest.raises(ValidationError):
             Nip11InfoData(supported_nips=[True, 11])
+
+    def test_constructor_rejects_negative_supported_nip(self):
+        """Constructor raises ValidationError for negative supported_nips."""
+        with pytest.raises(ValidationError):
+            Nip11InfoData(supported_nips=[-1, 11])
 
     def test_constructor_rejects_non_str_in_tags(self):
         """Constructor raises ValidationError for non-str in tags list."""
@@ -567,27 +829,43 @@ class TestNip11InfoDataConstructor:
         data = Nip11InfoData(retention=[{"kinds": [1]}])
         assert data.retention[0].kinds == [1]
 
+    def test_constructor_normalizes_retention_entry_order(self):
+        """Constructor sorts retention entries to a stable canonical order."""
+        data = Nip11InfoData(
+            retention=[
+                {"kinds": [[30000, 39999]], "count": 100},
+                {"kinds": [0, 3]},
+                {"kinds": [[10000, 19999]], "time": 86400},
+            ]
+        )
+        assert data.retention is not None
+        assert [entry.to_dict() for entry in data.retention] == [
+            {"kinds": [0, 3]},
+            {"kinds": [[10000, 19999]], "time": 86400},
+            {"kinds": [[30000, 39999]], "count": 100},
+        ]
+
 
 class TestNip11InfoDataSelfProperty:
     """Test Nip11InfoData.self property and alias handling."""
 
     def test_self_property_returns_self_pubkey(self):
         """self property returns self_pubkey value."""
-        data = Nip11InfoData(self_pubkey="abc123")
-        assert data.self == "abc123"
+        data = Nip11InfoData(self_pubkey=_VALID_SELF_PUBKEY)
+        assert data.self == _VALID_SELF_PUBKEY
 
     def test_self_alias_in_from_dict(self):
         """'self' key in dict maps to self_pubkey field."""
-        data = Nip11InfoData.from_dict({"self": "xyz789"})
-        assert data.self_pubkey == "xyz789"
-        assert data.self == "xyz789"
+        data = Nip11InfoData.from_dict({"self": _VALID_SELF_PUBKEY})
+        assert data.self_pubkey == _VALID_SELF_PUBKEY
+        assert data.self == _VALID_SELF_PUBKEY
 
     def test_self_alias_in_to_dict(self):
         """to_dict outputs 'self' key (via alias)."""
-        data = Nip11InfoData(self_pubkey="abc123")
+        data = Nip11InfoData(self_pubkey=_VALID_SELF_PUBKEY)
         d = data.to_dict()
         assert "self" in d
-        assert d["self"] == "abc123"
+        assert d["self"] == _VALID_SELF_PUBKEY
         assert "self_pubkey" not in d
 
 
@@ -601,14 +879,30 @@ class TestNip11InfoDataParse:
             "description": "A test relay",
             "supported_nips": [1, 11, 42],
             "limitation": {"max_message_length": 65535},
-            "relay_countries": ["US", "DE"],
+            "relay_countries": ["us", "DE", "us"],
+            "language_tags": ["EN-us", "en", "zh-hant-tw", "en-US"],
+            "tags": ["Bitcoin", "nostr", "bitcoin"],
+            "attributes": ["Search", "Community", "Search"],
         }
         result = Nip11InfoData.parse(data)
         assert result["name"] == "Test Relay"
         assert result["description"] == "A test relay"
         assert result["supported_nips"] == [1, 11, 42]
         assert result["limitation"] == {"max_message_length": 65535}
-        assert result["relay_countries"] == ["US", "DE"]
+        assert result["relay_countries"] == ["DE", "US"]
+        assert result["language_tags"] == ["en", "en-US", "zh-Hant-TW"]
+        assert result["tags"] == ["bitcoin", "nostr"]
+        assert result["attributes"] == ["Community", "Search"]
+
+    def test_parse_canonicalizes_language_tag_wildcard(self) -> None:
+        """Wildcard language tags dominate mixed payloads during parse()."""
+        result = Nip11InfoData.parse({"language_tags": ["EN-us", "*", "zh-hant-tw"]})
+        assert result == {"language_tags": ["*"]}
+
+    def test_parse_canonicalizes_topic_tags(self) -> None:
+        """Topic tags collapse case-only variants to one canonical lowercase value."""
+        result = Nip11InfoData.parse({"tags": ["Bitcoin", "nostr", "bitcoin"]})
+        assert result == {"tags": ["bitcoin", "nostr"]}
 
     def test_parse_invalid_types_ignored(self):
         """Invalid types are ignored."""
@@ -623,30 +917,122 @@ class TestNip11InfoDataParse:
     def test_parse_nested_objects(self):
         """Nested objects are parsed correctly."""
         data = {
-            "retention": [{"kinds": [1, 2], "time": 3600}],
+            "retention": [
+                {"kinds": [[30000, 39999]], "count": 100},
+                {"kinds": [1, 2], "time": 3600},
+                {"kinds": [[10000, 19999]], "time": 86400},
+            ],
             "fees": {"admission": [{"amount": 1000, "unit": "msats"}]},
         }
         result = Nip11InfoData.parse(data)
-        assert result["retention"] == [{"kinds": [1, 2], "time": 3600}]
+        assert result["retention"] == [
+            {"kinds": [1, 2], "time": 3600},
+            {"kinds": [(10000, 19999)], "time": 86400},
+            {"kinds": [(30000, 39999)], "count": 100},
+        ]
         assert result["fees"] == {"admission": [{"amount": 1000, "unit": "msats"}]}
+
+    def test_parse_preserves_explicit_empty_lists(self):
+        """Explicit empty lists survive the parse path when the model accepts them."""
+        data = {
+            "supported_nips": [],
+            "relay_countries": [],
+            "language_tags": [],
+            "tags": [],
+            "attributes": [],
+            "retention": [],
+            "fees": {"admission": []},
+        }
+        result = Nip11InfoData.parse(data)
+        assert result == {
+            "supported_nips": [],
+            "relay_countries": [],
+            "language_tags": [],
+            "tags": [],
+            "attributes": [],
+            "retention": [],
+            "fees": {"admission": []},
+        }
 
     def test_parse_filters_bools_from_supported_nips(self):
         """Bools are filtered from supported_nips."""
-        data = {"supported_nips": [1, True, 11, False, 42]}
+        data = {"supported_nips": [42, True, 11, False, 1, 42]}
+        result = Nip11InfoData.parse(data)
+        assert result["supported_nips"] == [1, 11, 42]
+
+    def test_parse_filters_negative_supported_nips(self):
+        """Negative supported_nips are filtered out."""
+        data = {"supported_nips": [42, -1, 11, 1, -5, 42]}
         result = Nip11InfoData.parse(data)
         assert result["supported_nips"] == [1, 11, 42]
 
     def test_parse_filters_non_strings_from_tags(self):
         """Non-strings are filtered from tags."""
-        data = {"tags": ["valid", 42, "also valid", None]}
+        data = {"tags": ["valid", 42, "also valid", None, "valid"]}
         result = Nip11InfoData.parse(data)
-        assert result["tags"] == ["valid", "also valid"]
+        assert result["tags"] == ["also valid", "valid"]
+
+    def test_parse_filters_invalid_relay_country_entries(self):
+        """Malformed relay country codes are filtered from parse output."""
+        data = {"relay_countries": ["us", "USA", "u1", "DE"]}
+        result = Nip11InfoData.parse(data)
+        assert result == {"relay_countries": ["DE", "US"]}
+
+    def test_parse_filters_blank_string_list_entries(self):
+        """Blank string entries are filtered from NIP-11 string lists."""
+        data = {
+            "relay_countries": ["", "US"],
+            "language_tags": [" ", "en"],
+            "tags": ["", "relay"],
+            "attributes": ["  ", "Search"],
+        }
+        result = Nip11InfoData.parse(data)
+        assert result == {
+            "relay_countries": ["US"],
+            "language_tags": ["en"],
+            "tags": ["relay"],
+            "attributes": ["Search"],
+        }
+
+    def test_parse_filters_non_pascal_case_attributes(self):
+        """Malformed attribute labels are filtered from parse output."""
+        data = {
+            "attributes": ["Search", "search", "Public Inbox", "PrivateStorage"],
+        }
+        result = Nip11InfoData.parse(data)
+        assert result == {"attributes": ["PrivateStorage", "Search"]}
+
+    def test_parse_filters_blank_scalar_string_entries(self):
+        """Blank scalar strings are filtered from NIP-11 descriptor fields."""
+        data = {
+            "name": " ",
+            "software": "",
+            "icon": "   ",
+            "contact": "ops@example.com",
+        }
+        result = Nip11InfoData.parse(data)
+        assert result == {"contact": "ops@example.com"}
 
     def test_parse_self_field(self):
-        """'self' field is parsed as string."""
-        data = {"self": "abc123def456"}
+        """parse() returns the constructor-ready internal field name for ``self``."""
+        data = {"self": _VALID_SELF_PUBKEY}
         result = Nip11InfoData.parse(data)
-        assert result["self"] == "abc123def456"
+        assert result == {"self_pubkey": _VALID_SELF_PUBKEY}
+
+    def test_parse_accepts_canonical_self_pubkey_input(self):
+        """parse() is idempotent on its canonical internal self-pubkey payload."""
+        result = Nip11InfoData.parse({"self_pubkey": _VALID_SELF_PUBKEY})
+        assert result == {"self_pubkey": _VALID_SELF_PUBKEY}
+
+    def test_parse_filters_malformed_pubkeys(self):
+        """Malformed relay and self pubkeys are filtered from parse output."""
+        data = {
+            "name": "relay",
+            "pubkey": "bad",
+            "self": "also-bad",
+        }
+        result = Nip11InfoData.parse(data)
+        assert result == {"name": "relay"}
 
     def test_parse_non_dict_returns_empty(self):
         """Non-dict input returns empty dict."""
@@ -668,6 +1054,62 @@ class TestNip11InfoDataParse:
         assert model.supported_nips == [1, 11]
         assert model.limitation.auth_required is False
         assert model.limitation.max_message_length is None
+
+    def test_parse_report_records_nested_and_unknown_issues(self):
+        """parse_report() preserves parsed data while recording dropped fields."""
+        report = Nip11InfoData.parse_report(
+            {
+                "name": "Test Relay",
+                "invalid_field": "ignored",
+                "supported_nips": [1, True, "invalid", -1],
+                "limitation": {"max_message_length": "bad", "auth_required": False},
+            }
+        )
+
+        assert report.parsed == {
+            "name": "Test Relay",
+            "supported_nips": [1],
+            "limitation": {"auth_required": False},
+        }
+        assert [issue.kind for issue in report.issues] == [
+            "unknown_field",
+            "invalid_value",
+            "invalid_value",
+            "invalid_value",
+            "invalid_value",
+        ]
+        assert [issue.path for issue in report.issues] == [
+            "invalid_field",
+            "supported_nips[1]",
+            "supported_nips[2]",
+            "supported_nips[3]",
+            "limitation.max_message_length",
+        ]
+
+    def test_parse_report_does_not_flag_explicit_empty_lists_as_invalid(self):
+        """Canonical empty lists should not be reported as dropped invalid input."""
+        report = Nip11InfoData.parse_report(
+            {
+                "supported_nips": [],
+                "relay_countries": [],
+                "language_tags": [],
+                "tags": [],
+                "attributes": [],
+                "retention": [],
+                "fees": {"admission": []},
+            }
+        )
+
+        assert report.parsed == {
+            "supported_nips": [],
+            "relay_countries": [],
+            "language_tags": [],
+            "tags": [],
+            "attributes": [],
+            "retention": [],
+            "fees": {"admission": []},
+        }
+        assert report.issues == ()
 
 
 class TestNip11InfoDataFromDict:

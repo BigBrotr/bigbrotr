@@ -30,11 +30,14 @@ from bigbrotr.services.finder import (
     FinderConfig,
 )
 from bigbrotr.services.finder.queries import (
+    count_relays_to_find,
     delete_stale_api_checkpoints,
     delete_stale_cursors,
     fetch_api_checkpoints,
     fetch_cursors_to_find,
-    scan_event_relay,
+    fetch_cursors_to_find_page,
+    iter_cursors_to_find_pages,
+    scan_event_observation,
     upsert_api_checkpoints,
     upsert_finder_cursors,
 )
@@ -42,7 +45,7 @@ from bigbrotr.services.finder.utils import (
     extract_relays_from_response,
     extract_relays_from_tagvalues,
     fetch_api,
-    stream_event_relays,
+    stream_event_observations,
 )
 
 
@@ -89,6 +92,12 @@ async def _mock_stream(*rows: dict[str, Any]) -> AsyncGenerator[dict[str, Any], 
         yield row
 
 
+async def _mock_pages(*pages: list[Any]) -> AsyncGenerator[list[Any], None]:
+    """Create an async generator that yields the given pages."""
+    for page in pages:
+        yield page
+
+
 # ============================================================================
 # Configs
 # ============================================================================
@@ -106,6 +115,19 @@ class TestEventsConfig:
     def test_disabled(self) -> None:
         config = EventsConfig(enabled=False)
         assert config.enabled is False
+
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            EventsConfig.model_validate({b"enabled": False})
+
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            EventsConfig.model_validate({"relay_scan": False})
+
+    @pytest.mark.parametrize("value", ["true", 1, 0])
+    def test_rejects_non_boolean_enabled_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"enabled: expected bool, got"):
+            EventsConfig(enabled=value)
 
     @pytest.mark.parametrize(
         ("field", "valid_min", "valid_max", "below_min", "above_max"),
@@ -140,6 +162,42 @@ class TestEventsConfig:
         with pytest.raises(ValueError):
             EventsConfig(**{field: above_max})
 
+    @pytest.mark.parametrize(
+        ("field_name", "field_value"),
+        [
+            ("max_relay_time", "30"),
+            ("max_relay_time", "30.5"),
+            ("max_relay_time", True),
+            ("max_duration", "120"),
+            ("max_duration", "120.5"),
+            ("max_duration", False),
+        ],
+    )
+    def test_rejects_non_numeric_phase_budgets(self, field_name: str, field_value: object) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected number, got"):
+            EventsConfig(**{field_name: field_value})
+
+    def test_rejects_boolean_parallel_relays_alias(self) -> None:
+        with pytest.raises(ValueError, match="parallel_relays: expected integer, got bool"):
+            EventsConfig(parallel_relays=True)
+
+    @pytest.mark.parametrize(
+        ("field_name", "field_value"),
+        [
+            ("scan_size", "500"),
+            ("scan_size", 500.0),
+            ("scan_size", True),
+            ("batch_size", "500"),
+            ("batch_size", 500.0),
+            ("batch_size", False),
+            ("parallel_relays", "60"),
+            ("parallel_relays", 60.0),
+        ],
+    )
+    def test_rejects_non_integer_scan_controls(self, field_name: str, field_value: object) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected integer, got"):
+            EventsConfig(**{field_name: field_value})
+
 
 class TestApiSourceConfig:
     def test_default_values(self) -> None:
@@ -150,6 +208,26 @@ class TestApiSourceConfig:
         assert config.timeout == 30.0
         assert config.expression == "[*]"
         assert config.allow_insecure is False
+
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            ApiSourceConfig.model_validate(
+                {
+                    "url": "https://api.example.com",
+                    "expression": "[*]",
+                    b"enabled": False,
+                }
+            )
+
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            ApiSourceConfig.model_validate(
+                {
+                    "url": "https://api.example.com",
+                    "expression": "[*]",
+                    "name": "nostr_wine",
+                }
+            )
 
     def test_expression_required(self) -> None:
         with pytest.raises(ValidationError):
@@ -183,6 +261,20 @@ class TestApiSourceConfig:
         )
         assert config.expression == "data.relays[*].url"
 
+    def test_expression_is_stripped(self) -> None:
+        config = ApiSourceConfig(
+            url="https://api.example.com",
+            expression=" data.relays[*].url ",
+        )
+        assert config.expression == "data.relays[*].url"
+
+    def test_blank_expression_rejected(self) -> None:
+        with pytest.raises(ValueError, match="expression must not be blank"):
+            ApiSourceConfig(
+                url="https://api.example.com",
+                expression="   ",
+            )
+
     def test_invalid_expression_rejected(self) -> None:
         with pytest.raises(ValueError, match="invalid JMESPath expression"):
             ApiSourceConfig(
@@ -202,11 +294,101 @@ class TestApiSourceConfig:
         )
         assert config.connect_timeout == 10.0
 
+    @pytest.mark.parametrize(
+        ("field_name", "kwargs"),
+        [
+            ("timeout", {"timeout": True, "connect_timeout": 0.5}),
+            ("connect_timeout", {"timeout": 10.0, "connect_timeout": True}),
+        ],
+    )
+    def test_rejects_boolean_timeout_aliases(
+        self,
+        field_name: str,
+        kwargs: dict[str, float | bool],
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected number, got bool"):
+            ApiSourceConfig(url="https://api.com", expression="[*]", **kwargs)
+
+    @pytest.mark.parametrize(
+        ("field_name", "kwargs"),
+        [
+            ("timeout", {"timeout": "30", "connect_timeout": 0.5}),
+            ("timeout", {"timeout": "30.5", "connect_timeout": 0.5}),
+            ("connect_timeout", {"timeout": 10.0, "connect_timeout": "10"}),
+            ("connect_timeout", {"timeout": 10.0, "connect_timeout": "10.5"}),
+        ],
+    )
+    def test_rejects_non_numeric_timeout_aliases(
+        self,
+        field_name: str,
+        kwargs: dict[str, object],
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected number, got"):
+            ApiSourceConfig(url="https://api.com", expression="[*]", **kwargs)
+
     def test_allow_insecure_enabled(self) -> None:
         config = ApiSourceConfig(
             url="https://internal.api.com", expression="[*]", allow_insecure=True
         )
         assert config.allow_insecure is True
+
+    @pytest.mark.parametrize(
+        ("field_name", "field_value"),
+        [
+            ("enabled", "true"),
+            ("enabled", 1),
+            ("allow_insecure", "false"),
+            ("allow_insecure", 0),
+        ],
+    )
+    def test_rejects_non_boolean_flag_aliases(self, field_name: str, field_value: object) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected bool, got"):
+            ApiSourceConfig(
+                url="https://api.example.com",
+                expression="[*]",
+                **{field_name: field_value},
+            )
+
+    def test_url_is_stripped(self) -> None:
+        config = ApiSourceConfig(url="  https://api.example.com/path  ", expression="[*]")
+        assert config.url == "https://api.example.com/path"
+
+    def test_url_canonicalizes_scheme_and_hostname(self) -> None:
+        config = ApiSourceConfig(
+            url="  HTTPS://API.EXAMPLE.COM/path?q=1#frag  ",
+            expression="[*]",
+        )
+        assert config.url == "https://api.example.com/path?q=1"
+
+    def test_url_strips_default_https_port(self) -> None:
+        config = ApiSourceConfig(
+            url="  HTTPS://API.EXAMPLE.COM:443/path?q=1  ",
+            expression="[*]",
+        )
+        assert config.url == "https://api.example.com/path?q=1"
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "",
+            "   ",
+            "api.example.com",
+            "wss://relay.example.com",
+            "ftp://api.example.com",
+            "https:///missing-host",
+        ],
+        ids=[
+            "empty",
+            "whitespace",
+            "missing-scheme",
+            "wrong-scheme-wss",
+            "wrong-scheme-ftp",
+            "missing-host",
+        ],
+    )
+    def test_invalid_url_rejected(self, url: str) -> None:
+        with pytest.raises(ValueError, match=r"http\(s\)|blank"):
+            ApiSourceConfig(url=url, expression="[*]")
 
 
 class TestApiConfig:
@@ -217,6 +399,19 @@ class TestApiConfig:
         assert len(config.sources) == 2
         assert config.request_delay == 1.0
         assert config.max_response_size == 5_242_880
+
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            ApiConfig.model_validate({b"enabled": False})
+
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            ApiConfig.model_validate({"nostr_wine": {"enabled": False}})
+
+    @pytest.mark.parametrize("value", ["false", 1, 0])
+    def test_rejects_non_boolean_enabled_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"enabled: expected bool, got"):
+            ApiConfig(enabled=value)
 
     def test_default_sources(self) -> None:
         config = ApiConfig()
@@ -236,6 +431,111 @@ class TestApiConfig:
         assert len(config.sources) == 2
         assert config.sources[0].url == "https://custom1.api.com"
 
+    def test_duplicate_source_urls_rejected(self) -> None:
+        with pytest.raises(ValueError, match="duplicate finder API source URLs"):
+            ApiConfig(
+                sources=[
+                    ApiSourceConfig(url="https://dup.api.com", expression="[*]"),
+                    ApiSourceConfig(url="https://dup.api.com", expression="data.relays"),
+                ]
+            )
+
+    def test_duplicate_source_urls_rejected_after_url_canonicalization(self) -> None:
+        with pytest.raises(ValueError, match="duplicate finder API source URLs"):
+            ApiConfig(
+                sources=[
+                    ApiSourceConfig(url="https://dup.api.com/path", expression="[*]"),
+                    ApiSourceConfig(url="HTTPS://DUP.API.COM/path", expression="data.relays"),
+                ]
+            )
+
+    def test_duplicate_source_urls_rejected_after_fragment_stripping(self) -> None:
+        with pytest.raises(ValueError, match="duplicate finder API source URLs"):
+            ApiConfig(
+                sources=[
+                    ApiSourceConfig(url="https://dup.api.com/path#one", expression="[*]"),
+                    ApiSourceConfig(url="https://dup.api.com/path#two", expression="data.relays"),
+                ]
+            )
+
+    def test_duplicate_source_urls_rejected_after_default_port_stripping(self) -> None:
+        with pytest.raises(ValueError, match="duplicate finder API source URLs"):
+            ApiConfig(
+                sources=[
+                    ApiSourceConfig(url="https://dup.api.com/path", expression="[*]"),
+                    ApiSourceConfig(
+                        url="HTTPS://DUP.API.COM:443/path",
+                        expression="data.relays",
+                    ),
+                ]
+            )
+
+    def test_nested_source_expression_is_canonicalized(self) -> None:
+        config = ApiConfig(
+            sources=[
+                {
+                    "url": "https://api.example.com",
+                    "expression": " data.relays[*].url ",
+                }
+            ]
+        )
+        assert config.sources[0].expression == "data.relays[*].url"
+
+    def test_nested_source_url_is_canonicalized(self) -> None:
+        config = ApiConfig(
+            sources=[
+                {
+                    "url": " HTTPS://API.EXAMPLE.COM:443/path#frag ",
+                    "expression": "[*]",
+                }
+            ]
+        )
+        assert config.sources[0].url == "https://api.example.com/path"
+
+    @pytest.mark.parametrize(
+        ("field_name", "field_value"),
+        [
+            ("enabled", "true"),
+            ("enabled", 1),
+            ("allow_insecure", "false"),
+            ("allow_insecure", 0),
+        ],
+    )
+    def test_nested_sources_reject_non_boolean_flag_aliases(
+        self, field_name: str, field_value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected bool, got"):
+            ApiConfig(
+                sources=[
+                    {
+                        "url": "https://api.example.com",
+                        "expression": "[*]",
+                        field_name: field_value,
+                    }
+                ]
+            )
+
+    @pytest.mark.parametrize(
+        ("field_name", "field_value"),
+        [
+            ("timeout", "30"),
+            ("connect_timeout", "10.5"),
+        ],
+    )
+    def test_nested_sources_reject_non_numeric_timeout_aliases(
+        self, field_name: str, field_value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected number, got"):
+            ApiConfig(
+                sources=[
+                    {
+                        "url": "https://api.example.com",
+                        "expression": "[*]",
+                        field_name: field_value,
+                    }
+                ]
+            )
+
     @pytest.mark.parametrize(
         ("size", "should_fail"),
         [
@@ -251,6 +551,39 @@ class TestApiConfig:
         else:
             assert ApiConfig(max_response_size=size).max_response_size == size
 
+    @pytest.mark.parametrize("value", ["5242880", 5_242_880.0, True])
+    def test_rejects_non_integer_max_response_size_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"max_response_size: expected integer, got"):
+            ApiConfig(max_response_size=value)
+
+    @pytest.mark.parametrize(
+        ("field_name", "kwargs"),
+        [
+            ("cooldown", {"cooldown": True}),
+            ("request_delay", {"request_delay": False}),
+        ],
+    )
+    def test_rejects_boolean_pacing_aliases(
+        self,
+        field_name: str,
+        kwargs: dict[str, bool],
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected number, got bool"):
+            ApiConfig(**kwargs)
+
+    @pytest.mark.parametrize(
+        ("field_name", "field_value"),
+        [
+            ("cooldown", "86400"),
+            ("cooldown", "86400.5"),
+            ("request_delay", "1"),
+            ("request_delay", "1.5"),
+        ],
+    )
+    def test_rejects_non_numeric_pacing_aliases(self, field_name: str, field_value: object) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected number, got"):
+            ApiConfig(**{field_name: field_value})
+
 
 class TestFinderConfig:
     def test_default_values(self) -> None:
@@ -260,6 +593,14 @@ class TestFinderConfig:
         assert config.max_consecutive_failures == 5
         assert config.events.enabled is True
         assert config.api.enabled is True
+
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            FinderConfig.model_validate({b"api": {"enabled": False}})
+
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            FinderConfig.model_validate({"event_scan": {"enabled": False}})
 
     def test_custom_nested_config(self) -> None:
         config = FinderConfig(
@@ -279,6 +620,123 @@ class TestFinderConfig:
         assert config.events.parallel_relays == 15
         assert config.events.max_relay_time == 30.0
         assert config.events.max_duration == 120.0
+
+    def test_duplicate_api_source_urls_rejected(self) -> None:
+        with pytest.raises(ValueError, match="duplicate finder API source URLs"):
+            FinderConfig(
+                api=ApiConfig(
+                    sources=[
+                        ApiSourceConfig(url="https://dup.api.com", expression="[*]"),
+                        ApiSourceConfig(url="https://dup.api.com", expression="data.relays"),
+                    ]
+                )
+            )
+
+    @pytest.mark.parametrize(
+        ("field_name", "field_value"),
+        [
+            ("api", {"enabled": "false"}),
+            ("events", {"enabled": 0}),
+        ],
+    )
+    def test_nested_phase_rejects_non_boolean_enabled_aliases(
+        self, field_name: str, field_value: dict[str, object]
+    ) -> None:
+        with pytest.raises(ValueError, match=r"enabled: expected bool, got"):
+            FinderConfig(**{field_name: field_value})
+
+    @pytest.mark.parametrize(
+        ("field_name", "field_value"),
+        [
+            ("scan_size", "500"),
+            ("batch_size", 500.0),
+            ("parallel_relays", "60"),
+        ],
+    )
+    def test_nested_events_reject_non_integer_scan_controls(
+        self, field_name: str, field_value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected integer, got"):
+            FinderConfig(events={field_name: field_value})
+
+    @pytest.mark.parametrize(
+        ("field_name", "field_value"),
+        [
+            ("max_relay_time", "30"),
+            ("max_duration", "120.5"),
+        ],
+    )
+    def test_nested_events_reject_non_numeric_phase_budgets(
+        self, field_name: str, field_value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected number, got"):
+            FinderConfig(events={field_name: field_value})
+
+    def test_nested_events_reject_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            FinderConfig.model_validate({"events": {b"enabled": False}})
+
+    def test_nested_events_reject_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            FinderConfig.model_validate({"events": {"relay_scan": False}})
+
+    @pytest.mark.parametrize(
+        ("field_name", "field_value"),
+        [
+            ("cooldown", "86400"),
+            ("request_delay", "1.5"),
+        ],
+    )
+    def test_nested_api_reject_non_numeric_pacing_aliases(
+        self, field_name: str, field_value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected number, got"):
+            FinderConfig(api={field_name: field_value})
+
+    @pytest.mark.parametrize("value", ["5242880", 5_242_880.0])
+    def test_nested_api_reject_non_integer_max_response_size_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"max_response_size: expected integer, got"):
+            FinderConfig(api={"max_response_size": value})
+
+    def test_nested_api_reject_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            FinderConfig.model_validate({"api": {b"enabled": False}})
+
+    def test_nested_api_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            FinderConfig.model_validate({"api": {"nostr_wine": {"enabled": False}}})
+
+    def test_nested_api_sources_reject_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            FinderConfig.model_validate(
+                {
+                    "api": {
+                        "sources": [
+                            {
+                                "url": "https://api.example.com",
+                                "expression": "[*]",
+                                b"enabled": False,
+                            }
+                        ]
+                    }
+                }
+            )
+
+    def test_nested_api_sources_reject_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            FinderConfig.model_validate(
+                {
+                    "api": {
+                        "sources": [
+                            {
+                                "url": "https://api.example.com",
+                                "expression": "[*]",
+                                "name": "nostr_wine",
+                            }
+                        ]
+                    }
+                }
+            )
 
 
 # ============================================================================
@@ -315,9 +773,10 @@ class TestExtractRelaysFromResponse:
         assert len(relays) == 1
         assert relays[0].url == "wss://r1.com"
 
-    def test_nonexistent_path_returns_empty(self) -> None:
+    def test_nonexistent_path_raises_value_error(self) -> None:
         data = {"other": ["wss://r1.com"]}
-        assert extract_relays_from_response(data, "relays") == []
+        with pytest.raises(ValueError, match="expected list"):
+            extract_relays_from_response(data, "relays")
 
     def test_extract_field_from_objects(self) -> None:
         data = [{"url": "wss://r1.com"}, {"url": "wss://r2.com"}]
@@ -345,12 +804,14 @@ class TestExtractRelaysFromResponse:
         [None, 42, "wss://r1.com"],
         ids=["none", "scalar", "string"],
     )
-    def test_non_list_data_returns_empty(self, data: Any) -> None:
-        assert extract_relays_from_response(data, "[*]") == []
+    def test_non_list_data_raises_value_error(self, data: Any) -> None:
+        with pytest.raises(ValueError, match="expected list"):
+            extract_relays_from_response(data, "[*]")
 
-    def test_expression_returns_non_list(self) -> None:
+    def test_expression_returning_non_list_raises_value_error(self) -> None:
         data = {"count": 5}
-        assert extract_relays_from_response(data, "count") == []
+        with pytest.raises(ValueError, match="expected list"):
+            extract_relays_from_response(data, "count")
 
     def test_empty_dict_keys(self) -> None:
         assert extract_relays_from_response({}, "keys(@)") == []
@@ -375,7 +836,7 @@ class TestExtractRelaysFromTagvalues:
                     "r:wss://relay1.example.com",
                     "r:wss://relay2.example.com",
                 ],
-                "seen_at": 1700000000,
+                "observed_at": 1700000000,
             }
         ]
 
@@ -396,7 +857,7 @@ class TestExtractRelaysFromTagvalues:
                     "t:nostr",
                     "r:wss://valid.relay.com",
                 ],
-                "seen_at": 1700000000,
+                "observed_at": 1700000000,
             }
         ]
 
@@ -412,7 +873,7 @@ class TestExtractRelaysFromTagvalues:
                     "p:wss://relay-from-p-tag.com",
                     "e:wss://relay-from-e-tag.com",
                 ],
-                "seen_at": 1700000000,
+                "observed_at": 1700000000,
             }
         ]
 
@@ -428,19 +889,19 @@ class TestExtractRelaysFromTagvalues:
         assert relays == []
 
     def test_none_tagvalues(self) -> None:
-        rows = [{"tagvalues": None, "seen_at": 1700000000}]
+        rows = [{"tagvalues": None, "observed_at": 1700000000}]
 
         relays = extract_relays_from_tagvalues(rows)
         assert relays == []
 
     def test_empty_tagvalues(self) -> None:
-        rows = [{"tagvalues": [], "seen_at": 1700000000}]
+        rows = [{"tagvalues": [], "observed_at": 1700000000}]
 
         relays = extract_relays_from_tagvalues(rows)
         assert relays == []
 
     def test_missing_tagvalues_key(self) -> None:
-        rows = [{"seen_at": 1700000000}]
+        rows = [{"observed_at": 1700000000}]
 
         relays = extract_relays_from_tagvalues(rows)
         assert relays == []
@@ -453,7 +914,7 @@ class TestExtractRelaysFromTagvalues:
                     "r:http://wrong-scheme.com",
                     "t:",
                 ],
-                "seen_at": 1700000000,
+                "observed_at": 1700000000,
             }
         ]
 
@@ -467,7 +928,7 @@ class TestExtractRelaysFromTagvalues:
                     "r:wss://relay.example.com",
                     "r:wss://relay.example.com",
                 ],
-                "seen_at": 1700000000,
+                "observed_at": 1700000000,
             }
         ]
 
@@ -476,8 +937,8 @@ class TestExtractRelaysFromTagvalues:
 
     def test_deduplication_across_rows(self) -> None:
         rows = [
-            {"tagvalues": ["r:wss://relay.example.com"], "seen_at": 1700000000},
-            {"tagvalues": ["r:wss://relay.example.com"], "seen_at": 1700000001},
+            {"tagvalues": ["r:wss://relay.example.com"], "observed_at": 1700000000},
+            {"tagvalues": ["r:wss://relay.example.com"], "observed_at": 1700000001},
         ]
 
         relays = extract_relays_from_tagvalues(rows)
@@ -487,15 +948,15 @@ class TestExtractRelaysFromTagvalues:
         rows = [
             {
                 "tagvalues": ["r:wss://good.relay.com", "e:" + "a" * 64],
-                "seen_at": 1700000000,
+                "observed_at": 1700000000,
             },
             {
                 "tagvalues": ["t:bitcoin", "r:wss://another.relay.com"],
-                "seen_at": 1700000001,
+                "observed_at": 1700000001,
             },
             {
                 "tagvalues": None,
-                "seen_at": 1700000002,
+                "observed_at": 1700000002,
             },
         ]
 
@@ -510,7 +971,7 @@ class TestExtractRelaysFromTagvalues:
         rows = [
             {
                 "tagvalues": ["r:ws://clearnet.relay.com"],
-                "seen_at": 1700000000,
+                "observed_at": 1700000000,
             }
         ]
 
@@ -522,7 +983,7 @@ class TestExtractRelaysFromTagvalues:
         rows = [
             {
                 "tagvalues": ["no-prefix-here"],
-                "seen_at": 1700000000,
+                "observed_at": 1700000000,
             }
         ]
 
@@ -530,7 +991,7 @@ class TestExtractRelaysFromTagvalues:
         assert relays == []
 
     def test_non_string_tagvalue_skipped(self) -> None:
-        rows = [{"tagvalues": [42, None, True], "seen_at": 1700000000}]
+        rows = [{"tagvalues": [42, None, True], "observed_at": 1700000000}]
         relays = extract_relays_from_tagvalues(rows)
         assert relays == []
 
@@ -615,14 +1076,117 @@ class TestFetchFinderCursors:
         sql = query_brotr.fetch.call_args[0][0]
         assert "LEFT JOIN cursors" in sql
         assert "FROM relay" in sql
+        assert "jsonb_typeof(state_value->'timestamp') = 'number'" in sql
+        assert "lower(state_value->>'id') ~ '^[0-9a-f]{64}$'" in sql
 
     async def test_empty_database(self, query_brotr: MagicMock) -> None:
         result = await fetch_cursors_to_find(query_brotr)
 
         assert result == []
 
+    async def test_invalid_persisted_cursor_defaults_to_sentinel(
+        self, query_brotr: MagicMock
+    ) -> None:
+        rows = [
+            _make_dict_row(
+                {
+                    "url": "wss://relay.com",
+                    "state_value": {"timestamp": "oops", "id": "bad"},
+                    "ts": 0,
+                    "cursor_id": "0" * 64,
+                }
+            ),
+        ]
+        query_brotr.fetch = AsyncMock(return_value=rows)
 
-class TestScanEventRelay:
+        result = await fetch_cursors_to_find(query_brotr)
+
+        assert result == [FinderCursor(key="wss://relay.com")]
+
+    async def test_invalid_persisted_cursor_id_preserves_sanitized_timestamp(
+        self, query_brotr: MagicMock
+    ) -> None:
+        rows = [
+            _make_dict_row(
+                {
+                    "url": "wss://relay.com",
+                    "state_value": {"timestamp": 25, "id": "bad"},
+                    "ts": 25,
+                    "cursor_id": "0" * 64,
+                }
+            ),
+        ]
+        query_brotr.fetch = AsyncMock(return_value=rows)
+
+        result = await fetch_cursors_to_find(query_brotr)
+
+        assert result == [FinderCursor(key="wss://relay.com", timestamp=25)]
+
+    async def test_negative_persisted_cursor_resets_full_cursor_pair(
+        self, query_brotr: MagicMock
+    ) -> None:
+        rows = [
+            _make_dict_row(
+                {
+                    "url": "wss://relay.com",
+                    "state_value": {"timestamp": -5, "id": "ab" * 32},
+                    "ts": 0,
+                    "cursor_id": "0" * 64,
+                }
+            ),
+        ]
+        query_brotr.fetch = AsyncMock(return_value=rows)
+
+        result = await fetch_cursors_to_find(query_brotr)
+
+        assert result == [FinderCursor(key="wss://relay.com")]
+
+
+class TestFinderCursorPages:
+    async def test_count_relays_to_find_uses_scalar_query(self, query_brotr: MagicMock) -> None:
+        query_brotr.fetchval = AsyncMock(return_value=7)
+
+        result = await count_relays_to_find(query_brotr)
+
+        assert result == 7
+        query_brotr.fetchval.assert_awaited_once_with("SELECT count(*)::int FROM relay")
+
+    async def test_page_query_applies_limit_and_after_cursor(self, query_brotr: MagicMock) -> None:
+        after = FinderCursor(key="wss://relay-1.example.com", timestamp=10, id="ab" * 32)
+
+        await fetch_cursors_to_find_page(query_brotr, after, limit=25)
+
+        args = query_brotr.fetch.call_args[0]
+        sql = args[0]
+        assert "LIMIT $6" in sql
+        assert "r.url" in sql
+        assert args[3] == 10
+        assert args[4] == "ab" * 32
+        assert args[5] == "wss://relay-1.example.com"
+        assert args[6] == 25
+
+    async def test_iter_pages_respects_page_size(self, query_brotr: MagicMock) -> None:
+        query_brotr.fetch = AsyncMock(
+            side_effect=[
+                [
+                    _make_dict_row({"url": "wss://relay1.example.com", "state_value": None}),
+                    _make_dict_row({"url": "wss://relay2.example.com", "state_value": None}),
+                ],
+                [
+                    _make_dict_row({"url": "wss://relay3.example.com", "state_value": None}),
+                ],
+            ]
+        )
+
+        pages = [page async for page in iter_cursors_to_find_pages(query_brotr, page_size=2)]
+
+        assert [[cursor.key for cursor in page] for page in pages] == [
+            ["wss://relay1.example.com", "wss://relay2.example.com"],
+            ["wss://relay3.example.com"],
+        ]
+
+
+class TestScanEventObservation:
     async def test_scan_with_cursor(self, query_brotr: MagicMock) -> None:
         event_id = "ab" * 32
         cursor = FinderCursor(
@@ -630,15 +1194,15 @@ class TestScanEventRelay:
             timestamp=1700000000,
             id=event_id,
         )
-        await scan_event_relay(query_brotr, cursor, limit=500)
+        await scan_event_observation(query_brotr, cursor, limit=500)
 
         query_brotr.fetch.assert_awaited_once()
         args = query_brotr.fetch.call_args
         sql = args[0][0]
         assert "FROM event e" in sql
-        assert "event_relay er" in sql
+        assert "event_observation er" in sql
         assert "relay_url = $1" in sql
-        assert "(er.seen_at, e.id) >" in sql
+        assert "(er.observed_at, e.id) >" in sql
         assert "LIMIT $4" in sql
         assert args[0][1] == "wss://source.relay.com"
         assert args[0][2] == 1700000000
@@ -647,7 +1211,7 @@ class TestScanEventRelay:
 
     async def test_scan_default_cursor(self, query_brotr: MagicMock) -> None:
         cursor = FinderCursor(key="wss://source.relay.com")
-        await scan_event_relay(query_brotr, cursor, limit=100)
+        await scan_event_observation(query_brotr, cursor, limit=100)
 
         args = query_brotr.fetch.call_args
         assert args[0][2] == 0
@@ -655,7 +1219,7 @@ class TestScanEventRelay:
 
     async def test_scan_empty(self, query_brotr: MagicMock) -> None:
         cursor = FinderCursor(key="wss://source.relay.com")
-        result = await scan_event_relay(query_brotr, cursor, limit=100)
+        result = await scan_event_observation(query_brotr, cursor, limit=100)
 
         assert result == []
 
@@ -677,20 +1241,26 @@ class TestFetchApiCheckpoints:
             ApiCheckpoint(key="https://api2.example.com", timestamp=1700001000),
         ]
 
-    async def test_malformed_defaults_to_zero(self, query_brotr: MagicMock) -> None:
+    async def test_invalid_payloads_default_to_zero(self, query_brotr: MagicMock) -> None:
         query_brotr.fetch = AsyncMock(
             return_value=[
                 {"state_key": "https://api1.example.com", "state_value": {"timestamp": 1700000000}},
                 {"state_key": "https://api2.example.com", "state_value": {}},
+                {"state_key": "https://api3.example.com", "state_value": {"timestamp": -1}},
             ]
         )
-        urls = ["https://api1.example.com", "https://api2.example.com"]
+        urls = [
+            "https://api1.example.com",
+            "https://api2.example.com",
+            "https://api3.example.com",
+        ]
 
         result = await fetch_api_checkpoints(query_brotr, urls)
 
         assert result == [
             ApiCheckpoint(key="https://api1.example.com", timestamp=1700000000),
             ApiCheckpoint(key="https://api2.example.com", timestamp=0),
+            ApiCheckpoint(key="https://api3.example.com", timestamp=0),
         ]
 
     async def test_empty_urls(self, query_brotr: MagicMock) -> None:
@@ -740,7 +1310,7 @@ class TestSaveApiCheckpoints:
         assert urls == {"https://api1.example.com", "https://api2.example.com"}
         by_key = {cp.key: cp.timestamp for cp in checkpoints}
         for r in records:
-            assert r.service_name == ServiceName.FINDER
+            assert r.owner == ServiceName.FINDER
             assert r.state_type == ServiceStateType.CHECKPOINT
             assert r.state_value == {"timestamp": by_key[r.state_key]}
 
@@ -868,6 +1438,138 @@ class TestFinderFindFromApi:
         assert result == 0
         finder.set_gauge.assert_not_called()
 
+    async def test_find_from_api_filters_disabled_sources(self, mock_brotr: Brotr) -> None:
+        config = FinderConfig(
+            api=ApiConfig(
+                enabled=True,
+                sources=[
+                    ApiSourceConfig(url="https://api1.example.com", expression="[*]"),
+                    ApiSourceConfig(
+                        url="https://api2.example.com",
+                        expression="[*]",
+                        enabled=False,
+                    ),
+                    ApiSourceConfig(url="https://api3.example.com", expression="[*]"),
+                ],
+            )
+        )
+        finder = Finder(brotr=mock_brotr, config=config)
+        finder.set_gauge = MagicMock()  # type: ignore[method-assign]
+        finder.inc_gauge = MagicMock()  # type: ignore[method-assign]
+        seen_sources: list[str] = []
+
+        async def fake_find_from_api_worker(
+            sources: list[ApiSourceConfig],
+        ) -> AsyncGenerator[tuple[list[Relay], ApiCheckpoint], None]:
+            seen_sources.extend(source.url for source in sources)
+            if False:
+                yield [], ApiCheckpoint(key="", timestamp=0)
+
+        with (
+            patch.object(finder, "_find_from_api_worker", new=fake_find_from_api_worker),
+            patch.object(
+                finder,
+                "_persist_api_discovery_results",
+                new_callable=AsyncMock,
+                return_value=0,
+            ) as mock_persist,
+        ):
+            result = await finder.find_from_api()
+
+        assert result == 0
+        assert seen_sources == [
+            "https://api1.example.com",
+            "https://api3.example.com",
+        ]
+        finder.set_gauge.assert_any_call("total_sources", 2)
+        mock_persist.assert_awaited_once()
+
+    def test_build_api_source_attempts_filters_sources_within_cooldown(
+        self,
+        mock_brotr: Brotr,
+    ) -> None:
+        config = FinderConfig(
+            api=ApiConfig(
+                enabled=True,
+                cooldown=3600.0,
+                sources=[
+                    ApiSourceConfig(url="https://api1.example.com", expression="[*]"),
+                    ApiSourceConfig(url="https://api2.example.com", expression="[*]"),
+                ],
+            )
+        )
+        finder = Finder(brotr=mock_brotr, config=config)
+
+        attempts = finder._build_api_source_attempts(
+            list(config.api.sources),
+            checkpoint_map={
+                "https://api1.example.com": ApiCheckpoint(
+                    key="https://api1.example.com", timestamp=900
+                ),
+                "https://api2.example.com": ApiCheckpoint(
+                    key="https://api2.example.com", timestamp=9_900
+                ),
+            },
+            now=10_000,
+        )
+
+        assert len(attempts) == 1
+        assert attempts[0].source.url == "https://api1.example.com"
+        assert attempts[0].last_checked == 900
+
+    def test_build_api_source_attempts_preserves_fractional_cooldown(
+        self,
+        mock_brotr: Brotr,
+    ) -> None:
+        config = FinderConfig(
+            api=ApiConfig(
+                enabled=True,
+                cooldown=3600.9,
+                sources=[ApiSourceConfig(url="https://api.example.com", expression="[*]")],
+            )
+        )
+        finder = Finder(brotr=mock_brotr, config=config)
+
+        attempts = finder._build_api_source_attempts(
+            list(config.api.sources),
+            checkpoint_map={
+                "https://api.example.com": ApiCheckpoint(
+                    key="https://api.example.com",
+                    timestamp=6_400,
+                ),
+            },
+            now=10_000,
+        )
+
+        assert attempts == ()
+
+    def test_build_api_source_attempts_uses_precise_current_time_for_fractional_cooldown(
+        self,
+        mock_brotr: Brotr,
+    ) -> None:
+        config = FinderConfig(
+            api=ApiConfig(
+                enabled=True,
+                cooldown=3600.9,
+                sources=[ApiSourceConfig(url="https://api.example.com", expression="[*]")],
+            )
+        )
+        finder = Finder(brotr=mock_brotr, config=config)
+
+        attempts = finder._build_api_source_attempts(
+            list(config.api.sources),
+            checkpoint_map={
+                "https://api.example.com": ApiCheckpoint(
+                    key="https://api.example.com",
+                    timestamp=6_400,
+                ),
+            },
+            now=10_000.91,
+        )
+
+        assert len(attempts) == 1
+        assert attempts[0].source.url == "https://api.example.com"
+
     async def test_all_sources_disabled(self, mock_brotr: Brotr) -> None:
         config = FinderConfig(
             api=ApiConfig(
@@ -966,6 +1668,42 @@ class TestFinderFindFromApi:
 
             assert result == 0
 
+    async def test_shape_mismatch_does_not_advance_checkpoint(self, mock_brotr: Brotr) -> None:
+        config = FinderConfig(
+            api=ApiConfig(
+                enabled=True,
+                sources=[ApiSourceConfig(url="https://api.example.com", expression="relays")],
+                request_delay=0,
+            )
+        )
+        finder = Finder(brotr=mock_brotr, config=config)
+        finder.inc_gauge = MagicMock()  # type: ignore[method-assign]
+        mock_response = _mock_api_response({"other": ["wss://relay1.com"]})
+
+        with (
+            patch(
+                "bigbrotr.services.finder.service.fetch_api_checkpoints",
+                new_callable=AsyncMock,
+                return_value=_default_checkpoints(config),
+            ),
+            patch(
+                "bigbrotr.services.finder.service.upsert_api_checkpoints",
+                new_callable=AsyncMock,
+            ) as mock_save,
+            patch("aiohttp.ClientSession") as mock_session_cls,
+        ):
+            mock_session = MagicMock()
+            mock_session.get = MagicMock(return_value=mock_response)
+            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session.__aexit__ = AsyncMock(return_value=None)
+            mock_session_cls.return_value = mock_session
+
+            result = await finder.find_from_api()
+
+        assert result == 0
+        mock_save.assert_not_awaited()
+        finder.inc_gauge.assert_not_called()
+
     async def test_skips_source_within_cooldown(self, mock_brotr: Brotr) -> None:
         config = FinderConfig(
             api=ApiConfig(
@@ -994,6 +1732,41 @@ class TestFinderFindFromApi:
             assert result == 0
             mock_save.assert_not_awaited()
 
+    async def test_skips_source_within_fractional_cooldown(self, mock_brotr: Brotr) -> None:
+        now = 10_000.4
+        config = FinderConfig(
+            api=ApiConfig(
+                enabled=True,
+                cooldown=3600.9,
+                sources=[ApiSourceConfig(url="https://api.example.com", expression="[*]")],
+                request_delay=0,
+            )
+        )
+        finder = Finder(brotr=mock_brotr, config=config)
+        with (
+            patch(
+                "bigbrotr.services.finder.service.fetch_api_checkpoints",
+                new_callable=AsyncMock,
+                return_value=[ApiCheckpoint(key="https://api.example.com", timestamp=6_400)],
+            ),
+            patch(
+                "bigbrotr.services.finder.service.upsert_api_checkpoints",
+                new_callable=AsyncMock,
+            ) as mock_save,
+            patch("aiohttp.ClientSession") as mock_session_cls,
+            patch("bigbrotr.services.finder.service.time.time", return_value=now),
+        ):
+            mock_session = MagicMock()
+            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session.__aexit__ = AsyncMock(return_value=None)
+            mock_session_cls.return_value = mock_session
+
+            result = await finder.find_from_api()
+
+            assert result == 0
+            mock_save.assert_not_awaited()
+            mock_session.get.assert_not_called()
+
     async def test_fetches_source_past_cooldown(self, mock_brotr: Brotr) -> None:
         config = FinderConfig(
             api=ApiConfig(
@@ -1010,9 +1783,7 @@ class TestFinderFindFromApi:
             patch(
                 "bigbrotr.services.finder.service.fetch_api_checkpoints",
                 new_callable=AsyncMock,
-                return_value=[
-                    ApiCheckpoint(key="https://api.example.com", timestamp=int(time.time()) - 7200)
-                ],
+                return_value=[ApiCheckpoint(key="https://api.example.com", timestamp=0)],
             ),
             patch(
                 "bigbrotr.services.finder.service.upsert_api_checkpoints",
@@ -1024,6 +1795,7 @@ class TestFinderFindFromApi:
                 new_callable=AsyncMock,
                 return_value=1,
             ),
+            patch("bigbrotr.services.finder.service.time.time", return_value=7200.2),
         ):
             mock_session = MagicMock()
             mock_session.get = MagicMock(return_value=mock_response)
@@ -1035,6 +1807,113 @@ class TestFinderFindFromApi:
 
             assert result == 1
             mock_save.assert_awaited_once()
+            saved_checkpoints = mock_save.await_args.args[1]
+            assert saved_checkpoints == [
+                ApiCheckpoint(key="https://api.example.com", timestamp=7201)
+            ]
+
+    async def test_fetches_source_once_fractional_cooldown_elapsed(self, mock_brotr: Brotr) -> None:
+        config = FinderConfig(
+            api=ApiConfig(
+                enabled=True,
+                cooldown=3600.9,
+                sources=[ApiSourceConfig(url="https://api.example.com", expression="[*]")],
+                request_delay=0,
+            )
+        )
+        finder = Finder(brotr=mock_brotr, config=config)
+        mock_response = _mock_api_response(["wss://relay1.com"])
+
+        with (
+            patch(
+                "bigbrotr.services.finder.service.fetch_api_checkpoints",
+                new_callable=AsyncMock,
+                return_value=[ApiCheckpoint(key="https://api.example.com", timestamp=6_400)],
+            ),
+            patch(
+                "bigbrotr.services.finder.service.upsert_api_checkpoints",
+                new_callable=AsyncMock,
+            ) as mock_save,
+            patch("aiohttp.ClientSession") as mock_session_cls,
+            patch(
+                "bigbrotr.services.finder.service.insert_relays_as_candidates",
+                new_callable=AsyncMock,
+                return_value=1,
+            ),
+            patch("bigbrotr.services.finder.service.time.time", return_value=10_000.91),
+        ):
+            mock_session = MagicMock()
+            mock_session.get = MagicMock(return_value=mock_response)
+            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session.__aexit__ = AsyncMock(return_value=None)
+            mock_session_cls.return_value = mock_session
+
+            result = await finder.find_from_api()
+
+            assert result == 1
+            mock_session.get.assert_called_once()
+            mock_save.assert_awaited_once()
+
+    async def test_later_source_becomes_due_after_request_delay(self, mock_brotr: Brotr) -> None:
+        config = FinderConfig(
+            api=ApiConfig(
+                enabled=True,
+                cooldown=10.0,
+                sources=[
+                    ApiSourceConfig(url="https://api1.example.com", expression="[*]"),
+                    ApiSourceConfig(url="https://api2.example.com", expression="[*]"),
+                ],
+                request_delay=1.0,
+            )
+        )
+        finder = Finder(brotr=mock_brotr, config=config)
+
+        with (
+            patch(
+                "bigbrotr.services.finder.service.fetch_api_checkpoints",
+                new_callable=AsyncMock,
+                return_value=[
+                    ApiCheckpoint(key="https://api1.example.com", timestamp=0),
+                    ApiCheckpoint(key="https://api2.example.com", timestamp=95),
+                ],
+            ),
+            patch(
+                "bigbrotr.services.finder.service.upsert_api_checkpoints",
+                new_callable=AsyncMock,
+            ) as mock_save,
+            patch("aiohttp.ClientSession") as mock_session_cls,
+            patch(
+                "bigbrotr.services.finder.service.insert_relays_as_candidates",
+                new_callable=AsyncMock,
+                return_value=2,
+            ),
+            patch(
+                "bigbrotr.services.finder.service.time.time",
+                side_effect=[100.0, 100.1, 106.0, 106.1],
+            ),
+        ):
+            mock_session = MagicMock()
+            mock_session.get = MagicMock(
+                side_effect=[
+                    _mock_api_response(["wss://relay1.com"]),
+                    _mock_api_response(["wss://relay1.com"]),
+                ]
+            )
+            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session.__aexit__ = AsyncMock(return_value=None)
+            mock_session_cls.return_value = mock_session
+            finder.wait = AsyncMock(return_value=False)  # type: ignore[method-assign]
+
+            result = await finder.find_from_api()
+
+        assert result == 2
+        assert mock_session.get.call_count == 2
+        finder.wait.assert_awaited_once_with(1.0)
+        mock_save.assert_awaited_once()
+        assert mock_save.await_args.args[1] == [
+            ApiCheckpoint(key="https://api1.example.com", timestamp=101),
+            ApiCheckpoint(key="https://api2.example.com", timestamp=107),
+        ]
 
     async def test_shutdown_during_iteration_stops(self, mock_brotr: Brotr) -> None:
         config = FinderConfig(
@@ -1184,6 +2063,67 @@ class TestFinderFindFromApi:
             relays = mock_insert.call_args[0][1]
             assert len(relays) == 4
 
+    async def test_persist_api_discovery_results_saves_and_clears_state(
+        self,
+        mock_brotr: Brotr,
+    ) -> None:
+        finder = Finder(brotr=mock_brotr)
+        finder.set_gauge = MagicMock()  # type: ignore[method-assign]
+        relay = Relay("wss://relay.example.com")
+        checkpoint = ApiCheckpoint(key="https://api.example.com", timestamp=1700000000)
+        buffer = [relay]
+        pending_checkpoints = [checkpoint]
+
+        with (
+            patch(
+                "bigbrotr.services.finder.service.upsert_api_checkpoints",
+                new_callable=AsyncMock,
+            ) as mock_upsert,
+            patch(
+                "bigbrotr.services.finder.service.insert_relays_as_candidates",
+                new_callable=AsyncMock,
+                return_value=1,
+            ) as mock_insert,
+        ):
+            found = await finder._persist_api_discovery_results(buffer, pending_checkpoints)
+
+        assert found == 1
+        assert buffer == []
+        assert pending_checkpoints == []
+        mock_upsert.assert_awaited_once_with(mock_brotr, [checkpoint])
+        mock_insert.assert_awaited_once_with(mock_brotr, [relay])
+        finder.set_gauge.assert_any_call("candidates_found_from_api", 1)
+
+    async def test_persist_api_discovery_results_does_not_advance_checkpoint_on_insert_failure(
+        self,
+        mock_brotr: Brotr,
+    ) -> None:
+        finder = Finder(brotr=mock_brotr)
+        finder.set_gauge = MagicMock()  # type: ignore[method-assign]
+        relay = Relay("wss://relay.example.com")
+        checkpoint = ApiCheckpoint(key="https://api.example.com", timestamp=1700000000)
+        buffer = [relay]
+        pending_checkpoints = [checkpoint]
+
+        with (
+            patch(
+                "bigbrotr.services.finder.service.upsert_api_checkpoints",
+                new_callable=AsyncMock,
+            ) as mock_upsert,
+            patch(
+                "bigbrotr.services.finder.service.insert_relays_as_candidates",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("insert failed"),
+            ),
+            pytest.raises(RuntimeError, match="insert failed"),
+        ):
+            await finder._persist_api_discovery_results(buffer, pending_checkpoints)
+
+        assert buffer == [relay]
+        assert pending_checkpoints == [checkpoint]
+        mock_upsert.assert_not_awaited()
+        finder.set_gauge.assert_not_called()
+
     async def test_emits_gauge_and_counter(self, mock_brotr: Brotr) -> None:
         config = FinderConfig(
             api=ApiConfig(
@@ -1252,6 +2192,27 @@ class TestFetchApi:
 
         assert len(result) == 0
 
+    async def test_shape_mismatch_raises_value_error(self) -> None:
+        source = ApiSourceConfig(url="https://api.example.com", expression="relays")
+
+        mock_response = _mock_api_response({"other": ["wss://relay1.com"]})
+        mock_session = MagicMock()
+        mock_session.get = MagicMock(return_value=mock_response)
+
+        with pytest.raises(ValueError, match="expected list"):
+            await fetch_api(mock_session, source, 5_242_880)
+
+    async def test_uses_canonicalized_expression(self) -> None:
+        source = ApiSourceConfig(url="https://api.example.com", expression=" relays ")
+
+        mock_response = _mock_api_response({"relays": ["wss://relay1.com"]})
+        mock_session = MagicMock()
+        mock_session.get = MagicMock(return_value=mock_response)
+
+        result = await fetch_api(mock_session, source, 5_242_880)
+
+        assert [relay.url for relay in result] == ["wss://relay1.com"]
+
     async def test_rejects_oversized_response(self) -> None:
         source = ApiSourceConfig(url="https://api.example.com", expression="[*]")
 
@@ -1285,55 +2246,55 @@ class TestFetchApi:
         assert kwargs["ssl"] is False
 
 
-class TestStreamEventRelays:
+class TestStreamEventObservations:
     async def test_empty_result_yields_nothing(self) -> None:
         brotr = MagicMock()
         cursor = FinderCursor(key="wss://relay.com")
         with patch(
-            "bigbrotr.services.finder.utils.scan_event_relay",
+            "bigbrotr.services.finder.utils.scan_event_observation",
             new_callable=AsyncMock,
             return_value=[],
         ):
-            rows = [row async for row in stream_event_relays(brotr, cursor, 100)]
+            rows = [row async for row in stream_event_observations(brotr, cursor, 100)]
 
         assert rows == []
 
     async def test_single_batch_partial(self) -> None:
         event_id = b"\xab" * 32
         batch = [
-            {"event_id": event_id, "seen_at": 1700000001, "tagvalues": ["r:wss://r.com"]},
-            {"event_id": event_id, "seen_at": 1700000002, "tagvalues": ["r:wss://r2.com"]},
+            {"event_id": event_id, "observed_at": 1700000001, "tagvalues": ["r:wss://r.com"]},
+            {"event_id": event_id, "observed_at": 1700000002, "tagvalues": ["r:wss://r2.com"]},
         ]
         brotr = MagicMock()
         cursor = FinderCursor(key="wss://relay.com")
         with patch(
-            "bigbrotr.services.finder.utils.scan_event_relay",
+            "bigbrotr.services.finder.utils.scan_event_observation",
             new_callable=AsyncMock,
             return_value=batch,
         ) as mock_scan:
-            rows = [row async for row in stream_event_relays(brotr, cursor, 100)]
+            rows = [row async for row in stream_event_observations(brotr, cursor, 100)]
 
         assert len(rows) == 2
-        assert rows[0]["seen_at"] == 1700000001
-        assert rows[1]["seen_at"] == 1700000002
+        assert rows[0]["observed_at"] == 1700000001
+        assert rows[1]["observed_at"] == 1700000002
         mock_scan.assert_awaited_once()
 
     async def test_multi_batch_pagination(self) -> None:
         id1 = b"\x01" * 32
         id2 = b"\x02" * 32
         batch1 = [
-            {"event_id": id1, "seen_at": 100, "tagvalues": []},
-            {"event_id": id2, "seen_at": 200, "tagvalues": []},
+            {"event_id": id1, "observed_at": 100, "tagvalues": []},
+            {"event_id": id2, "observed_at": 200, "tagvalues": []},
         ]
-        batch2 = [{"event_id": id1, "seen_at": 300, "tagvalues": []}]
+        batch2 = [{"event_id": id1, "observed_at": 300, "tagvalues": []}]
         brotr = MagicMock()
         cursor = FinderCursor(key="wss://relay.com")
         with patch(
-            "bigbrotr.services.finder.utils.scan_event_relay",
+            "bigbrotr.services.finder.utils.scan_event_observation",
             new_callable=AsyncMock,
             side_effect=[batch1, batch2],
         ) as mock_scan:
-            rows = [row async for row in stream_event_relays(brotr, cursor, 2)]
+            rows = [row async for row in stream_event_observations(brotr, cursor, 2)]
 
         assert len(rows) == 3
         assert mock_scan.await_count == 2
@@ -1343,30 +2304,30 @@ class TestStreamEventRelays:
 
     async def test_exact_batch_size_triggers_next_fetch(self) -> None:
         id1 = b"\xaa" * 32
-        batch1 = [{"event_id": id1, "seen_at": 100, "tagvalues": []}]
+        batch1 = [{"event_id": id1, "observed_at": 100, "tagvalues": []}]
         brotr = MagicMock()
         cursor = FinderCursor(key="wss://relay.com")
         with patch(
-            "bigbrotr.services.finder.utils.scan_event_relay",
+            "bigbrotr.services.finder.utils.scan_event_observation",
             new_callable=AsyncMock,
             side_effect=[batch1, []],
         ) as mock_scan:
-            rows = [row async for row in stream_event_relays(brotr, cursor, 1)]
+            rows = [row async for row in stream_event_observations(brotr, cursor, 1)]
 
         assert len(rows) == 1
         assert mock_scan.await_count == 2
 
     async def test_cursor_key_preserved_across_batches(self) -> None:
         id1 = b"\x01" * 32
-        batch1 = [{"event_id": id1, "seen_at": 100, "tagvalues": []}]
+        batch1 = [{"event_id": id1, "observed_at": 100, "tagvalues": []}]
         brotr = MagicMock()
         cursor = FinderCursor(key="wss://specific.relay.com")
         with patch(
-            "bigbrotr.services.finder.utils.scan_event_relay",
+            "bigbrotr.services.finder.utils.scan_event_observation",
             new_callable=AsyncMock,
             side_effect=[batch1, []],
         ) as mock_scan:
-            [row async for row in stream_event_relays(brotr, cursor, 1)]
+            [row async for row in stream_event_observations(brotr, cursor, 1)]
 
         for call in mock_scan.call_args_list:
             assert call[0][1].key == "wss://specific.relay.com"
@@ -1389,29 +2350,78 @@ class TestFinderFindFromEvents:
         assert result == 0
         finder.set_gauge.assert_not_called()
 
-    async def test_empty_database_returns_zero(self, mock_brotr: Brotr) -> None:
-        mock_brotr._pool.fetch = AsyncMock(return_value=[])  # type: ignore[method-assign]
-
+    async def test_build_event_scan_plan_returns_none_when_no_relays(
+        self,
+        mock_brotr: Brotr,
+    ) -> None:
         finder = Finder(brotr=mock_brotr)
-        result = await finder.find_from_events()
+
+        with patch(
+            "bigbrotr.services.finder.service.count_relays_to_find",
+            new_callable=AsyncMock,
+            return_value=0,
+        ):
+            plan = await finder._build_event_scan_plan()
+
+        assert plan is None
+
+    async def test_build_event_scan_plan_computes_batching_budget(
+        self,
+        mock_brotr: Brotr,
+    ) -> None:
+        finder = Finder(
+            brotr=mock_brotr,
+            config=FinderConfig(events=EventsConfig(batch_size=250, parallel_relays=80)),
+        )
+
+        with (
+            patch(
+                "bigbrotr.services.finder.service.count_relays_to_find",
+                new_callable=AsyncMock,
+                return_value=17,
+            ) as mock_count,
+            patch("bigbrotr.services.finder.service.time.monotonic", return_value=123.0),
+        ):
+            plan = await finder._build_event_scan_plan()
+
+        assert plan is not None
+        assert plan.relay_count == 17
+        assert plan.batch_size == 250
+        assert plan.max_concurrency == 80
+        assert plan.page_size == 250
+        assert plan.phase_start == 123.0
+        mock_count.assert_awaited_once_with(mock_brotr)
+
+    async def test_empty_database_returns_zero(self, mock_brotr: Brotr) -> None:
+        finder = Finder(brotr=mock_brotr)
+        with patch(
+            "bigbrotr.services.finder.service.count_relays_to_find",
+            new_callable=AsyncMock,
+            return_value=0,
+        ):
+            result = await finder.find_from_events()
 
         assert result == 0
 
     async def test_valid_relay_urls_extracted(self, mock_brotr: Brotr) -> None:
         mock_event = {
             "tagvalues": ["r:wss://relay.example.com"],
-            "seen_at": 1700000001,
+            "observed_at": 1700000001,
             "event_id": b"\xab" * 32,
         }
 
         with (
             patch(
-                "bigbrotr.services.finder.service.fetch_cursors_to_find",
+                "bigbrotr.services.finder.service.count_relays_to_find",
                 new_callable=AsyncMock,
-                return_value=[FinderCursor(key="wss://source.relay.com")],
+                return_value=1,
             ),
             patch(
-                "bigbrotr.services.finder.service.stream_event_relays",
+                "bigbrotr.services.finder.service.iter_cursors_to_find_pages",
+                return_value=_mock_pages([FinderCursor(key="wss://source.relay.com")]),
+            ),
+            patch(
+                "bigbrotr.services.finder.service.stream_event_observations",
                 return_value=_mock_stream(mock_event),
             ),
             patch(
@@ -1432,18 +2442,22 @@ class TestFinderFindFromEvents:
     async def test_cursor_position_updated_after_scan(self, mock_brotr: Brotr) -> None:
         mock_event = {
             "tagvalues": ["r:wss://relay.example.com"],
-            "seen_at": 1700000200,
+            "observed_at": 1700000200,
             "event_id": b"\xab" * 32,
         }
 
         with (
             patch(
-                "bigbrotr.services.finder.service.fetch_cursors_to_find",
+                "bigbrotr.services.finder.service.count_relays_to_find",
                 new_callable=AsyncMock,
-                return_value=[FinderCursor(key="wss://source.relay.com")],
+                return_value=1,
             ),
             patch(
-                "bigbrotr.services.finder.service.stream_event_relays",
+                "bigbrotr.services.finder.service.iter_cursors_to_find_pages",
+                return_value=_mock_pages([FinderCursor(key="wss://source.relay.com")]),
+            ),
+            patch(
+                "bigbrotr.services.finder.service.stream_event_observations",
                 return_value=_mock_stream(mock_event),
             ),
             patch(
@@ -1460,7 +2474,7 @@ class TestFinderFindFromEvents:
             upsert_calls = mock_brotr.upsert_service_state.call_args_list
             cursor_saved = any(
                 call[0][0]
-                and call[0][0][0].service_name == "finder"
+                and call[0][0][0].owner == "finder"
                 and call[0][0][0].state_type == "cursor"
                 for call in upsert_calls
             )
@@ -1470,7 +2484,7 @@ class TestFinderFindFromEvents:
         events = [
             {
                 "tagvalues": [f"r:wss://relay{i}.example.com"],
-                "seen_at": 1700000000 + i,
+                "observed_at": 1700000000 + i,
                 "event_id": bytes([i]) + b"\x00" * 31,
             }
             for i in range(25)
@@ -1478,12 +2492,16 @@ class TestFinderFindFromEvents:
 
         with (
             patch(
-                "bigbrotr.services.finder.service.fetch_cursors_to_find",
+                "bigbrotr.services.finder.service.count_relays_to_find",
                 new_callable=AsyncMock,
-                return_value=[FinderCursor(key="wss://source.relay.com")],
+                return_value=1,
             ),
             patch(
-                "bigbrotr.services.finder.service.stream_event_relays",
+                "bigbrotr.services.finder.service.iter_cursors_to_find_pages",
+                return_value=_mock_pages([FinderCursor(key="wss://source.relay.com")]),
+            ),
+            patch(
+                "bigbrotr.services.finder.service.stream_event_observations",
                 return_value=_mock_stream(*events),
             ),
             patch(
@@ -1503,6 +2521,96 @@ class TestFinderFindFromEvents:
 
             assert result == 25
             assert mock_insert.call_count >= 2
+
+    async def test_flush_event_scan_batch_persists_and_clears_state(
+        self,
+        mock_brotr: Brotr,
+    ) -> None:
+        finder = Finder(brotr=mock_brotr)
+        finder.inc_gauge = MagicMock()  # type: ignore[method-assign]
+        relay = Relay("wss://relay.example.com")
+        buffer = [relay]
+        pending_cursors = {"wss://source.relay.com": FinderCursor(key="wss://source.relay.com")}
+
+        with (
+            patch(
+                "bigbrotr.services.finder.service.insert_relays_as_candidates",
+                new_callable=AsyncMock,
+                return_value=1,
+            ) as mock_insert,
+            patch(
+                "bigbrotr.services.finder.service.upsert_finder_cursors",
+                new_callable=AsyncMock,
+            ) as mock_upsert,
+        ):
+            found = await finder._flush_event_scan_batch(buffer, pending_cursors)
+
+        assert found == 1
+        assert buffer == []
+        assert pending_cursors == {}
+        mock_insert.assert_awaited_once_with(mock_brotr, [relay])
+        mock_upsert.assert_awaited_once()
+        finder.inc_gauge.assert_any_call("candidates_found_from_events", 1)
+
+    async def test_scan_event_cursor_page_flushes_when_batch_limit_reached(
+        self,
+        mock_brotr: Brotr,
+    ) -> None:
+        finder = Finder(brotr=mock_brotr, config=FinderConfig(events=EventsConfig(batch_size=10)))
+        finder.inc_gauge = MagicMock()  # type: ignore[method-assign]
+
+        relay1 = Relay("wss://relay1.example.com")
+        relay2 = Relay("wss://relay2.example.com")
+        cursor1 = FinderCursor(key="wss://source1.relay.com", timestamp=1, id="01" * 32)
+        cursor2 = FinderCursor(key="wss://source2.relay.com", timestamp=2, id="02" * 32)
+        buffer: list[Relay] = []
+        pending_cursors: dict[str, FinderCursor] = {}
+
+        async def fake_iter_concurrent(
+            cursors: list[FinderCursor],
+            worker: Any,
+            *,
+            max_concurrency: int,
+        ) -> AsyncGenerator[tuple[list[Relay], FinderCursor], None]:
+            assert len(cursors) == 2
+            assert max_concurrency == finder._config.events.parallel_relays
+            yield [relay1], cursor1
+            yield [relay2], cursor2
+
+        with (
+            patch.object(finder, "_iter_concurrent", side_effect=fake_iter_concurrent),
+            patch.object(
+                finder,
+                "_flush_event_scan_batch",
+                new_callable=AsyncMock,
+                return_value=2,
+            ) as mock_flush,
+        ):
+            found = await finder._scan_event_cursor_page(
+                [
+                    FinderCursor(key="wss://source1.relay.com"),
+                    FinderCursor(key="wss://source2.relay.com"),
+                ],
+                buffer,
+                pending_cursors,
+                plan=finder.EventScanPlan(
+                    relay_count=2,
+                    batch_size=2,
+                    max_concurrency=finder._config.events.parallel_relays,
+                    page_size=10,
+                    phase_start=0.0,
+                ),
+            )
+
+        assert found == 2
+        assert buffer == [relay1, relay2]
+        assert pending_cursors == {
+            "wss://source1.relay.com": cursor1,
+            "wss://source2.relay.com": cursor2,
+        }
+        mock_flush.assert_awaited_once_with(buffer, pending_cursors)
+        rows_seen_calls = [c for c in finder.inc_gauge.call_args_list if c.args == ("rows_seen",)]
+        assert len(rows_seen_calls) == 2
 
     async def test_phase_duration_exceeded_stops_workers(self, mock_brotr: Brotr) -> None:
         config = FinderConfig(events=EventsConfig(max_duration=60))
@@ -1524,7 +2632,7 @@ class TestFinderFindFromEvents:
         events = [
             {
                 "tagvalues": [f"r:wss://relay{i}.example.com"],
-                "seen_at": 1700000000 + i,
+                "observed_at": 1700000000 + i,
                 "event_id": bytes([i]) + b"\x00" * 31,
             }
             for i in range(3)
@@ -1538,7 +2646,7 @@ class TestFinderFindFromEvents:
 
         with (
             patch(
-                "bigbrotr.services.finder.service.stream_event_relays",
+                "bigbrotr.services.finder.service.stream_event_observations",
                 return_value=_mock_stream(*events),
             ),
             patch(
@@ -1558,18 +2666,22 @@ class TestFinderFindFromEvents:
     async def test_emits_gauges_and_counters(self, mock_brotr: Brotr) -> None:
         mock_event = {
             "tagvalues": ["r:wss://relay1.example.com", "r:wss://relay2.example.com"],
-            "seen_at": 1700000001,
+            "observed_at": 1700000001,
             "event_id": b"\xab" * 32,
         }
 
         with (
             patch(
-                "bigbrotr.services.finder.service.fetch_cursors_to_find",
+                "bigbrotr.services.finder.service.count_relays_to_find",
                 new_callable=AsyncMock,
-                return_value=[FinderCursor(key="wss://source.relay.com")],
+                return_value=1,
             ),
             patch(
-                "bigbrotr.services.finder.service.stream_event_relays",
+                "bigbrotr.services.finder.service.iter_cursors_to_find_pages",
+                return_value=_mock_pages([FinderCursor(key="wss://source.relay.com")]),
+            ),
+            patch(
+                "bigbrotr.services.finder.service.stream_event_observations",
                 return_value=_mock_stream(mock_event),
             ),
             patch(
@@ -1594,22 +2706,28 @@ class TestFinderEventScanConcurrency:
     async def test_multiple_relays_scanned_concurrently(self, mock_brotr: Brotr) -> None:
         mock_event = {
             "tagvalues": ["r:wss://found.relay.com"],
-            "seen_at": 1700000001,
+            "observed_at": 1700000001,
             "event_id": b"\xab" * 32,
         }
 
         with (
             patch(
-                "bigbrotr.services.finder.service.fetch_cursors_to_find",
+                "bigbrotr.services.finder.service.count_relays_to_find",
                 new_callable=AsyncMock,
-                return_value=[
-                    FinderCursor(key="wss://relay1.com"),
-                    FinderCursor(key="wss://relay2.com"),
-                    FinderCursor(key="wss://relay3.com"),
-                ],
+                return_value=3,
             ),
             patch(
-                "bigbrotr.services.finder.service.stream_event_relays",
+                "bigbrotr.services.finder.service.iter_cursors_to_find_pages",
+                return_value=_mock_pages(
+                    [
+                        FinderCursor(key="wss://relay1.com"),
+                        FinderCursor(key="wss://relay2.com"),
+                        FinderCursor(key="wss://relay3.com"),
+                    ]
+                ),
+            ),
+            patch(
+                "bigbrotr.services.finder.service.stream_event_observations",
                 side_effect=lambda *_args: _mock_stream(mock_event),
             ),
             patch(
@@ -1638,7 +2756,7 @@ class TestFinderEventScanConcurrency:
     async def test_task_failure_does_not_block_others(self, mock_brotr: Brotr) -> None:
         mock_event = {
             "tagvalues": ["r:wss://found.relay.com"],
-            "seen_at": 1700000001,
+            "observed_at": 1700000001,
             "event_id": b"\xab" * 32,
         }
 
@@ -1653,15 +2771,21 @@ class TestFinderEventScanConcurrency:
 
         with (
             patch(
-                "bigbrotr.services.finder.service.fetch_cursors_to_find",
+                "bigbrotr.services.finder.service.count_relays_to_find",
                 new_callable=AsyncMock,
-                return_value=[
-                    FinderCursor(key="wss://good.relay.com"),
-                    FinderCursor(key="wss://failing.relay.com"),
-                ],
+                return_value=2,
             ),
             patch(
-                "bigbrotr.services.finder.service.stream_event_relays",
+                "bigbrotr.services.finder.service.iter_cursors_to_find_pages",
+                return_value=_mock_pages(
+                    [
+                        FinderCursor(key="wss://good.relay.com"),
+                        FinderCursor(key="wss://failing.relay.com"),
+                    ]
+                ),
+            ),
+            patch(
+                "bigbrotr.services.finder.service.stream_event_observations",
                 side_effect=_failing_stream,
             ),
             patch(
@@ -1706,12 +2830,16 @@ class TestFinderEventScanConcurrency:
 
         with (
             patch(
-                "bigbrotr.services.finder.service.fetch_cursors_to_find",
+                "bigbrotr.services.finder.service.count_relays_to_find",
                 new_callable=AsyncMock,
-                return_value=cursors,
+                return_value=len(cursors),
             ),
             patch(
-                "bigbrotr.services.finder.service.stream_event_relays",
+                "bigbrotr.services.finder.service.iter_cursors_to_find_pages",
+                return_value=_mock_pages(cursors),
+            ),
+            patch(
+                "bigbrotr.services.finder.service.stream_event_observations",
                 side_effect=lambda *_args: _mock_stream(),
             ),
             patch.object(Finder, "_find_from_events_worker", _tracking_worker),
@@ -1740,15 +2868,21 @@ class TestFinderEventScanConcurrency:
 
         with (
             patch(
-                "bigbrotr.services.finder.service.fetch_cursors_to_find",
+                "bigbrotr.services.finder.service.count_relays_to_find",
                 new_callable=AsyncMock,
-                return_value=[
-                    FinderCursor(key="wss://good.relay.com"),
-                    FinderCursor(key="wss://bad.relay.com"),
-                ],
+                return_value=2,
             ),
             patch(
-                "bigbrotr.services.finder.service.stream_event_relays",
+                "bigbrotr.services.finder.service.iter_cursors_to_find_pages",
+                return_value=_mock_pages(
+                    [
+                        FinderCursor(key="wss://good.relay.com"),
+                        FinderCursor(key="wss://bad.relay.com"),
+                    ]
+                ),
+            ),
+            patch(
+                "bigbrotr.services.finder.service.stream_event_observations",
                 side_effect=_failing_stream,
             ),
         ):
@@ -1759,6 +2893,49 @@ class TestFinderEventScanConcurrency:
             result = await finder.find_from_events()
 
             assert result == 0
+
+    async def test_malformed_event_scan_row_does_not_persist_cursor_progress(
+        self, mock_brotr: Brotr
+    ) -> None:
+        bad_event = {
+            "tagvalues": ["r:wss://found.relay.com"],
+            "observed_at": True,
+            "event_id": b"\xab" * 32,
+        }
+
+        with (
+            patch(
+                "bigbrotr.services.finder.service.count_relays_to_find",
+                new_callable=AsyncMock,
+                return_value=1,
+            ),
+            patch(
+                "bigbrotr.services.finder.service.iter_cursors_to_find_pages",
+                return_value=_mock_pages([FinderCursor(key="wss://source.relay.com")]),
+            ),
+            patch(
+                "bigbrotr.services.finder.service.stream_event_observations",
+                return_value=_mock_stream(bad_event),
+            ),
+            patch(
+                "bigbrotr.services.finder.service.insert_relays_as_candidates",
+                new_callable=AsyncMock,
+            ) as mock_insert,
+        ):
+            mock_brotr.upsert_service_state = AsyncMock(return_value=1)  # type: ignore[method-assign]
+
+            finder = Finder(brotr=mock_brotr)
+            finder.set_gauge = MagicMock()  # type: ignore[method-assign]
+            finder.inc_gauge = MagicMock()  # type: ignore[method-assign]
+
+            with patch.object(finder._logger, "error") as mock_error:
+                result = await finder.find_from_events()
+
+            assert result == 0
+            mock_insert.assert_not_awaited()
+            mock_brotr.upsert_service_state.assert_not_awaited()  # type: ignore[attr-defined]
+            mock_error.assert_called_once()
+            assert mock_error.call_args.kwargs["relay"] == "wss://source.relay.com"
             finder.set_gauge.assert_any_call("relays_seen", 0)
 
 

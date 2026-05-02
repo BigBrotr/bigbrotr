@@ -1,7 +1,9 @@
-"""Unit tests for BaseData, BaseNipMetadata, BaseLogs, BaseNip, BaseNipSelection, BaseNipOptions, BaseNipDependencies."""
+"""Unit tests for the shared NIP base models and historical-name result containers."""
+
+import logging
 
 import pytest
-from pydantic import ValidationError
+from pydantic import ValidationError, field_validator, model_validator
 
 from bigbrotr.models.relay import Relay
 from bigbrotr.nips.base import (
@@ -61,6 +63,15 @@ class TestBaseDataParse:
         # BaseData has empty _FIELD_SPEC by default
         result = BaseData.parse({"count": 10, "name": "test"})
         assert result == {}
+
+    def test_parse_report_with_non_dict_records_invalid_input(self):
+        """parse_report() records invalid input instead of failing silently."""
+        report = BaseData.parse_report("string")
+
+        assert report.parsed == {}
+        assert len(report.issues) == 1
+        assert report.issues[0].kind == "invalid_input"
+        assert report.issues[0].path == "BaseData"
 
 
 class TestBaseDataSubclass:
@@ -132,6 +143,29 @@ class TestBaseDataSubclass:
         result = data_subclass.parse(data)
         assert result == {"count": 10}
 
+    def test_parse_report_collects_unknown_and_invalid_fields(self, data_subclass):
+        """parse_report() keeps the parsed payload and records what was dropped."""
+        report = data_subclass.parse_report({"count": 10, "limit": "bad", "extra": "value"})
+
+        assert report.parsed == {"count": 10}
+        assert [issue.kind for issue in report.issues] == ["invalid_value", "unknown_field"]
+        assert [issue.path for issue in report.issues] == ["limit", "extra"]
+
+    def test_log_parse_issues_emits_warning(self, data_subclass, caplog):
+        """log_parse_issues() emits a single warning for dropped fields."""
+        report = data_subclass.parse_report({"count": "bad", "unknown_field": "value"})
+
+        with caplog.at_level(logging.WARNING, logger="bigbrotr.nips.base-test"):
+            data_subclass.log_parse_issues(
+                logging.getLogger("bigbrotr.nips.base-test"),
+                "wss://relay.example.com",
+                report,
+            )
+
+        assert "nip_parse_issues" in caplog.text
+        assert "TestData" in caplog.text
+        assert "wss://relay.example.com" in caplog.text
+
     def test_from_dict_creates_model(self, data_subclass):
         """from_dict() creates model from valid dict."""
         data = {"count": 10, "name": "Test"}
@@ -169,6 +203,52 @@ class TestBaseDataSubclass:
         assert model.enabled is True
         assert model.name is None  # 123 was filtered
 
+    def test_parse_canonicalizes_payload_through_model_boundary(self):
+        """parse() returns canonicalized payload when model validators normalize it."""
+
+        class CanonicalData(BaseData):
+            _FIELD_SPEC = FieldSpec(str_list_fields=frozenset({"tags"}))
+
+            tags: list[str] | None = None
+
+            @field_validator("tags")
+            @classmethod
+            def _normalize_tags(cls, value: list[str] | None) -> list[str] | None:
+                if value is None:
+                    return None
+                return sorted(set(value))
+
+        parsed = CanonicalData.parse({"tags": ["beta", "alpha", "beta"]})
+
+        assert parsed == {"tags": ["alpha", "beta"]}
+
+    def test_parse_does_not_inject_unspecified_model_defaults(self):
+        """parse() keeps canonicalized fields without materializing omitted defaults."""
+
+        class DefaultedData(BaseData):
+            _FIELD_SPEC = FieldSpec(str_fields=frozenset({"name"}))
+
+            name: str | None = None
+            status: str = "default"
+
+        assert DefaultedData.parse({"name": "relay"}) == {"name": "relay"}
+
+    def test_parse_falls_back_to_report_payload_on_validation_error(self):
+        """parse() stays permissive when post-parse model validation rejects the payload."""
+
+        class RestrictedData(BaseData):
+            _FIELD_SPEC = FieldSpec(int_fields=frozenset({"count"}))
+
+            count: int | None = None
+
+            @model_validator(mode="after")
+            def _reject_zero(self):
+                if self.count == 0:
+                    raise ValueError("count cannot be zero")
+                return self
+
+        assert RestrictedData.parse({"count": 0}) == {"count": 0}
+
 
 class TestBaseDataFrozen:
     """Test BaseData is frozen (immutable)."""
@@ -195,7 +275,7 @@ class TestBaseDataFrozen:
 
 
 class TestBaseNipMetadata:
-    """Test BaseNipMetadata class."""
+    """Test the historical-name BaseNipMetadata result-container contract."""
 
     @pytest.fixture
     def metadata_subclass(self):
@@ -218,7 +298,7 @@ class TestBaseNipMetadata:
         return TestMetadata, TestData, TestLogs
 
     def test_from_dict_creates_model(self, metadata_subclass):
-        """from_dict() creates metadata model from valid dict."""
+        """from_dict() creates a result container from a valid dict."""
         TestMetadata, _TestData, _TestLogs = metadata_subclass
         raw = {
             "data": {"name": "Test", "count": 10},
@@ -277,6 +357,24 @@ class TestBaseNipMetadata:
         d = model.to_dict()
         assert d == {"value": "test", "count": 10}
 
+    def test_to_dict_rejects_duck_typed_nested_values(self):
+        """to_dict() rejects arbitrary non-model objects that only mimic nested serializers."""
+
+        class DuckTypedValue:
+            def to_dict(self):
+                return {"forged": True}
+
+        class SimpleMetadata(BaseNipMetadata):
+            value: object
+
+        model = SimpleMetadata(value=DuckTypedValue())
+
+        with pytest.raises(
+            TypeError,
+            match=r"SimpleMetadata.value must be a BaseModel to use to_dict serialization",
+        ):
+            model.to_dict()
+
     def test_model_is_frozen(self, metadata_subclass):
         """BaseNipMetadata models are immutable."""
         TestMetadata, TestData, TestLogs = metadata_subclass
@@ -286,6 +384,26 @@ class TestBaseNipMetadata:
         )
         with pytest.raises(ValidationError):
             model.data = TestData(name="Changed")
+
+    def test_succeeded_proxies_logs(self, metadata_subclass):
+        """succeeded proxies the semantic outcome from logs."""
+        TestMetadata, TestData, TestLogs = metadata_subclass
+        model = TestMetadata(
+            data=TestData(name="Test"),
+            logs=TestLogs(success=True),
+        )
+
+        assert model.succeeded is True
+
+    def test_failure_reason_proxies_logs(self, metadata_subclass):
+        """failure_reason proxies the semantic reason from logs."""
+        TestMetadata, TestData, TestLogs = metadata_subclass
+        model = TestMetadata(
+            data=TestData(name="Test"),
+            logs=TestLogs(success=False, reason="boom"),
+        )
+
+        assert model.failure_reason == "boom"
 
 
 # =============================================================================
@@ -301,6 +419,8 @@ class TestBaseLogsSuccess:
         logs = BaseLogs(success=True)
         assert logs.success is True
         assert logs.reason is None
+        assert logs.succeeded is True
+        assert logs.failure_reason is None
 
     def test_success_with_none_reason(self):
         """success=True with explicit reason=None is valid."""
@@ -322,6 +442,8 @@ class TestBaseLogsFailure:
         logs = BaseLogs(success=False, reason="Connection timeout")
         assert logs.success is False
         assert logs.reason == "Connection timeout"
+        assert logs.succeeded is False
+        assert logs.failure_reason == "Connection timeout"
 
     def test_failure_without_reason_raises(self):
         """success=False without reason raises ValidationError."""
@@ -333,10 +455,11 @@ class TestBaseLogsFailure:
         with pytest.raises(ValidationError, match="reason is required when success is False"):
             BaseLogs(success=False, reason=None)
 
-    def test_failure_with_empty_reason_accepted(self):
-        """success=False with empty string reason is accepted (empty is not None)."""
-        logs = BaseLogs(success=False, reason="")
-        assert logs.reason == ""
+    @pytest.mark.parametrize("reason", ["", "   "])
+    def test_failure_with_blank_reason_raises(self, reason: str):
+        """success=False with blank reason raises ValidationError."""
+        with pytest.raises(ValidationError, match="reason must be non-empty when success is False"):
+            BaseLogs(success=False, reason=reason)
 
 
 class TestBaseLogsTypeValidation:
@@ -482,7 +605,7 @@ class TestIntegration:
 
     @pytest.fixture
     def complete_model(self):
-        """Create a complete metadata model setup."""
+        """Create a complete result-container setup."""
 
         class MyData(BaseData):
             _FIELD_SPEC = FieldSpec(
@@ -518,9 +641,9 @@ class TestIntegration:
 
         data = MyData.from_dict(parsed)
         logs = MyLogs(success=True, elapsed_ms=50)
-        metadata = MyMetadata(data=data, logs=logs)
+        result_container = MyMetadata(data=data, logs=logs)
 
-        result = metadata.to_dict()
+        result = result_container.to_dict()
         assert result == {
             "data": {"count": 10, "name": "Test"},
             "logs": {"success": True, "elapsed_ms": 50},
@@ -532,10 +655,10 @@ class TestIntegration:
 
         data = MyData()
         logs = MyLogs(success=False, reason="Connection timeout", elapsed_ms=10000)
-        metadata = MyMetadata(data=data, logs=logs)
+        result_container = MyMetadata(data=data, logs=logs)
 
         # Serialize
-        result = metadata.to_dict()
+        result = result_container.to_dict()
         assert result == {
             "data": {},
             "logs": {"success": False, "reason": "Connection timeout", "elapsed_ms": 10000},
@@ -597,6 +720,14 @@ class TestBaseNipOptions:
         options = BaseNipOptions(allow_insecure=True)
         assert options.allow_insecure is True
 
+    def test_rejects_boolean_alias_inputs(self):
+        """allow_insecure rejects non-bool aliases instead of coercing them."""
+        with pytest.raises(ValidationError):
+            BaseNipOptions(allow_insecure=1)
+
+        with pytest.raises(ValidationError):
+            BaseNipOptions(allow_insecure="true")
+
     def test_is_base_model(self):
         """BaseNipOptions is a Pydantic BaseModel."""
         from pydantic import BaseModel
@@ -624,13 +755,9 @@ class TestBaseNip:
 
         assert issubclass(BaseNip, ABC)
 
-    def test_has_abstract_to_relay_metadata_tuple(self):
-        """BaseNip declares to_relay_metadata_tuple as abstract."""
-        assert "to_relay_metadata_tuple" in BaseNip.__abstractmethods__
-
-    def test_has_abstract_create(self):
-        """BaseNip declares create as abstract."""
-        assert "create" in BaseNip.__abstractmethods__
+    def test_has_abstract_to_relay_document_tuple(self):
+        """BaseNip declares to_relay_document_tuple as abstract."""
+        assert "to_relay_document_tuple" in BaseNip.__abstractmethods__
 
 
 # =============================================================================
@@ -722,6 +849,14 @@ class TestSelectionInheritance:
         assert issubclass(Nip66Selection, BaseNipSelection)
         selection = Nip66Selection()
         assert isinstance(selection, BaseNipSelection)
+
+    def test_concrete_selections_reject_boolean_aliases(self):
+        """Concrete NIP selections reject integer aliases for booleans."""
+        with pytest.raises(ValidationError):
+            Nip11Selection(info=1)
+
+        with pytest.raises(ValidationError):
+            Nip66Selection(rtt=1)
 
 
 # =============================================================================

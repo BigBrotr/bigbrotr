@@ -11,7 +11,7 @@
 #     Child partitions are excluded from top-level results.
 #   - Row counts use pg_class.reltuples (O(1), ~95% accurate after ANALYZE).
 #   - relay/relay_by_network use COUNT on relay table (small, <10k rows).
-#   - No materialized view dependency: all queries hit base tables or pg_catalog.
+#   - No derived-view dependency: all queries hit base tables or pg_catalog.
 # ============================================================================
 
 lilbrotr_overview:
@@ -57,22 +57,6 @@ lilbrotr_table_sizes:
         usage: "GAUGE"
         description: "Total size of table including indexes (bytes)"
 
-lilbrotr_matview_sizes:
-  query: |
-    SELECT c.relname AS view_name,
-           pg_total_relation_size(c.oid)::float AS total_bytes
-    FROM pg_class c
-    JOIN pg_namespace n ON n.oid = c.relnamespace
-    WHERE n.nspname = 'public' AND c.relkind = 'm'
-    ORDER BY pg_total_relation_size(c.oid) DESC
-  metrics:
-    - view_name:
-        usage: "LABEL"
-        description: "Materialized view name"
-    - total_bytes:
-        usage: "GAUGE"
-        description: "Total size of materialized view including indexes (bytes)"
-
 lilbrotr_row_estimates:
   query: |
     SELECT c.relname AS table_name,
@@ -92,22 +76,6 @@ lilbrotr_row_estimates:
     - approx_rows:
         usage: "GAUGE"
         description: "Estimated row count (aggregated from partitions for partitioned tables)"
-
-lilbrotr_matview_row_estimates:
-  query: |
-    SELECT c.relname AS view_name,
-           GREATEST(c.reltuples, 0)::float AS approx_rows
-    FROM pg_class c
-    JOIN pg_namespace n ON n.oid = c.relnamespace
-    WHERE n.nspname = 'public' AND c.relkind = 'm'
-    ORDER BY approx_rows DESC
-  metrics:
-    - view_name:
-        usage: "LABEL"
-        description: "Materialized view name"
-    - approx_rows:
-        usage: "GAUGE"
-        description: "Estimated row count for materialized view"
 
 lilbrotr_index_usage:
   query: |

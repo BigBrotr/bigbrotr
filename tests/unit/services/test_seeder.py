@@ -7,8 +7,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import asyncpg
 import pytest
+from pydantic import ValidationError
 
-from bigbrotr.core.brotr import Brotr, BrotrConfig
+from bigbrotr.core.brotr import Brotr
+from bigbrotr.core.brotr_config import BrotrConfig
 from bigbrotr.models import Relay
 from bigbrotr.services.seeder import SeedConfig, Seeder, SeederConfig
 from bigbrotr.services.seeder.queries import insert_relays
@@ -60,6 +62,27 @@ class TestSeedConfig:
         with pytest.raises(ValueError):
             SeedConfig(file_path="")
 
+    def test_whitespace_only_path_rejected(self) -> None:
+        with pytest.raises(ValueError, match=r"file_path must not be blank"):
+            SeedConfig(file_path="   ")
+
+    def test_padded_path_is_trimmed(self) -> None:
+        config = SeedConfig(file_path="  custom.txt  ")
+        assert config.file_path == "custom.txt"
+
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            SeedConfig.model_validate({b"file_path": "custom.txt"})
+
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            SeedConfig.model_validate({"seed_path": "custom.txt"})
+
+    @pytest.mark.parametrize("value", ["true", "false", 1, 0])
+    def test_rejects_non_boolean_to_validate_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"to_validate: expected bool, got"):
+            SeedConfig(to_validate=value)
+
 
 class TestSeederConfig:
     def test_defaults(self) -> None:
@@ -68,6 +91,14 @@ class TestSeederConfig:
         assert config.seed.to_validate is True
         assert config.interval == 300.0
         assert config.max_consecutive_failures == 5
+
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            SeederConfig.model_validate({b"seed": {"file_path": "custom.txt"}})
+
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            SeederConfig.model_validate({"seed_source": {"file_path": "custom.txt"}})
 
     def test_custom_nested(self) -> None:
         config = SeederConfig(seed=SeedConfig(file_path="x.txt", to_validate=False))
@@ -78,6 +109,24 @@ class TestSeederConfig:
         config = SeederConfig(seed=SeedConfig(file_path="t.txt"), interval=120.0)
         assert config.seed.file_path == "t.txt"
         assert config.interval == 120.0
+
+    @pytest.mark.parametrize("value", [True, "120", "120.5"])
+    def test_interval_aliases_rejected(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"interval: expected number, got"):
+            SeederConfig(seed=SeedConfig(file_path="seed.txt"), interval=value)
+
+    @pytest.mark.parametrize("value", ["true", "false", 1, 0])
+    def test_nested_seed_rejects_non_boolean_to_validate_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"to_validate: expected bool, got"):
+            SeederConfig(seed={"file_path": "seed.txt", "to_validate": value})
+
+    def test_nested_seed_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            SeederConfig.model_validate({"seed": {b"file_path": "custom.txt"}})
+
+    def test_nested_seed_unknown_field_names_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            SeederConfig.model_validate({"seed": {"seed_path": "custom.txt"}})
 
 
 # ============================================================================
@@ -221,6 +270,23 @@ class TestSeed:
         config = SeederConfig(seed=SeedConfig(file_path=str(f)))
         seeder = Seeder(brotr=seeder_brotr, config=config)
         assert await seeder.seed() == 0
+
+    async def test_padded_file_path_is_canonicalized(
+        self, seeder_brotr: Brotr, tmp_path: Path
+    ) -> None:
+        f = tmp_path / "seed.txt"
+        f.write_text("wss://r1.example.com\n")
+        config = SeederConfig(seed=SeedConfig(file_path=f"  {f}  ", to_validate=False))
+        seeder = Seeder(brotr=seeder_brotr, config=config)
+
+        with patch(
+            "bigbrotr.services.seeder.service.insert_relays",
+            new_callable=AsyncMock,
+            return_value=1,
+        ) as mock_insert:
+            assert await seeder.seed() == 1
+            mock_insert.assert_awaited_once()
+            assert seeder.config.seed.file_path == str(f)
 
     async def test_as_candidates(self, seeder_brotr: Brotr, tmp_path: Path) -> None:
         f = tmp_path / "seed.txt"

@@ -20,6 +20,9 @@ BigBrotr uses a **Diamond DAG** architecture. Four tiers with strict top-to-bott
 
 Deployments (`deployments/{bigbrotr,lilbrotr}/`) sit outside the package and configure behavior through YAML, SQL schemas, and Docker Compose.
 
+For the public read side and deployment composition model, see
+[Read Side](read-side.md) and [Deployments](deployments.md).
+
 ---
 
 ## Models Layer
@@ -32,9 +35,9 @@ Deployments (`deployments/{bigbrotr,lilbrotr}/`) sit outside the package and con
 |-------|------|---------|
 | `Relay` | `relay.py` | URL validation (rfc3986), network detection (clearnet/tor/i2p/loki/local), local IP rejection |
 | `Event` | `event.py` | Wraps nostr-sdk Event, extracts hex fields, tag parsing |
-| `EventRelay` | `event_relay.py` | Event-relay junction with `seen_at` timestamp |
-| `Metadata` | `metadata.py` | Content-addressed metadata: SHA-256 hash over canonical JSON |
-| `RelayMetadata` | `relay_metadata.py` | Relay-metadata junction with `metadata_type` and `generated_at` |
+| `EventObservation` | `event_observation.py` | Event-relay junction with `observed_at` timestamp |
+| `Document` | `document.py` | Content-addressed document: SHA-256 hash over canonical JSON |
+| `RelayDocument` | `relay_document.py` | Relay-document junction with `role` and `associated_at` |
 | `ServiceState` | `service_state.py` | Per-service operational state (checkpoints, cursors) |
 
 ### Enumerations
@@ -42,9 +45,9 @@ Deployments (`deployments/{bigbrotr,lilbrotr}/`) sit outside the package and con
 | Type | File | Values |
 |------|------|--------|
 | `NetworkType` | `constants.py` | `clearnet`, `tor`, `i2p`, `loki`, `local`, `unknown` |
-| `MetadataType` | `metadata.py` | `nip11_info`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http` |
+| `DocumentType` | `document.py` | `nip11_info`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http` |
 | `ServiceStateType` | `service_state.py` | `checkpoint`, `cursor` |
-| `ServiceName` | `constants.py` | `seeder`, `finder`, `validator`, `monitor`, `synchronizer`, `refresher`, `api`, `dvm` |
+| `ServiceName` | `constants.py` | `seeder`, `finder`, `validator`, `monitor`, `synchronizer`, `refresher`, `ranker`, `api`, `dvm`, `assertor` |
 | `EventKind` | `constants.py` | `SET_METADATA=0`, `RECOMMEND_RELAY=2`, `CONTACTS=3`, `RELAY_LIST=10002`, `NIP66_TEST=22456`, `MONITOR_ANNOUNCEMENT=10166`, `RELAY_DISCOVERY=30166` |
 
 ### Model Patterns
@@ -55,13 +58,13 @@ All models follow the same frozen dataclass pattern:
 @dataclass(frozen=True, slots=True)
 class Relay:
     url: str
-    discovered_at: int
+    stored_at: int
     _db_params: RelayDbParams = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         # Validate and compute derived fields
         parsed = rfc3986.uri_reference(self.url)
-        network = _detect_network(parsed.host)
+        network = detect_relay_network(parsed.host)
         object.__setattr__(self, "network", network)
         object.__setattr__(self, "_db_params", self._compute_db_params())
 
@@ -84,11 +87,10 @@ Key characteristics:
 ```python
 @dataclass(frozen=True, slots=True)
 class ServiceState:
-    service_name: ServiceName
+    owner: ServiceName
     state_type: ServiceStateType
     state_key: str
-    state_value: dict[str, Any]
-    updated_at: int
+    state_value: Mapping[str, Any]
 ```
 
 ---
@@ -180,9 +182,9 @@ class BrotrConfig(BaseModel):
 |--------|----------------------|---------|
 | `insert_relay(relays)` | `relay_insert` | -- |
 | `insert_event(events)` | `event_insert` | -- |
-| `insert_metadata(metadata)` | `metadata_insert` | -- |
-| `insert_event_relay(records, cascade=True)` | `event_relay_insert_cascade` | Relay + Event + Junction |
-| `insert_relay_metadata(records, cascade=True)` | `relay_metadata_insert_cascade` | Relay + Metadata + Junction |
+| `insert_document(documents)` | `document_insert` | -- |
+| `insert_event_observation(records, cascade=True)` | `event_observation_insert_cascade` | Relay + Event + Junction |
+| `insert_relay_document(records, cascade=True)` | `relay_document_insert_cascade` | Relay + Document + Junction |
 
 **Service state:**
 
@@ -192,13 +194,11 @@ class BrotrConfig(BaseModel):
 | `get_service_state(service, type, key?)` | `service_state_get` |
 | `delete_service_state(keys)` | `service_state_delete` |
 
-**Cleanup and maintenance:**
+**Maintenance:**
 
 | Method | Stored Function Called |
 |--------|----------------------|
-| `delete_orphan_event()` | `orphan_event_delete` |
-| `delete_orphan_metadata()` | `orphan_metadata_delete` |
-| `refresh_materialized_view(name)` | `{name}_refresh` |
+| `run_refresh_procedure(name)` | `{name}_refresh` |
 
 **Generic query facade** (used by services for ad-hoc queries):
 
@@ -213,7 +213,7 @@ class BrotrConfig(BaseModel):
 
 ### BaseService (`base_service.py`)
 
-Abstract base class for all eight services. Generic over configuration type.
+Abstract base class for all ten services. Generic over configuration type.
 
 ```python
 class BaseService(ABC, Generic[ConfigT]):
@@ -299,7 +299,7 @@ Prometheus metrics served on `/metrics` (port 8000).
 |--------|------|--------|-------------|
 | `service_info` | Info | service | Static service metadata |
 | `service_gauge` | Gauge | service, name | Point-in-time state (consecutive_failures, progress, last_cycle_timestamp) |
-| `service_counter` | Counter | service, name | Cumulative totals (cycles_success, cycles_failed, errors) |
+| `service_counter_total` | Counter | service, name | Cumulative totals (cycles_success, cycles_failed, errors) |
 | `cycle_duration_seconds` | Histogram | service | Cycle latency, 10 buckets (1s to 1h) |
 
 !!! note
@@ -313,7 +313,10 @@ YAML configuration loading with environment variable interpolation.
 
 ## NIPs Layer
 
-`src/bigbrotr/nips/` -- NIP-11 and NIP-66 protocol implementations. Has I/O (HTTP, DNS, SSL, WebSocket, GeoIP). Depends on models, utils, core.
+`src/bigbrotr/nips/` -- NIP-aware protocol layer. Contains the NIP-11 and
+NIP-66 runtime implementations, the static NIP capability registry, and the
+NIP-85 builder/data surface. Has I/O (HTTP, DNS, SSL, WebSocket, GeoIP) where
+appropriate and depends on models, utils, core.
 
 ### NIP-11 (`nip11/`)
 
@@ -340,7 +343,15 @@ Relay Monitoring and Discovery (NIP-66) health check implementations.
 | `http.py` | Server header, X-Powered-By header |
 | `nip66.py` | `Nip66` orchestrator class |
 
-Each module produces a `RelayMetadata` object with the corresponding `MetadataType`. The Monitor service calls these and persists results.
+Each module produces a `RelayDocument` object with the corresponding `DocumentType`. The Monitor service calls these and persists results.
+
+### Registry + NIP-85 helpers
+
+| Module | Purpose |
+|--------|---------|
+| `registry.py` | Static capability registry for document families, event kinds, service relevance, and lookup helpers |
+| `event_builders.py` | NIP-aware builder functions for monitor and NIP-85 publication kinds |
+| `nip85/data.py` | Typed provider-declaration and assertion payload models |
 
 **NIP-66 health check data flow:**
 
@@ -354,7 +365,7 @@ flowchart LR
     R --> NET["net.py<br/><small>ASN/IP</small>"]
     R --> HTTP["http.py<br/><small>HTTP Headers</small>"]
 
-    RTT --> RM["RelayMetadata"]
+    RTT --> RM["RelayDocument"]
     SSL --> RM
     DNS --> RM
     GEO --> RM
@@ -372,7 +383,7 @@ flowchart LR
 | Module | Key Exports | Purpose |
 |--------|-------------|---------|
 | `transport.py` | `connect_relay()`, `is_nostr_relay()`, `create_client()`, `create_insecure_client()` | WebSocket/HTTP transport with SOCKS5 proxy and SSL fallback |
-| `keys.py` | `load_keys_from_env()`, `KeysConfig` | Nostr key management (hex/nsec loading from env) |
+| `keys.py` | `load_keys_from_env()` | Low-level Nostr key loading from env |
 | `dns.py` | DNS resolution utilities | dnspython wrapper |
 
 ### Transport SSL Fallback
@@ -410,7 +421,7 @@ flowchart TD
 
 ### Service Architecture Pattern
 
-All eight services follow the same pattern:
+All ten services follow the same pattern:
 
 ```python
 class MyService(BaseService[MyServiceConfig]):
@@ -435,17 +446,18 @@ Configuration classes inherit from `BaseServiceConfig` which provides:
 
 | Module | Purpose |
 |--------|---------|
-| `queries.py` | Batch insert utilities and cross-service state operations |
-| `mixins.py` | `ConcurrentStreamMixin`, `NetworkSemaphoresMixin`, `GeoReaderMixin`, `ClientsMixin`, `CatalogAccessMixin` — cooperative-inheritance mixins |
-| `catalog.py` | Schema-driven `Catalog` for table discovery (Api, Dvm) and `CatalogError` |
-| `configs.py` | Per-network and per-table Pydantic config models |
+| `discovery_queries.py` | Shared Seeder/Finder candidate-registration helpers |
+| `utils.py` | Relay parsing helpers and batch insert helper |
+| `mixins.py` | `ConcurrentStreamMixin`, `NetworkSemaphoresMixin` — shared concurrency helpers |
+| `catalog.py` | Schema discovery and safe query engine used by the shared read core |
+| `configs.py` | Per-network and adapter exposure-policy Pydantic config models |
+| `read_models.py` | `ReadCore`, readable-resource registry, and stable transport-query helpers for API/DVM |
 
-**Common Query Utilities** (`common/queries.py`):
+**Common Query Utilities** (`common/discovery_queries.py`, `common/utils.py`):
 
 | Function | Purpose |
 |----------|---------|
 | `batched_insert(brotr, records, method)` | Split records into chunks of `batch.max_size`, call method per chunk |
-| `upsert_service_states(brotr, records)` | Batch-upsert `ServiceState` via `batched_insert` |
 | `insert_relays_as_candidates(brotr, relays)` | Filter new URLs (via `_filter_new_relays`), create CHECKPOINT records |
 
 Each service also has its own `queries.py` module with domain-specific queries:
@@ -455,10 +467,10 @@ Each service also has its own `queries.py` module with domain-specific queries:
 | Function | Purpose |
 |----------|---------|
 | `fetch_cursors_to_find(brotr)` | LEFT JOIN relay with service_state for cursor positions, ordered by (timestamp, id) |
-| `scan_event_relay(brotr, cursor, limit)` | Cursor-paginated event scan with `(seen_at, event_id)` tie-breaking |
+| `scan_event_observation(brotr, cursor, limit)` | Cursor-paginated event scan with `(observed_at, event_id)` tie-breaking |
 | `fetch_api_checkpoints(brotr, urls)` | Fetch per-source timestamps from CHECKPOINT records |
 | `upsert_api_checkpoints(brotr, checkpoints)` | Persist per-source timestamps as CHECKPOINT records |
-| `save_event_relay_cursor(brotr, cursor)` | Persist scan position (no-op if cursor empty) |
+| `save_event_observation_cursor(brotr, cursor)` | Persist scan position (no-op if cursor empty) |
 | `delete_stale_cursors(brotr)` | Remove CURSOR records for deleted relays |
 | `delete_stale_api_checkpoints(brotr, active_urls)` | Remove CHECKPOINT records for removed API sources |
 
@@ -480,7 +492,7 @@ Each service also has its own `queries.py` module with domain-specific queries:
 | `delete_stale_checkpoints(brotr, keep_keys)` | Remove CHECKPOINTs for deleted relays |
 | `count_relays_to_monitor(brotr, monitored_before, networks)` | Count relays due for monitoring |
 | `fetch_relays_to_monitor(brotr, monitored_before, networks, limit)` | Least-recently-monitored relays |
-| `insert_relay_metadata(brotr, records)` | Batch-insert RelayMetadata (cascade) |
+| `insert_relay_document(brotr, records)` | Batch-insert RelayDocument (cascade) |
 | `upsert_monitor_checkpoints(brotr, relays, now)` | Upsert CHECKPOINT with timestamp for checked relays |
 | `is_publish_due(brotr, state_key, interval)` | Check if publish interval has elapsed |
 | `upsert_publish_checkpoints(brotr, state_keys)` | Save current time as publish checkpoints |
@@ -489,9 +501,9 @@ Each service also has its own `queries.py` module with domain-specific queries:
 
 | Function | Purpose |
 |----------|---------|
-| `fetch_relays(brotr)` | All relays ordered by `discovered_at` |
+| `fetch_relays(brotr)` | All relays ordered by `stored_at` |
 | `delete_stale_cursors(brotr)` | Remove CURSOR state for deleted relays |
-| `insert_event_relays(brotr, records)` | Batch-insert EventRelay (cascade) |
+| `insert_event_observations(brotr, records)` | Batch-insert EventObservation (cascade) |
 
 **Network Configuration** (`configs.py`):
 
@@ -519,7 +531,7 @@ async for result in self._iter_concurrent(items, worker):
 
 **NetworkSemaphores** (`mixins.py`): creates one `asyncio.Semaphore` per enabled network, limiting concurrency to `max_tasks`.
 
-**GeoReaders** (`mixins.py`): lifecycle manager for GeoIP2 database readers (city + ASN), with `open()` and `close()` methods.
+**GeoReaders** (`monitor/resources.py`): lifecycle manager for GeoIP2 database readers (city + ASN), with `open()` and `close()` methods.
 
 ---
 
@@ -527,16 +539,16 @@ async for result in self._iter_concurrent(items, worker):
 
 ### Metadata Deduplication
 
-Metadata is content-addressed: SHA-256 hash over canonical JSON. When the Monitor produces identical metadata for a relay, only a new `relay_metadata` row is inserted (linking the relay to the existing `metadata` record). The cascade function handles this:
+Documents are content-addressed: SHA-256 hash over canonical JSON. When the Monitor produces identical check output for a relay, only a new `relay_document` row is inserted (linking the relay to the existing `document` record). The cascade function handles this:
 
 ```mermaid
 flowchart TD
-    A["Monitor._check_one(relay)"] --> B["CheckResult<br/><small>7 metadata types</small>"]
-    B --> C["insert_relay_metadata<br/>(records, cascade=True)"]
-    C --> D["relay_metadata_insert_cascade"]
+    A["Monitor._check_one(relay)"] --> B["CheckResult<br/><small>7 document roles</small>"]
+    B --> C["insert_relay_document<br/>(records, cascade=True)"]
+    C --> D["relay_document_insert_cascade"]
     D --> E["1. INSERT INTO relay<br/>ON CONFLICT DO NOTHING"]
-    D --> F["2. INSERT INTO metadata<br/>ON CONFLICT DO NOTHING<br/><small>(dedup by hash)</small>"]
-    D --> G["3. INSERT INTO relay_metadata<br/><small>(time-series link)</small>"]
+    D --> F["2. INSERT INTO document<br/>ON CONFLICT DO NOTHING<br/><small>(dedup by hash)</small>"]
+    D --> G["3. INSERT INTO relay_document<br/><small>(time-series link)</small>"]
 
 ```
 
@@ -566,8 +578,8 @@ flowchart LR
     end
 
     subgraph "Reader Services"
-        API["Api"]
-        DVM["Dvm"]
+        API["API"]
+        DVM["DVM"]
     end
 
     subgraph "Per-Service asyncpg Pool"
@@ -598,7 +610,7 @@ flowchart LR
 
 ```
 
-Each service has its own asyncpg pool with per-service sizing (via pool overrides in service config). PGBouncer provides two database pools: **bigbrotr** (pool_size=10) for writer services (including Refresher, which uses its own DB role with materialized view ownership), and **bigbrotr_readonly** (pool_size=8) for read-only consumers (Api, Dvm, postgres-exporter).
+Each service has its own asyncpg pool with per-service sizing (via pool overrides in service config). PGBouncer provides two database pools: **bigbrotr** (pool_size=10) for writer services, including Refresher's derived-table refreshes, and **bigbrotr_readonly** (pool_size=8) for read-only consumers (API, DVM, postgres-exporter).
 
 ### Per-Network Semaphores
 
@@ -641,13 +653,16 @@ Services use mixins from `services/common/mixins.py` to compose shared behavior:
 
 - `ConcurrentStreamMixin` -- concurrent item processing with streaming results (Finder, Validator, Monitor, Synchronizer)
 - `NetworkSemaphoresMixin` -- per-network concurrency (Validator, Monitor, Synchronizer)
-- `GeoReaderMixin` -- GeoIP database lifecycle (Monitor)
-- `ClientsMixin` -- managed pool of Nostr clients for event broadcasting (Monitor)
-- `CatalogAccessMixin` -- schema-driven table catalog (Api, Dvm)
+- `GeoReaders` -- GeoIP database lifecycle helper owned by Monitor
+- `RelayClients` -- managed pool of Nostr clients for Monitor event broadcasting
+- `ReadCore` -- protocol-agnostic readable-resource execution boundary
+
+The stable `read_model` transport seam now lives only in adapter-facing
+request parsing and response metadata helpers, not in a parallel shared wrapper.
 
 ### Content-Addressed Deduplication
 
-Metadata uses SHA-256 hash as primary key. Identical NIP-11/NIP-66 results across time or relays produce the same hash, deduplicating storage. Time-series tracking is via the `relay_metadata` junction table.
+Document storage uses a SHA-256 hash as primary key. Identical NIP-11/NIP-66 results across time or relays produce the same hash, deduplicating storage. Time-series tracking is via the `relay_document` junction table.
 
 ### Factory Methods
 
@@ -701,7 +716,7 @@ All configuration uses Pydantic v2 models with:
 - Typed fields with defaults and constraints (`Field(ge=1, le=65535)`)
 - Nested models (e.g., `MonitorConfig.networks.clearnet.timeout`)
 - `model_validator` for cross-field validation (e.g., Monitor keys at config load time)
-- Environment variable injection for secrets (`DB_WRITER_PASSWORD`, `DB_READER_PASSWORD`, `DB_REFRESHER_PASSWORD`, `NOSTR_PRIVATE_KEY`)
+- Environment variable injection for secrets (`DB_WRITER_PASSWORD`, `DB_READER_PASSWORD`, `DB_REFRESHER_PASSWORD`, `NOSTR_PRIVATE_KEY_<SERVICE>`)
 
 ### Environment Variables
 
@@ -709,9 +724,12 @@ All configuration uses Pydantic v2 models with:
 |----------|----------|---------|
 | `DB_ADMIN_PASSWORD` | Yes | PostgreSQL admin, PGBouncer auth |
 | `DB_WRITER_PASSWORD` | Yes | Writer services (via per-service pool overrides) |
-| `DB_REFRESHER_PASSWORD` | Yes | Refresher (matview ownership for REFRESH CONCURRENTLY) |
-| `DB_READER_PASSWORD` | Yes | Read-only services (postgres-exporter, Api, Dvm) |
-| `NOSTR_PRIVATE_KEY` | For Monitor | Monitor (Nostr event signing, RTT write tests) |
+| `DB_REFRESHER_PASSWORD` | Yes | Refresher derived-table and analytics refreshes |
+| `DB_READER_PASSWORD` | Yes | Read-only services (postgres-exporter, API, DVM) |
+| `NOSTR_PRIVATE_KEY_MONITOR` | No | Monitor (publishing and NIP-66 write probes) |
+| `NOSTR_PRIVATE_KEY_SYNCHRONIZER` | No | Synchronizer (NIP-42-authenticated relay reads) |
+| `NOSTR_PRIVATE_KEY_DVM` | No | DVM (NIP-89/NIP-90 signing) |
+| `NOSTR_PRIVATE_KEY_ASSERTOR` | No | Assertor (NIP-85 signing) |
 | `GRAFANA_PASSWORD` | No | Grafana (admin password) |
 
 ---
@@ -727,7 +745,7 @@ tests/
 │   └── relays.py                # Shared relay fixtures (registered as pytest plugin)
 ├── unit/                        # ~2500 tests, mirrors src/ structure
 │   ├── core/                    # test_pool.py, test_brotr.py, test_base_service.py, ...
-│   ├── models/                  # test_relay.py, test_event.py, test_metadata.py, ...
+│   ├── models/                  # test_relay.py, test_event.py, test_document.py, ...
 │   ├── nips/                    # nip11/, nip66/
 │   ├── services/                # test_monitor.py, test_synchronizer.py, ...
 │   └── utils/                   # test_transport.py, test_keys.py, ...
@@ -746,13 +764,13 @@ tests/
 
 - Mock targets use `bigbrotr.` prefix: `@patch("bigbrotr.services.validator.is_nostr_relay")`
 - Service tests mock query functions at the **service module namespace** (not `bigbrotr.core.queries.*`)
-- Root conftest provides: `mock_pool`, `mock_brotr`, `mock_connection`, `mock_asyncpg_pool`, `sample_event`, `sample_relay`, `sample_metadata`, `sample_events_batch`, `sample_relays_batch`
+- Root conftest provides: `mock_pool`, `mock_brotr`, `mock_connection`, `mock_asyncpg_pool`, `sample_event`, `sample_relay`, `sample_relay_document`, `sample_events_batch`, `sample_relays_batch`
 
 ---
 
 ## Related Documentation
 
-- [Services](services.md) -- Deep dive into the eight independent services and data flow
+- [Services](services.md) -- Deep dive into the ten independent services and data flow
 - [Configuration](configuration.md) -- Complete YAML configuration reference
 - [Database](database.md) -- PostgreSQL schema, stored functions, and indexes
 - [Monitoring](monitoring.md) -- Prometheus metrics, alerting, and Grafana dashboards

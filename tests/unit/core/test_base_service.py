@@ -113,10 +113,66 @@ class TestBaseServiceConfig:
         with pytest.raises(ValidationError):
             BaseServiceConfig(interval=604_801.0)
 
+    def test_rejects_boolean_interval_alias(self) -> None:
+        """Test bool aliases do not coerce into a valid service interval."""
+        with pytest.raises(ValidationError, match="interval: expected number, got bool"):
+            BaseServiceConfig(interval=True)
+
+    @pytest.mark.parametrize("value", ["300", "300.0"])
+    def test_rejects_non_numeric_interval_aliases(self, value: object) -> None:
+        """Test string aliases do not coerce into a valid service interval."""
+        with pytest.raises(ValidationError, match=r"interval: expected number, got"):
+            BaseServiceConfig(interval=value)
+
+    def test_rejects_non_string_root_field_keys(self) -> None:
+        """Test root payloads require canonical string keys."""
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            BaseServiceConfig.model_validate({b"metrics": {"enabled": True}})
+
+    def test_nested_metrics_raw_field_keys_rejected(self) -> None:
+        """Test nested metrics payloads require canonical string keys."""
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            BaseServiceConfig.model_validate({"metrics": {b"enabled": True}})
+
+    def test_nested_metrics_unknown_field_names_rejected(self) -> None:
+        """Test nested metrics payloads reject stale field names."""
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            BaseServiceConfig.model_validate({"metrics": {"bind_host": "127.0.0.1"}})
+
+    def test_rejects_unknown_root_field_names(self) -> None:
+        """Test root payloads reject stale shared field names."""
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            BaseServiceConfig.model_validate({"metrics_config": {"enabled": True}})
+
+    def test_subclass_root_raw_field_keys_rejected(self) -> None:
+        """Test subclasses inherit the shared root raw-key boundary."""
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            ConcreteServiceConfig.model_validate({b"metrics": {"enabled": True}})
+
+    def test_subclass_root_unknown_field_names_rejected(self) -> None:
+        """Test subclasses inherit the shared root extra-field boundary."""
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            ConcreteServiceConfig.model_validate({"item_limit": 50})
+
     def test_max_consecutive_failures_zero_allowed(self) -> None:
         """Test that max_consecutive_failures=0 (unlimited) is allowed."""
         config = BaseServiceConfig(max_consecutive_failures=0)
         assert config.max_consecutive_failures == 0
+
+    def test_rejects_boolean_max_consecutive_failures_alias(self) -> None:
+        """Test bool aliases do not coerce into a one-failure shutdown budget."""
+        with pytest.raises(
+            ValidationError, match="max_consecutive_failures: expected integer, got bool"
+        ):
+            BaseServiceConfig(max_consecutive_failures=True)
+
+    @pytest.mark.parametrize("value", ["5", 5.0])
+    def test_rejects_non_integer_max_consecutive_failures_aliases(self, value: object) -> None:
+        """Test non-integer aliases do not coerce into a valid shutdown budget."""
+        with pytest.raises(
+            ValidationError, match=r"max_consecutive_failures: expected integer, got"
+        ):
+            BaseServiceConfig(max_consecutive_failures=value)
 
     def test_max_consecutive_failures_negative_not_allowed(self) -> None:
         """Test that negative max_consecutive_failures is not allowed."""

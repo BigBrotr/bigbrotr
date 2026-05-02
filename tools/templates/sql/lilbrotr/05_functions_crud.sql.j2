@@ -1,0 +1,12 @@
+{% extends "base/05_functions_crud.sql.j2" %}
+{% block events_insert_description %}
+'Bulk insert lightweight events with ordered tagvalues computed at insert time for filtering and analytics fallback, returns number of rows inserted';
+{% endblock %}
+{% block events_insert_body %}
+    -- Store essential fields + compute tagvalues; tags/content/sig remain NULL
+    INSERT INTO event (id, pubkey, created_at, kind, tagvalues)
+    SELECT id, pubkey, created_at, kind, tags_to_tagvalues(tags)
+    FROM unnest(p_event_ids, p_pubkeys, p_created_ats, p_kinds, p_tags)
+        AS t(id, pubkey, created_at, kind, tags)
+    ON CONFLICT (id) DO NOTHING;
+{% endblock %}

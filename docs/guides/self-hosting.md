@@ -6,21 +6,21 @@ A comprehensive, step-by-step guide for deploying BigBrotr on a self-hosted Prox
 
 - [Target Hardware](#target-hardware)
 - [Architecture Overview](#architecture-overview)
-- [Phase 0 — Proxmox Post-Installation](#phase-0--proxmox-post-installation)
-- [Phase 1 — Create ZFS Storage Pools](#phase-1--create-zfs-storage-pools)
-- [Phase 2 — Create the Virtual Machine](#phase-2--create-the-virtual-machine)
-- [Phase 3 — Install Debian](#phase-3--install-debian)
-- [Phase 4 — Install Docker](#phase-4--install-docker)
-- [Phase 5 — Deploy BigBrotr](#phase-5--deploy-bigbrotr)
-- [Phase 6 — Cloudflare Tunnel Setup](#phase-6--cloudflare-tunnel-setup)
-- [Phase 7 — Security Hardening](#phase-7--security-hardening)
-- [Phase 8 — Database Backup](#phase-8--database-backup)
-- [Phase 9 — Post-Deployment](#phase-9--post-deployment)
+- [Phase 0 — Proxmox Post-Installation](#phase-0-proxmox-post-installation)
+- [Phase 1 — Create ZFS Storage Pools](#phase-1-create-zfs-storage-pools)
+- [Phase 2 — Create the Virtual Machine](#phase-2-create-the-virtual-machine)
+- [Phase 3 — Install Debian](#phase-3-install-debian)
+- [Phase 4 — Install Docker](#phase-4-install-docker)
+- [Phase 5 — Deploy BigBrotr](#phase-5-deploy-bigbrotr)
+- [Phase 6 — Cloudflare Tunnel Setup](#phase-6-cloudflare-tunnel-setup)
+- [Phase 7 — Security Hardening](#phase-7-security-hardening)
+- [Phase 8 — Database Backup](#phase-8-database-backup)
+- [Phase 9 — Post-Deployment](#phase-9-post-deployment)
 - [Troubleshooting](#troubleshooting)
-- [Appendix A — Connecting for Research](#appendix-a--connecting-for-research)
-- [Appendix B — Expanding Storage](#appendix-b--expanding-storage)
-- [Appendix C — Running Multiple Deployments](#appendix-c--running-multiple-deployments)
-- [Appendix D — Updating BigBrotr](#appendix-d--updating-bigbrotr)
+- [Appendix A — Connecting for Research](#appendix-a-connecting-for-research)
+- [Appendix B — Expanding Storage](#appendix-b-expanding-storage)
+- [Appendix C — Running Multiple Deployments](#appendix-c-running-multiple-deployments)
+- [Appendix D — Updating BigBrotr](#appendix-d-updating-bigbrotr)
 
 ---
 
@@ -59,7 +59,7 @@ This guide assumes a dedicated server with the following (adjust resource alloca
 │  │     ├── bigbrotr-production/{dumps,exports,analysis}           │  │
 │  │     └── lilbrotr-production/  (future)                         │  │
 │  │                                                                │  │
-│  │  Docker Compose → 15 containers (8 services + 7 infra)        │  │
+│  │  Docker Compose → 17 containers (10 services + 7 infra)       │  │
 │  │  cloudflared  → Cloudflare Tunnel (zero open ports)            │  │
 │  │                                                                │  │
 │  │  PostgreSQL accessible on internal network for research        │  │
@@ -491,7 +491,7 @@ sysctl --system
 | `vm.overcommit_memory=2` | Strict accounting — prevents OOM killer from targeting PostgreSQL |
 | `vm.swappiness=1` | Almost never swap — swapping shared_buffers is catastrophic |
 | `vm.dirty_*_ratio` | Flush dirty pages early — prevents I/O stalls from large write bursts |
-| `fs.file-max` | Docker + PostgreSQL + 8 services need many open file descriptors |
+| `fs.file-max` | Docker + PostgreSQL + 9 services need many open file descriptors |
 
 ### 3.8 — System Limits
 
@@ -572,7 +572,7 @@ rm -rf BigBrotr-bigbrotr-*
 
 This gives you a standalone production folder at `/opt/bigbrotr-production/` with all configs, monitoring, SQL init scripts, PGBouncer settings, and backup script. No git required on the server.
 
-Next, edit `docker-compose.yaml` to use pre-built Docker Hub images instead of building locally. Replace every `build:` block in the 8 service definitions with an `image:` line:
+Next, edit `docker-compose.yaml` to use pre-built Docker Hub images instead of building locally. Replace every `build:` block in the 9 service definitions with an `image:` line:
 
 ```yaml
 # Replace this (in seeder, finder, validator, monitor, synchronizer, refresher, api, dvm):
@@ -611,14 +611,20 @@ DB_WRITER_PW=$(openssl rand -base64 32)
 DB_READER_PW=$(openssl rand -base64 32)
 DB_REFRESHER_PW=$(openssl rand -base64 32)
 GRAFANA_PW=$(openssl rand -base64 24)
-NOSTR_KEY=$(openssl rand -hex 32)
+NOSTR_MONITOR_KEY=$(openssl rand -hex 32)
+NOSTR_SYNCHRONIZER_KEY=$(openssl rand -hex 32)
+NOSTR_DVM_KEY=$(openssl rand -hex 32)
+NOSTR_ASSERTOR_KEY=$(openssl rand -hex 32)
 
 cat > .env << EOF
 DB_ADMIN_PASSWORD=${DB_ADMIN_PW}
 DB_WRITER_PASSWORD=${DB_WRITER_PW}
 DB_READER_PASSWORD=${DB_READER_PW}
 DB_REFRESHER_PASSWORD=${DB_REFRESHER_PW}
-NOSTR_PRIVATE_KEY=${NOSTR_KEY}
+NOSTR_PRIVATE_KEY_MONITOR=${NOSTR_MONITOR_KEY}
+NOSTR_PRIVATE_KEY_SYNCHRONIZER=${NOSTR_SYNCHRONIZER_KEY}
+NOSTR_PRIVATE_KEY_DVM=${NOSTR_DVM_KEY}
+NOSTR_PRIVATE_KEY_ASSERTOR=${NOSTR_ASSERTOR_KEY}
 GRAFANA_PASSWORD=${GRAFANA_PW}
 EOF
 

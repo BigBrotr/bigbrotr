@@ -1,0 +1,325 @@
+/*
+ * Brotr - 02_tables_core.sql
+ *
+ * Core database tables for Nostr relay archiving and monitoring.
+ * The event table is the primary customization point: only the id column
+ * is mandatory. All other tables have fixed structures.
+ *
+ * Dependencies: None (tags_to_tagvalues is used by CRUD functions, not table definitions)
+ * Customization: event table columns (see storage modes in events_table block)
+ */
+
+
+-- ==========================================================================
+-- relay: Registry of validated Nostr relays
+-- ==========================================================================
+-- Stores only relays that have passed WebSocket validation by the Validator
+-- service. Each relay is identified by its unique WebSocket URL and tagged
+-- with its network type for routing through the appropriate proxy.
+
+CREATE TABLE IF NOT EXISTS relay (
+    url TEXT PRIMARY KEY,
+    network TEXT NOT NULL,
+    stored_at BIGINT NOT NULL
+);
+
+COMMENT ON TABLE relay IS 'Registry of validated Nostr relays across clearnet and overlay networks';
+COMMENT ON COLUMN relay.url IS 'WebSocket URL (e.g., wss://relay.example.com)';
+COMMENT ON COLUMN relay.network IS 'Network type: clearnet, tor, i2p, or loki';
+COMMENT ON COLUMN relay.stored_at IS 'Unix timestamp when the relay row entered the canonical stored relay pool';
+
+
+-- ==========================================================================
+-- event: Nostr event storage (CUSTOMIZABLE)
+-- ==========================================================================
+-- Only the id column (BYTEA PRIMARY KEY) is mandatory for the event_observation
+-- foreign key. All other columns are optional. Customize the event_insert()
+-- function in 05_functions_crud.sql to match your chosen schema.
+--
+-- Storage modes:
+--
+--   Minimal (tracking event IDs per relay only):
+--     CREATE TABLE event (id BYTEA PRIMARY KEY);
+--
+--   Lightweight (metadata + tag filtering, ~60% disk savings):
+--     CREATE TABLE event (
+--         id BYTEA PRIMARY KEY,
+--         pubkey BYTEA NOT NULL,
+--         created_at BIGINT NOT NULL,
+--         kind INTEGER NOT NULL,
+--         tagvalues TEXT[]
+--     );
+--
+--   Full (complete event reconstruction, used below):
+--     Includes all NIP-01 fields with tagvalues computed at insert time.
+
+CREATE TABLE IF NOT EXISTS event (
+    id BYTEA NOT NULL,
+    pubkey BYTEA NOT NULL,
+    created_at BIGINT NOT NULL,
+    kind INTEGER NOT NULL,
+    tags JSONB NOT NULL,
+    tagvalues TEXT [] NOT NULL,    -- Computed at insert time by event_insert()
+    content TEXT NOT NULL,
+    sig BYTEA NOT NULL,
+    PRIMARY KEY (id)
+) PARTITION BY HASH (id);
+
+CREATE TABLE IF NOT EXISTS event_p0 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 0);
+CREATE TABLE IF NOT EXISTS event_p1 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 1);
+CREATE TABLE IF NOT EXISTS event_p2 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 2);
+CREATE TABLE IF NOT EXISTS event_p3 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 3);
+CREATE TABLE IF NOT EXISTS event_p4 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 4);
+CREATE TABLE IF NOT EXISTS event_p5 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 5);
+CREATE TABLE IF NOT EXISTS event_p6 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 6);
+CREATE TABLE IF NOT EXISTS event_p7 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 7);
+CREATE TABLE IF NOT EXISTS event_p8 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 8);
+CREATE TABLE IF NOT EXISTS event_p9 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 9);
+CREATE TABLE IF NOT EXISTS event_p10 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 10);
+CREATE TABLE IF NOT EXISTS event_p11 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 11);
+CREATE TABLE IF NOT EXISTS event_p12 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 12);
+CREATE TABLE IF NOT EXISTS event_p13 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 13);
+CREATE TABLE IF NOT EXISTS event_p14 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 14);
+CREATE TABLE IF NOT EXISTS event_p15 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 15);
+
+ALTER TABLE event ALTER COLUMN content SET COMPRESSION lz4;
+ALTER TABLE event ALTER COLUMN tags SET COMPRESSION lz4;
+
+COMMENT ON TABLE event IS 'Complete Nostr events with computed tag values for efficient querying';
+COMMENT ON COLUMN event.id IS 'SHA-256 event hash (32 bytes, stored as bytea from hex)';
+COMMENT ON COLUMN event.pubkey IS 'Author public key (32 bytes, stored as bytea from hex)';
+COMMENT ON COLUMN event.created_at IS 'Unix timestamp of event creation';
+COMMENT ON COLUMN event.kind IS 'Event kind per NIP-01 (0=metadata, 1=text note, 3=contacts, etc.)';
+COMMENT ON COLUMN event.tags IS 'JSONB array of [key, value, ...] tag arrays per NIP-01';
+COMMENT ON COLUMN event.tagvalues IS 'Single-char tag values computed at insert time by event_insert() for GIN indexing';
+COMMENT ON COLUMN event.content IS 'Event content (plaintext or encrypted depending on kind)';
+COMMENT ON COLUMN event.sig IS 'Schnorr signature (64 bytes, stored as bytea from hex)';
+
+
+-- ==========================================================================
+-- event_observation: Event-to-relay junction table
+-- ==========================================================================
+-- Tracks which events were observed on which relays, with the timestamp of
+-- first observation. The composite primary key prevents duplicate entries.
+-- CASCADE deletes ensure cleanup when either side is removed.
+
+CREATE TABLE IF NOT EXISTS event_observation (
+    event_id BYTEA NOT NULL,
+    relay_url TEXT NOT NULL,
+    observed_at BIGINT NOT NULL,
+    PRIMARY KEY (event_id, relay_url),
+    FOREIGN KEY (event_id) REFERENCES event (id) ON DELETE CASCADE,
+    FOREIGN KEY (relay_url) REFERENCES relay (url) ON DELETE CASCADE
+) PARTITION BY HASH (event_id);
+
+CREATE TABLE IF NOT EXISTS event_observation_p0 PARTITION OF event_observation
+    FOR VALUES WITH (MODULUS 16, REMAINDER 0);
+CREATE TABLE IF NOT EXISTS event_observation_p1 PARTITION OF event_observation
+    FOR VALUES WITH (MODULUS 16, REMAINDER 1);
+CREATE TABLE IF NOT EXISTS event_observation_p2 PARTITION OF event_observation
+    FOR VALUES WITH (MODULUS 16, REMAINDER 2);
+CREATE TABLE IF NOT EXISTS event_observation_p3 PARTITION OF event_observation
+    FOR VALUES WITH (MODULUS 16, REMAINDER 3);
+CREATE TABLE IF NOT EXISTS event_observation_p4 PARTITION OF event_observation
+    FOR VALUES WITH (MODULUS 16, REMAINDER 4);
+CREATE TABLE IF NOT EXISTS event_observation_p5 PARTITION OF event_observation
+    FOR VALUES WITH (MODULUS 16, REMAINDER 5);
+CREATE TABLE IF NOT EXISTS event_observation_p6 PARTITION OF event_observation
+    FOR VALUES WITH (MODULUS 16, REMAINDER 6);
+CREATE TABLE IF NOT EXISTS event_observation_p7 PARTITION OF event_observation
+    FOR VALUES WITH (MODULUS 16, REMAINDER 7);
+CREATE TABLE IF NOT EXISTS event_observation_p8 PARTITION OF event_observation
+    FOR VALUES WITH (MODULUS 16, REMAINDER 8);
+CREATE TABLE IF NOT EXISTS event_observation_p9 PARTITION OF event_observation
+    FOR VALUES WITH (MODULUS 16, REMAINDER 9);
+CREATE TABLE IF NOT EXISTS event_observation_p10 PARTITION OF event_observation
+    FOR VALUES WITH (MODULUS 16, REMAINDER 10);
+CREATE TABLE IF NOT EXISTS event_observation_p11 PARTITION OF event_observation
+    FOR VALUES WITH (MODULUS 16, REMAINDER 11);
+CREATE TABLE IF NOT EXISTS event_observation_p12 PARTITION OF event_observation
+    FOR VALUES WITH (MODULUS 16, REMAINDER 12);
+CREATE TABLE IF NOT EXISTS event_observation_p13 PARTITION OF event_observation
+    FOR VALUES WITH (MODULUS 16, REMAINDER 13);
+CREATE TABLE IF NOT EXISTS event_observation_p14 PARTITION OF event_observation
+    FOR VALUES WITH (MODULUS 16, REMAINDER 14);
+CREATE TABLE IF NOT EXISTS event_observation_p15 PARTITION OF event_observation
+    FOR VALUES WITH (MODULUS 16, REMAINDER 15);
+
+ALTER TABLE event_observation_p0 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_observation_p1 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_observation_p2 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_observation_p3 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_observation_p4 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_observation_p5 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_observation_p6 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_observation_p7 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_observation_p8 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_observation_p9 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_observation_p10 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_observation_p11 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_observation_p12 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_observation_p13 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_observation_p14 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_observation_p15 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+
+COMMENT ON TABLE event_observation IS 'Tracks which events appear on which relays, with first-observation timestamps';
+COMMENT ON COLUMN event_observation.event_id IS 'Foreign key to event.id';
+COMMENT ON COLUMN event_observation.relay_url IS 'Foreign key to relay.url';
+COMMENT ON COLUMN event_observation.observed_at IS 'Unix timestamp when event was first observed on this relay';
+
+
+-- ==========================================================================
+-- document: Content-addressed NIP-11 and NIP-66 document storage
+-- ==========================================================================
+-- Stores JSON documents deduplicated by their SHA-256 content hash
+-- and metadata type. The composite primary key (id, type) ensures
+-- each document is associated with exactly one type. Content-addressed
+-- deduplication still operates within a type: identical data with the same
+-- type shares a single row.
+
+CREATE TABLE IF NOT EXISTS document (
+    id BYTEA NOT NULL,
+    type TEXT NOT NULL,
+    data JSONB NOT NULL,
+    PRIMARY KEY (id, type)
+);
+
+ALTER TABLE document ALTER COLUMN data SET COMPRESSION lz4;
+
+COMMENT ON TABLE document IS 'Content-addressed storage for NIP-11/NIP-66 documents (deduplicated by SHA-256 hash + type)';
+COMMENT ON COLUMN document.id IS 'SHA-256 hash of the JSON data (content-addressed key, part of composite PK)';
+COMMENT ON COLUMN document.type IS 'Check type: nip11_info, nip66_rtt, nip66_ssl, nip66_geo, nip66_net, nip66_dns, or nip66_http';
+COMMENT ON COLUMN document.data IS 'Complete JSON document (NIP-11 relay info or NIP-66 check result)';
+
+
+-- ==========================================================================
+-- relay_document: Time-series document associations per relay
+-- ==========================================================================
+-- Links relays to stored documents over time, creating a history of health
+-- check results. Each row represents one relay-document association at one
+-- point in time. The role column distinguishes between different document
+-- roles such as NIP-11 info and the NIP-66 check families.
+-- check types: nip11_info, nip66_rtt, nip66_ssl, nip66_geo, nip66_net,
+-- nip66_dns, nip66_http.
+
+CREATE TABLE IF NOT EXISTS relay_document (
+    relay_url TEXT NOT NULL,
+    document_id BYTEA NOT NULL,
+    role TEXT NOT NULL,
+    associated_at BIGINT NOT NULL,
+
+    PRIMARY KEY (relay_url, associated_at, role),
+    FOREIGN KEY (relay_url) REFERENCES relay (url) ON DELETE CASCADE,
+    FOREIGN KEY (document_id, role) REFERENCES document (id, type) ON DELETE CASCADE
+);
+
+COMMENT ON TABLE relay_document IS 'Time-series relay-document associations linking relays to stored documents';
+COMMENT ON COLUMN relay_document.relay_url IS 'Foreign key to relay.url';
+COMMENT ON COLUMN relay_document.document_id IS 'Foreign key to document(id, type) (content-addressed hash)';
+COMMENT ON COLUMN relay_document.role IS 'Document role: nip11_info, nip66_rtt, nip66_ssl, nip66_geo, nip66_net, nip66_dns, or nip66_http';
+COMMENT ON COLUMN relay_document.associated_at IS 'Unix timestamp when the document became associated with the relay';
+
+
+-- ==========================================================================
+-- service_state: Persistent key-value store for shared operational state
+-- ==========================================================================
+-- Generic JSONB storage for operational state. Each owner uses
+-- this table to persist state between restarts:
+--   - Finder: stores relay URL candidates awaiting validation
+--   - Validator: tracks validation attempt counts per candidate
+--   - Synchronizer: stores per-relay sync cursors (last synced timestamp)
+--   - Monitor: stores health check scheduling state
+
+CREATE TABLE IF NOT EXISTS service_state (
+    owner TEXT NOT NULL,
+    state_type TEXT NOT NULL,
+    state_key TEXT NOT NULL,
+    state_value JSONB NOT NULL DEFAULT '{}',
+    PRIMARY KEY (owner, state_type, state_key)
+);
+
+COMMENT ON TABLE service_state IS 'Persistent shared operational state (cursors, checkpoints)';
+COMMENT ON COLUMN service_state.owner IS 'State owner identifier (finder, validator, synchronizer, monitor)';
+COMMENT ON COLUMN service_state.state_type IS 'State category (cursor, checkpoint)';
+COMMENT ON COLUMN service_state.state_key IS 'Unique key within owner+type (typically a relay URL or entity ID)';
+COMMENT ON COLUMN service_state.state_value IS 'JSONB payload; each state type stores its own business timestamp';

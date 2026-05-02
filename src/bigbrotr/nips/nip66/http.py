@@ -1,5 +1,5 @@
 """
-NIP-66 HTTP metadata container with header extraction capabilities.
+NIP-66 HTTP result container with header extraction capabilities.
 
 Captures ``Server`` and ``X-Powered-By`` HTTP headers from the WebSocket
 upgrade handshake response as part of
@@ -13,11 +13,13 @@ Note:
     ensures the captured headers reflect the actual relay WebSocket endpoint
     rather than a potentially different HTTP endpoint.
 
-    For clearnet relays, SSL verification is enabled by default. When
-    ``allow_insecure=True``, a non-validating SSL context (``CERT_NONE``)
-    is used instead. Overlay networks always use ``CERT_NONE`` because
-    the proxy provides encryption. This is the only NIP-66 test that
-    supports **both** clearnet and overlay networks.
+    For clearnet ``wss://`` relays, SSL verification is enabled by default.
+    When ``allow_insecure=True``, a non-validating SSL context
+    (``CERT_NONE``) is used instead. Overlay relays are canonicalized to
+    ``ws://`` by [Relay][bigbrotr.models.relay.Relay], so their HTTP header
+    probes stay on plain WebSocket transport with no SSL context. Like the
+    RTT probe, this check supports both clearnet and overlay relays when the
+    required proxy settings are supplied.
 
 See Also:
     [bigbrotr.nips.nip66.data.Nip66HttpData][bigbrotr.nips.nip66.data.Nip66HttpData]:
@@ -41,9 +43,10 @@ from aiohttp_socks import ProxyConnector
 
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
+from bigbrotr.nips._validation import normalize_allow_insecure, normalize_proxy_url
 from bigbrotr.nips.base import BaseNipMetadata
-from bigbrotr.utils.transport import DEFAULT_TIMEOUT
 
+from ._validation import normalize_timeout_budget
 from .data import Nip66HttpData
 from .logs import Nip66HttpLogs
 
@@ -54,14 +57,14 @@ logger = logging.getLogger("bigbrotr.nips.nip66")
 class Nip66HttpMetadata(BaseNipMetadata):
     """Container for HTTP header data and extraction logs.
 
-    Provides the ``execute()`` class method that initiates a WebSocket
+    Provides the semantic ``probe()`` class method that initiates a WebSocket
     connection and captures server identification headers from the
     upgrade response.
 
     See Also:
         [bigbrotr.nips.nip66.nip66.Nip66][bigbrotr.nips.nip66.nip66.Nip66]:
             Top-level model that orchestrates this alongside other tests.
-        [bigbrotr.models.metadata.MetadataType][bigbrotr.models.metadata.MetadataType]:
+        [bigbrotr.models.document.DocumentType][bigbrotr.models.document.DocumentType]:
             The ``NIP66_HTTP`` variant used when storing these results.
     """
 
@@ -99,16 +102,20 @@ class Nip66HttpMetadata(BaseNipMetadata):
             params: aiohttp.TraceRequestEndParams,
         ) -> None:
             if params.response and params.response.headers:
-                captured_headers.update(dict(params.response.headers))
+                captured_headers.update(
+                    {name.lower(): value for name, value in params.response.headers.items()}
+                )
 
         trace_config = aiohttp.TraceConfig()
         trace_config.on_request_end.append(on_request_end)
 
-        is_overlay = relay.network in (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
-        ssl_context = ssl.create_default_context()
-        if is_overlay or allow_insecure:
-            ssl_context.check_hostname = False
-            ssl_context.verify_mode = ssl.CERT_NONE
+        if relay.scheme == "ws":
+            ssl_context: ssl.SSLContext | bool = False
+        else:
+            ssl_context = ssl.create_default_context()
+            if allow_insecure:
+                ssl_context.check_hostname = False
+                ssl_context.verify_mode = ssl.CERT_NONE
 
         connector: aiohttp.BaseConnector
         if proxy_url:
@@ -128,18 +135,18 @@ class Nip66HttpMetadata(BaseNipMetadata):
         ):
             await ws.close()
 
-        server = captured_headers.get("Server")
+        server = captured_headers.get("server")
         if server:
             result["http_server"] = server
 
-        powered_by = captured_headers.get("X-Powered-By")
+        powered_by = captured_headers.get("x-powered-by")
         if powered_by:
             result["http_powered_by"] = powered_by
 
         return result
 
     @classmethod
-    async def execute(
+    async def probe(
         cls,
         relay: Relay,
         timeout: float | None = None,  # noqa: ASYNC109
@@ -158,7 +165,9 @@ class Nip66HttpMetadata(BaseNipMetadata):
         Returns:
             An ``Nip66HttpMetadata`` instance with header data and logs.
         """
-        timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
+        timeout = normalize_timeout_budget(timeout)
+        proxy_url = normalize_proxy_url(proxy_url)
+        allow_insecure = normalize_allow_insecure(allow_insecure)
         logger.debug("http_testing relay=%s timeout_s=%s proxy=%s", relay.url, timeout, proxy_url)
 
         overlay_networks = (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
@@ -167,7 +176,7 @@ class Nip66HttpMetadata(BaseNipMetadata):
                 data=Nip66HttpData(),
                 logs=Nip66HttpLogs(
                     success=False,
-                    reason=f"overlay network {relay.network.value} requires proxy",
+                    reason=f"overlay network {relay.network.display_name} requires proxy",
                 ),
             )
 
@@ -188,7 +197,9 @@ class Nip66HttpMetadata(BaseNipMetadata):
             logs["reason"] = str(e) or type(e).__name__
             logger.debug("http_error relay=%s error=%s", relay.url, logs["reason"])
 
+        data_report = Nip66HttpData.parse_report(data)
+        Nip66HttpData.log_parse_issues(logger, relay.url, data_report)
         return cls(
-            data=Nip66HttpData.model_validate(Nip66HttpData.parse(data)),
+            data=Nip66HttpData.model_validate(data_report.parsed),
             logs=Nip66HttpLogs.model_validate(logs),
         )

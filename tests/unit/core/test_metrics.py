@@ -62,9 +62,31 @@ class TestMetricsConfig:
         config = MetricsConfig()
         assert config.enabled is False
 
+    def test_rejects_non_string_field_keys(self) -> None:
+        """Test raw metrics payloads require canonical string keys."""
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            MetricsConfig.model_validate({b"enabled": True})
+
+    def test_rejects_unknown_field_names(self) -> None:
+        """Test authored metrics payloads reject stale field names."""
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            MetricsConfig.model_validate({"bind_host": "127.0.0.1"})
+
+    @pytest.mark.parametrize("value", ["true", 1, 0])
+    def test_rejects_non_boolean_enabled_aliases(self, value: object) -> None:
+        """Test authored metrics toggles require canonical booleans."""
+        with pytest.raises(ValidationError, match=r"enabled: expected bool, got"):
+            MetricsConfig(enabled=value)
+
 
 class TestMetricsConfigPortValidation:
     """Tests for port validation in MetricsConfig."""
+
+    @pytest.mark.parametrize("value", ["9090", 9090.0, True])
+    def test_rejects_non_integer_port_aliases(self, value: object) -> None:
+        """Test authored metrics ports require canonical integers."""
+        with pytest.raises(ValidationError, match=r"port: expected integer, got"):
+            MetricsConfig(port=value)
 
     def test_port_minimum_validation(self) -> None:
         """Test port minimum validation (>= 1024)."""
@@ -111,14 +133,39 @@ class TestMetricsConfigPaths:
         with pytest.raises(ValidationError):
             MetricsConfig(host="")
 
+    def test_whitespace_only_host_rejected(self) -> None:
+        """Test that whitespace-only host strings are rejected."""
+        with pytest.raises(ValidationError, match=r"host must not be blank"):
+            MetricsConfig(host="   ")
+
+    def test_padded_host_is_trimmed(self) -> None:
+        """Test that padded host values are canonicalized."""
+        config = MetricsConfig(host=" 127.0.0.1 ")
+        assert config.host == "127.0.0.1"
+
     def test_empty_path_rejected(self) -> None:
         """Test that empty path string is rejected."""
         with pytest.raises(ValidationError):
             MetricsConfig(path="")
 
+    def test_whitespace_only_path_rejected(self) -> None:
+        """Test that whitespace-only path strings are rejected."""
+        with pytest.raises(ValidationError, match=r"path must not be blank"):
+            MetricsConfig(path="   ")
+
     def test_custom_path(self) -> None:
         """Test custom metrics path."""
         config = MetricsConfig(path="/prometheus/metrics")
+        assert config.path == "/prometheus/metrics"
+
+    def test_padded_path_is_trimmed(self) -> None:
+        """Test that padded path values are canonicalized."""
+        config = MetricsConfig(path="  /prometheus/metrics  ")
+        assert config.path == "/prometheus/metrics"
+
+    def test_path_without_leading_slash_is_prefixed(self) -> None:
+        """Test that authored metrics paths gain the required leading slash."""
+        config = MetricsConfig(path="prometheus/metrics")
         assert config.path == "/prometheus/metrics"
 
     def test_root_path(self) -> None:

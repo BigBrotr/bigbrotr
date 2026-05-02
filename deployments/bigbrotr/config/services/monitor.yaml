@@ -2,8 +2,9 @@
 # Monitor Service Configuration (BigBrotr)
 # =============================================================================
 # Performs NIP-11 and NIP-66 health checks on validated relays.
-# Only values that differ from defaults are specified here.
-# See brotr/config/services/monitor.yaml for all options and documentation.
+# This deployment file keeps deployment-local overrides and a few restated
+# operator-facing defaults. See docs/user-guide/services.md and
+# src/bigbrotr/services/monitor/configs.py for the full config contract.
 # =============================================================================
 
 pool:

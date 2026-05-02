@@ -22,8 +22,6 @@ on:
   push:
     branches: [main, develop]
     paths-ignore:
-      - "docs/**"
-      - "*.md"
       - "LICENSE"
       - ".github/ISSUE_TEMPLATE/**"
       - ".github/CODE_OF_CONDUCT.md"
@@ -32,8 +30,6 @@ on:
   pull_request:
     branches: [main, develop]
     paths-ignore:
-      - "docs/**"
-      - "*.md"
       - "LICENSE"
       - ".github/ISSUE_TEMPLATE/**"
       - ".github/CODE_OF_CONDUCT.md"
@@ -125,6 +121,8 @@ jobs:
         run: >-
           uv run pytest tests/
           --ignore=tests/integration/
+          --ignore=tests/system/
+          --ignore=tests/live_smoke/
           --cov=src/bigbrotr
           --cov-report=xml
           --cov-report=term-missing

@@ -22,25 +22,20 @@ See Also:
         configuration model for all services.
 """
 
-import asyncio
-import time
 from abc import ABC, abstractmethod
 from types import TracebackType
 from typing import Any, ClassVar, Generic, Self, TypeVar, cast
 
-from pydantic import BaseModel, Field
-
-from bigbrotr.models.constants import ServiceName
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .brotr import Brotr
 from .logger import Logger
 from .metrics import (
-    CYCLE_DURATION_SECONDS,
     SERVICE_COUNTER,
     SERVICE_GAUGE,
-    SERVICE_INFO,
     MetricsConfig,
 )
+from .service_runtime import ServiceLoopRunner, ServiceRunState
 from .yaml import load_yaml
 
 
@@ -59,6 +54,17 @@ class BaseServiceConfig(BaseModel):
             configuration for the Prometheus metrics endpoint.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="before")
+    @classmethod
+    def require_string_field_keys(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            invalid_key = next((key for key in data if not isinstance(key, str)), None)
+            if invalid_key is not None:
+                raise ValueError(f"config: expected string keys, got {type(invalid_key).__name__}")
+        return data
+
     interval: float = Field(
         default=300.0,
         ge=60.0,
@@ -75,6 +81,24 @@ class BaseServiceConfig(BaseModel):
         default_factory=MetricsConfig,
         description="Prometheus metrics configuration",
     )
+
+    @field_validator("interval", mode="before")
+    @classmethod
+    def require_numeric_base_interval(cls, value: Any) -> int | float:
+        """Require canonical numeric types for the shared service interval."""
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"interval: expected number, got {type(value).__name__}")
+        return cast("int | float", value)
+
+    @field_validator("max_consecutive_failures", mode="before")
+    @classmethod
+    def require_integer_max_consecutive_failures(cls, value: Any) -> int:
+        """Require canonical integers for the shared consecutive-failure budget."""
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(
+                f"max_consecutive_failures: expected integer, got {type(value).__name__}"
+            )
+        return int(value)
 
 
 # Bound TypeVar ensuring all service configs inherit from BaseServiceConfig
@@ -123,7 +147,7 @@ class BaseService(ABC, Generic[ConfigT]):
             endpoint started alongside the service.
     """
 
-    SERVICE_NAME: ClassVar[ServiceName]
+    SERVICE_NAME: ClassVar[str]
     CONFIG_CLASS: ClassVar[type[BaseModel]]
 
     def __init__(self, brotr: Brotr, config: ConfigT | None = None) -> None:
@@ -132,12 +156,19 @@ class BaseService(ABC, Generic[ConfigT]):
             config if config is not None else cast("ConfigT", self.CONFIG_CLASS())
         )
         self._logger = Logger(self.SERVICE_NAME)
-        self._shutdown_event = asyncio.Event()
+        self._runtime_state = ServiceRunState()
+        self._cycle_runner = ServiceLoopRunner(self)
+        self._shutdown_event = self._runtime_state.shutdown_event
 
     @property
     def config(self) -> ConfigT:
         """The typed service configuration (read-only)."""
         return self._config
+
+    @property
+    def service_name(self) -> str:
+        """Stable string identifier for the service instance."""
+        return str(self.SERVICE_NAME)
 
     @abstractmethod
     async def run(self) -> None:
@@ -168,12 +199,12 @@ class BaseService(ABC, Generic[ConfigT]):
             [is_running][bigbrotr.core.base_service.BaseService.is_running]:
                 Property that reflects whether shutdown has been requested.
         """
-        self._shutdown_event.set()
+        self._runtime_state.request_shutdown()
 
     @property
     def is_running(self) -> bool:
         """Whether the service is still active (shutdown not yet requested)."""
-        return not self._shutdown_event.is_set()
+        return self._runtime_state.is_running
 
     async def wait(self, timeout: float) -> bool:  # noqa: ASYNC109
         """Wait for either a shutdown signal or a timeout to elapse.
@@ -190,11 +221,7 @@ class BaseService(ABC, Generic[ConfigT]):
             [request_shutdown()][bigbrotr.core.base_service.BaseService.request_shutdown]
             call.
         """
-        try:
-            await asyncio.wait_for(self._shutdown_event.wait(), timeout=timeout)
-            return True
-        except TimeoutError:
-            return False
+        return await self._runtime_state.wait(timeout)
 
     async def run_forever(self) -> None:
         """Run the service in an infinite loop with interval-based cycling.
@@ -236,75 +263,7 @@ class BaseService(ABC, Generic[ConfigT]):
             [request_shutdown()][bigbrotr.core.base_service.BaseService.request_shutdown]:
                 Trigger graceful exit from this loop.
         """
-        interval = self._config.interval
-        max_consecutive_failures = self._config.max_consecutive_failures
-        metrics_enabled = self._config.metrics.enabled
-
-        # Publish static service metadata once at startup
-        if metrics_enabled:
-            SERVICE_INFO.info({"service": self.SERVICE_NAME})
-
-        self._logger.info(
-            "run_forever_started",
-            interval=interval,
-            max_consecutive_failures=max_consecutive_failures,
-        )
-
-        consecutive_failures = 0
-
-        while self.is_running:
-            cycle_start = time.monotonic()
-
-            try:
-                self._logger.info("cleanup_started")
-                removed = await self.cleanup()
-                self._logger.info("cleanup_completed", removed=removed)
-
-                self._logger.info("run_started", config=self._config.model_dump())
-                await self.run()
-                run_duration = time.monotonic() - cycle_start
-                self._logger.info("run_completed", duration_s=run_duration)
-
-                self.inc_counter("cycles_success")
-                if metrics_enabled:
-                    CYCLE_DURATION_SECONDS.labels(service=self.SERVICE_NAME).observe(run_duration)
-                self.set_gauge("last_cycle_timestamp", time.time())
-                self.set_gauge("consecutive_failures", 0)
-                consecutive_failures = 0
-
-            except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
-                raise  # Always propagate shutdown signals
-
-            except Exception as e:  # Intentionally broad: top-level error boundary for run_forever
-                consecutive_failures += 1
-
-                self.inc_counter("cycles_failed")
-                self.set_gauge("consecutive_failures", consecutive_failures)
-                self.inc_counter(f"errors_{type(e).__name__}")
-
-                self._logger.error(
-                    "run_cycle_error",
-                    error=str(e),
-                    consecutive_failures=consecutive_failures,
-                )
-
-                if (
-                    max_consecutive_failures > 0
-                    and consecutive_failures >= max_consecutive_failures
-                ):
-                    self._logger.critical(
-                        "max_consecutive_failures_reached",
-                        failures=consecutive_failures,
-                        limit=max_consecutive_failures,
-                    )
-                    break
-
-            elapsed = time.monotonic() - cycle_start
-            remaining = max(0.0, interval - elapsed)
-            if await self.wait(remaining):
-                break
-
-        self._logger.info("run_forever_stopped")
+        await self._cycle_runner.run_forever()
 
     @classmethod
     def from_yaml(cls, config_path: str, brotr: Brotr, **kwargs: Any) -> Self:
@@ -344,7 +303,7 @@ class BaseService(ABC, Generic[ConfigT]):
 
     async def __aenter__(self) -> Self:
         """Mark the service as running on context entry."""
-        self._shutdown_event.clear()
+        self._runtime_state.activate()
         self._logger.info("service_started")
         return self
 
@@ -355,7 +314,7 @@ class BaseService(ABC, Generic[ConfigT]):
         _exc_tb: TracebackType | None,
     ) -> None:
         """Signal shutdown on context exit."""
-        self._shutdown_event.set()
+        self._runtime_state.deactivate()
         self._logger.info("service_stopped")
 
     def set_gauge(self, name: str, value: float) -> None:

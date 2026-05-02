@@ -1,0 +1,174 @@
+"""Helpers for publishing Nostr events through pre-connected clients.
+
+This module contains the relay-level normalization used by services that
+publish through shared nostr-sdk clients. It is intentionally kept free of
+client-construction concerns so the public protocol facade can re-export it
+without dragging the whole connection stack into publishing-specific code.
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+from nostr_sdk import NostrSdkError
+
+from .protocol_outcomes import (
+    normalize_failed_relays,
+    normalize_output_event_id,
+    normalize_output_relay_url,
+    normalize_relay_outcomes,
+)
+
+
+if TYPE_CHECKING:
+    from nostr_sdk import Client, EventBuilder
+
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class BroadcastClientResult:
+    """Normalized per-client outcome of publishing one or more events.
+
+    ``successful_relays`` contains only the relays that remained successful
+    across every builder sent through that client. ``failed_relays`` preserves
+    any per-builder failure reported along the way. A result is emitted only
+    when every builder send for that client returns a relay-level SDK output;
+    if a later send fails at the transport boundary, the partial client state
+    is discarded because the final relay-level outcome would be incomplete.
+    The failure map is kept in stable lexical relay-url order so logs, tests,
+    and downstream comparisons do not inherit SDK iteration order.
+    """
+
+    event_ids: tuple[str, ...]
+    successful_relays: tuple[str, ...]
+    failed_relays: dict[str, str]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "event_ids",
+            tuple(normalize_output_event_id(event_id) for event_id in self.event_ids),
+        )
+        object.__setattr__(
+            self,
+            "successful_relays",
+            tuple(
+                sorted(
+                    {normalize_output_relay_url(relay_url) for relay_url in self.successful_relays}
+                )
+            ),
+        )
+
+        normalized_failed_relays: dict[str, str] = {}
+        for relay_url, error in self.failed_relays.items():
+            normalized_relay_url = normalize_output_relay_url(relay_url)
+            if not isinstance(error, str):
+                raise TypeError(f"failed_relays values must be str, got {type(error).__name__}")
+            normalized_failed_relays[normalized_relay_url] = error
+        object.__setattr__(
+            self,
+            "failed_relays",
+            normalize_failed_relays(normalized_failed_relays),
+        )
+
+
+async def broadcast_events(
+    builders: list[EventBuilder],
+    clients: list[Client],
+) -> int:
+    """Broadcast Nostr events to pre-connected clients.
+
+    Each client must already be connected and configured with a signer.
+    The caller is responsible for creating, connecting, and shutting down
+    the clients.
+
+    Args:
+        builders: Event builders to sign and send.
+        clients: Pre-connected ``Client`` instances.
+
+    Returns:
+        Number of clients that retained at least one successful relay across
+        all builders after finishing every builder send.
+    """
+    detailed_results = await broadcast_events_detailed(builders, clients)
+    return sum(1 for result in detailed_results if result.successful_relays)
+
+
+async def broadcast_events_detailed(
+    builders: list[EventBuilder],
+    clients: list[Client],
+) -> list[BroadcastClientResult]:
+    """Broadcast events and preserve normalized per-relay send semantics.
+
+    For each client, the resulting ``successful_relays`` set is the
+    intersection of the success sets reported by every builder, while
+    ``failed_relays`` accumulates relay failures seen on any builder send.
+    If a builder raises an ordinary transport or SDK send failure before
+    relay-level output is produced, the whole client result is dropped and a
+    warning is logged, because the final normalized outcome for that client is
+    unknowable.
+    """
+    if not builders or not clients:
+        return []
+
+    results: list[BroadcastClientResult] = []
+    for client in clients:
+        try:
+            event_ids: list[str] = []
+            successful_relays: set[str] | None = None
+            failed_relays: dict[str, str] = {}
+
+            for builder in builders:
+                output = await client.send_event_builder(builder)
+                event_ids.append(normalize_output_event_id(getattr(output, "id", "")))
+                builder_success, builder_failed = normalize_relay_outcomes(output)
+
+                if successful_relays is None:
+                    successful_relays = set(builder_success)
+                else:
+                    successful_relays.intersection_update(builder_success)
+                failed_relays.update(builder_failed)
+
+            results.append(
+                BroadcastClientResult(
+                    event_ids=tuple(event_ids),
+                    successful_relays=tuple(sorted(successful_relays or ())),
+                    failed_relays=normalize_failed_relays(failed_relays),
+                )
+            )
+        except (NostrSdkError, OSError, TimeoutError, ValueError) as e:
+            logger.warning("broadcast_send_failed error=%s", e)
+
+    return results
+
+
+def summarize_broadcast_results(
+    results: list[BroadcastClientResult],
+) -> tuple[tuple[str, ...], dict[str, str]]:
+    """Collapse per-client publish results into aggregate relay-level outcomes.
+
+    Successful relays are unioned across clients. Failed relays are merged by
+    relay URL, keeping the most recent error text seen in ``results``.
+    """
+    successful_relays = tuple(
+        sorted({relay_url for result in results for relay_url in result.successful_relays})
+    )
+    failed_relays: dict[str, str] = {}
+    for result in results:
+        failed_relays.update(result.failed_relays)
+    return successful_relays, normalize_failed_relays(failed_relays)
+
+
+def normalize_send_output(output: object) -> tuple[tuple[str, ...], dict[str, str]]:
+    """Normalize one nostr-sdk send/subscribe output into relay-level outcomes.
+
+    Successful relay URLs are deduplicated and sorted so callers that cache,
+    compare, or log the result get a stable normalized order independent of
+    the SDK's iteration order. Failed relay maps are also returned in stable
+    lexical relay-url order.
+    """
+    return normalize_relay_outcomes(output)

@@ -3,8 +3,9 @@
 # =============================================================================
 # Fetches Nostr events from relays and stores them with relay associations.
 # Uses asyncio.TaskGroup with semaphore-bounded concurrency.
-# Only values that differ from defaults are specified here.
-# See brotr/config/services/synchronizer.yaml for all options and documentation.
+# This deployment file keeps deployment-local overrides and a few restated
+# operator-facing defaults. See docs/user-guide/services.md and
+# src/bigbrotr/services/synchronizer/configs.py for the full config contract.
 # =============================================================================
 
 pool:

@@ -1,5 +1,5 @@
 """
-NIP-66 network metadata container with ASN lookup capabilities.
+NIP-66 network result container with ASN lookup capabilities.
 
 Resolves a relay's hostname to IPv4/IPv6 addresses and queries the
 GeoIP ASN database for autonomous system number, organization name,
@@ -13,9 +13,10 @@ Note:
     (GeoLite2-ASN) must be provided as an open ``geoip2.database.Reader``
     -- the caller is responsible for database lifecycle management.
 
-    IPv4 ASN data takes priority; IPv6 ASN data is used only as a fallback
-    when no IPv4 address is available. IPv6-specific network ranges are
-    always recorded separately.
+    IPv4 ASN identity takes priority. IPv6 ASN data is used as a fallback when
+    the IPv4 lookup does not identify an ASN, and may backfill the organization
+    name only when the IPv6 lookup confirms that same ASN. IPv6-specific
+    network ranges are recorded separately when the IPv6 lookup returns one.
 
 See Also:
     [bigbrotr.nips.nip66.data.Nip66NetData][bigbrotr.nips.nip66.data.Nip66NetData]:
@@ -33,6 +34,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any, Self
 
 import geoip2.database
@@ -42,8 +44,8 @@ from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 from bigbrotr.nips.base import BaseNipMetadata
 from bigbrotr.utils.dns import resolve_host
-from bigbrotr.utils.transport import DEFAULT_TIMEOUT
 
+from ._validation import normalize_timeout_budget
 from .data import Nip66NetData
 from .logs import Nip66NetLogs
 
@@ -54,13 +56,13 @@ logger = logging.getLogger("bigbrotr.nips.nip66")
 class Nip66NetMetadata(BaseNipMetadata):
     """Container for network/ASN data and lookup logs.
 
-    Provides the ``execute()`` class method that resolves the relay hostname
+    Provides the semantic ``probe()`` class method that resolves the relay hostname
     and performs GeoIP ASN lookups for both IPv4 and IPv6 addresses.
 
     See Also:
         [bigbrotr.nips.nip66.nip66.Nip66][bigbrotr.nips.nip66.nip66.Nip66]:
             Top-level model that orchestrates this alongside other tests.
-        [bigbrotr.models.metadata.MetadataType][bigbrotr.models.metadata.MetadataType]:
+        [bigbrotr.models.document.DocumentType][bigbrotr.models.document.DocumentType]:
             The ``NIP66_NET`` variant used when storing these results.
         [bigbrotr.nips.nip66.geo.Nip66GeoMetadata][bigbrotr.nips.nip66.geo.Nip66GeoMetadata]:
             Geolocation test that shares the IP resolution step.
@@ -77,9 +79,11 @@ class Nip66NetMetadata(BaseNipMetadata):
     ) -> dict[str, Any]:
         """Perform synchronous ASN lookups for IPv4 and/or IPv6 addresses.
 
-        IPv4 ASN data takes priority; IPv6 ASN data is used as a fallback
-        when IPv4 is not available. IPv6-specific network range is always
-        recorded separately.
+        IPv4 ASN identity takes priority; IPv6 ASN data is used as a fallback
+        when the IPv4 lookup does not identify an ASN, and may backfill the
+        organization name only when it confirms the same ASN. IPv6-specific
+        network range data is recorded separately when the IPv6 lookup yields
+        it.
 
         Args:
             ipv4: Resolved IPv4 address, or None.
@@ -110,19 +114,25 @@ class Nip66NetMetadata(BaseNipMetadata):
                 asn_response = asn_reader.asn(ipv6)
                 if asn_response.network:
                     result["net_network_v6"] = str(asn_response.network)
-                # Use IPv6 ASN data only if IPv4 lookup did not provide it
-                if "net_asn" not in result:
-                    if asn_response.autonomous_system_number:
-                        result["net_asn"] = asn_response.autonomous_system_number
-                    if asn_response.autonomous_system_organization:
-                        result["net_asn_org"] = asn_response.autonomous_system_organization
+                ipv6_asn = asn_response.autonomous_system_number
+                ipv6_org = asn_response.autonomous_system_organization
+                ipv4_asn = result.get("net_asn")
+
+                # Use IPv6 ASN identity only when IPv4 did not identify one.
+                if ipv4_asn is None:
+                    if ipv6_asn:
+                        result["net_asn"] = ipv6_asn
+                    if ipv6_org:
+                        result["net_asn_org"] = ipv6_org
+                elif "net_asn_org" not in result and ipv6_asn == ipv4_asn and ipv6_org:
+                    result["net_asn_org"] = ipv6_org
             except (geoip2.errors.GeoIP2Error, ValueError) as e:
                 logger.debug("net_asn_ipv6_lookup_error ip=%s error=%s", ipv6, str(e))
 
         return result
 
     @classmethod
-    async def execute(
+    async def probe(
         cls,
         relay: Relay,
         asn_reader: geoip2.database.Reader,
@@ -136,26 +146,39 @@ class Nip66NetMetadata(BaseNipMetadata):
         Args:
             relay: Clearnet relay to look up.
             asn_reader: Open GeoLite2-ASN database reader.
-            timeout: Overall timeout in seconds (default: 10.0).
+            timeout: Overall timeout budget in seconds shared by hostname
+                resolution and ASN lookup (default: 10.0).
 
         Returns:
             An ``Nip66NetMetadata`` instance with network data and logs.
         """
-        timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
+        timeout = normalize_timeout_budget(timeout)
         logger.debug("net_testing relay=%s timeout_s=%s", relay.url, timeout)
 
         if relay.network != NetworkType.CLEARNET:
             return cls(
                 data=Nip66NetData(),
                 logs=Nip66NetLogs(
-                    success=False, reason=f"requires clearnet, got {relay.network.value}"
+                    success=False,
+                    reason=f"requires clearnet, got {relay.network.display_name}",
                 ),
             )
 
         logs: dict[str, Any] = {"success": False, "reason": None}
+        deadline = time.monotonic() + timeout
+
+        def _remaining_timeout(error_message: str) -> float:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(error_message)
+            return remaining
 
         try:
-            resolved = await asyncio.wait_for(resolve_host(relay.host), timeout=timeout)
+            resolved = await resolve_host(
+                relay.host,
+                timeout=_remaining_timeout("timeout resolving hostname"),
+                raise_on_timeout=True,
+            )
         except TimeoutError:
             logs["reason"] = "timeout resolving hostname"
             logger.debug("net_resolve_timeout relay=%s", relay.url)
@@ -169,7 +192,7 @@ class Nip66NetMetadata(BaseNipMetadata):
             try:
                 data = await asyncio.wait_for(
                     asyncio.to_thread(cls._net, resolved.ipv4, resolved.ipv6, asn_reader),
-                    timeout=timeout,
+                    timeout=_remaining_timeout("timeout looking up ASN"),
                 )
                 if data:
                     logs["success"] = True
@@ -184,7 +207,9 @@ class Nip66NetMetadata(BaseNipMetadata):
             logs["reason"] = "could not resolve hostname to IP"
             logger.debug("net_no_ip relay=%s", relay.url)
 
+        data_report = Nip66NetData.parse_report(data)
+        Nip66NetData.log_parse_issues(logger, relay.url, data_report)
         return cls(
-            data=Nip66NetData.model_validate(Nip66NetData.parse(data)),
+            data=Nip66NetData.model_validate(data_report.parsed),
             logs=Nip66NetLogs.model_validate(logs),
         )

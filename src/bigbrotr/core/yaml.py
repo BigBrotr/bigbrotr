@@ -11,7 +11,7 @@ Examples:
     ```python
     from bigbrotr.core.yaml import load_yaml
 
-    config = load_yaml("config/services/finder.yaml")
+    config = load_yaml("deployments/bigbrotr/config/services/finder.yaml")
     ```
 
 See Also:

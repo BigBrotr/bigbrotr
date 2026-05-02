@@ -70,7 +70,7 @@ tests/
 |   +-- relays.py                # Shared relay fixtures (registered via pytest_plugins)
 +-- unit/
 |   +-- core/                    # test_pool.py, test_brotr.py, test_logger.py, ...
-|   +-- models/                  # test_event.py, test_relay.py, test_metadata.py, ...
+|   +-- models/                  # test_event.py, test_relay.py, test_document.py, ...
 |   +-- nips/
 |   |   +-- nip11/               # test_fetch.py, test_data.py, test_nip11.py, ...
 |   |   +-- nip66/               # test_rtt.py, test_ssl.py, test_dns.py, test_geo.py, ...
@@ -136,10 +136,10 @@ The root conftest provides core fixtures used across the entire test suite:
 | `mock_brotr` | `Brotr` | Brotr instance wrapping the mock pool |
 | `mock_connection` | `MagicMock` | Mock asyncpg connection with async methods |
 | `mock_asyncpg_pool` | `MagicMock` | Mock asyncpg pool with acquire context manager |
-| `sample_event` | `EventRelay` | Sample Nostr event with relay association |
+| `sample_event` | `EventObservation` | Sample Nostr event with relay association |
 | `sample_relay` | `Relay` | Standard clearnet relay |
-| `sample_metadata` | `RelayMetadata` | Sample relay metadata (NIP-11 info) |
-| `sample_events_batch` | `list[EventRelay]` | Batch of 10 sample events |
+| `sample_relay_document` | `RelayDocument` | Sample relay-document record (NIP-11 info) |
+| `sample_events_batch` | `list[EventObservation]` | Batch of 10 sample events |
 | `sample_relays_batch` | `list[Relay]` | Batch of 10 clearnet relays |
 | `sample_tor_relay` | `Relay` | Sample Tor relay (`.onion`) |
 | `sample_i2p_relay` | `Relay` | Sample I2P relay (`.i2p`) |
@@ -361,23 +361,23 @@ async def test_run_increments_counter(self, service):
 ```python
 class TestRelay:
     def test_valid_clearnet(self) -> None:
-        relay = Relay("wss://relay.example.com", discovered_at=1700000000)
+        relay = Relay("wss://relay.example.com", stored_at=1700000000)
         assert relay.network == NetworkType.CLEARNET
 
     def test_invalid_scheme_rejected(self) -> None:
         with pytest.raises(ValueError, match="scheme"):
-            Relay("http://relay.example.com", discovered_at=1700000000)
+            Relay("http://relay.example.com", stored_at=1700000000)
 
     def test_local_ip_rejected(self) -> None:
         with pytest.raises(ValueError, match="local"):
-            Relay("wss://192.168.1.1", discovered_at=1700000000)
+            Relay("wss://192.168.1.1", stored_at=1700000000)
 ```
 
 ### Immutability
 
 ```python
 def test_frozen(self) -> None:
-    relay = Relay("wss://relay.example.com", discovered_at=1700000000)
+    relay = Relay("wss://relay.example.com", stored_at=1700000000)
     with pytest.raises(FrozenInstanceError):
         relay.url = "wss://other.com"
 ```
@@ -392,7 +392,7 @@ def test_frozen(self) -> None:
     ("wss://example.loki", NetworkType.LOKI),
 ])
 def test_network_detection(self, url, expected_network) -> None:
-    relay = Relay(url, discovered_at=1700000000)
+    relay = Relay(url, stored_at=1700000000)
     assert relay.network == expected_network
 ```
 

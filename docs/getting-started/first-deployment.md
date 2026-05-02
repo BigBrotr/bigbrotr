@@ -1,6 +1,8 @@
 # First Deployment
 
-A complete walkthrough for deploying BigBrotr with Docker Compose, including monitoring with Prometheus and Grafana.
+A complete walkthrough for bringing up the built-in `bigbrotr` reference
+deployment with Docker Compose, including monitoring, alerting, and the full
+10-service runtime.
 
 ---
 
@@ -19,7 +21,8 @@ cd bigbrotr/deployments/bigbrotr
 cp .env.example .env
 ```
 
-Generate secure values for each required secret:
+Generate secure values for each required secret. The Nostr keys below are optional,
+but recommended if you want stable service identities across restarts:
 
 ```bash
 # Generate and set all secrets at once
@@ -27,7 +30,11 @@ DB_ADMIN_PASSWORD=$(openssl rand -base64 32)
 DB_WRITER_PASSWORD=$(openssl rand -base64 32)
 DB_READER_PASSWORD=$(openssl rand -base64 32)
 DB_REFRESHER_PASSWORD=$(openssl rand -base64 32)
-NOSTR_PRIVATE_KEY=$(openssl rand -hex 32)
+DB_RANKER_PASSWORD=$(openssl rand -base64 32)
+NOSTR_PRIVATE_KEY_MONITOR=$(openssl rand -hex 32)
+NOSTR_PRIVATE_KEY_SYNCHRONIZER=$(openssl rand -hex 32)
+NOSTR_PRIVATE_KEY_DVM=$(openssl rand -hex 32)
+NOSTR_PRIVATE_KEY_ASSERTOR=$(openssl rand -hex 32)
 GRAFANA_PASSWORD=$(openssl rand -base64 16)
 
 cat > .env << EOF
@@ -35,14 +42,18 @@ DB_ADMIN_PASSWORD=${DB_ADMIN_PASSWORD}
 DB_WRITER_PASSWORD=${DB_WRITER_PASSWORD}
 DB_READER_PASSWORD=${DB_READER_PASSWORD}
 DB_REFRESHER_PASSWORD=${DB_REFRESHER_PASSWORD}
-NOSTR_PRIVATE_KEY=${NOSTR_PRIVATE_KEY}
+DB_RANKER_PASSWORD=${DB_RANKER_PASSWORD}
+NOSTR_PRIVATE_KEY_MONITOR=${NOSTR_PRIVATE_KEY_MONITOR}
+NOSTR_PRIVATE_KEY_SYNCHRONIZER=${NOSTR_PRIVATE_KEY_SYNCHRONIZER}
+NOSTR_PRIVATE_KEY_DVM=${NOSTR_PRIVATE_KEY_DVM}
+NOSTR_PRIVATE_KEY_ASSERTOR=${NOSTR_PRIVATE_KEY_ASSERTOR}
 GRAFANA_PASSWORD=${GRAFANA_PASSWORD}
 EOF
 ```
 
 !!! warning
     Protect your `.env` file -- it contains database credentials and your Nostr
-    private key. Set restrictive permissions:
+    private keys. Set restrictive permissions:
     ```bash
     chmod 600 .env
     ```
@@ -59,8 +70,9 @@ Docker Compose will:
 
 1. Pull required images (PostgreSQL, PGBouncer, Tor, Prometheus, Grafana)
 2. Build the BigBrotr application image from `deployments/Dockerfile`
-3. Initialize the PostgreSQL schema from `postgres/init/*.sql`
-4. Start all services with health checks and restart policies
+3. Initialize the PostgreSQL schema from the generated `postgres/init/*.sql`
+   package
+4. Start all long-lived services with health checks and restart policies
 
 !!! note
     The first build takes a few minutes to compile dependencies. Subsequent starts
@@ -86,8 +98,8 @@ docker compose logs -f seeder
 # Follow the finder as it discovers relays
 docker compose logs -f finder
 
-# View all service logs
-docker compose logs -f
+# View all long-lived service logs
+docker compose logs -f finder validator monitor synchronizer refresher ranker assertor api dvm
 ```
 
 ## Step 4: Access Grafana Dashboard
@@ -103,8 +115,9 @@ Log in with:
 - **Username**: `admin`
 - **Password**: the `GRAFANA_PASSWORD` value from your `.env` file
 
-The BigBrotr dashboard is auto-provisioned and displays per-service panels including
-last cycle time, cycle duration, error counts, and consecutive failures.
+Grafana is auto-provisioned with datasource and dashboard configuration from
+the deployment tree. You should see service-specific dashboards plus the
+deployment overview without importing JSON manually.
 
 ## Step 5: Check Prometheus Targets
 
@@ -124,8 +137,10 @@ endpoints should show a green `UP` state:
 | Monitor | `monitor:8000/metrics` |
 | Synchronizer | `synchronizer:8000/metrics` |
 | Refresher | `refresher:8000/metrics` |
-| Api | `api:8000/metrics` |
-| Dvm | `dvm:8000/metrics` |
+| Ranker | `ranker:8000/metrics` |
+| API | `api:8000/metrics` |
+| DVM | `dvm:8000/metrics` |
+| Assertor | `assertor:8000/metrics` |
 
 !!! tip
     If a target shows as `DOWN`, check the service logs:
@@ -207,9 +222,12 @@ All ports bind to `127.0.0.1` (localhost only) by default:
 | Monitor Metrics | 8003 |
 | Synchronizer Metrics | 8004 |
 | Refresher Metrics | 8005 |
-| Api HTTP | 8080 |
-| Api Metrics | 8006 |
-| Dvm Metrics | 8007 |
+| API HTTP | 8080 |
+| API Metrics | 8006 |
+| DVM Metrics | 8007 |
+| Assertor Metrics | 8008 |
+| Ranker Metrics | 8009 |
+| Alertmanager | 9093 |
 
 ## Next Steps
 

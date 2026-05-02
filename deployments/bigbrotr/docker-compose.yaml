@@ -31,6 +31,7 @@ services:
       DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
       DB_READER_PASSWORD: ${DB_READER_PASSWORD}
       DB_REFRESHER_PASSWORD: ${DB_REFRESHER_PASSWORD}
+      DB_RANKER_PASSWORD: ${DB_RANKER_PASSWORD}
 
     volumes:
       - ./data/postgres:/var/lib/postgresql/data                # Persistent data
@@ -73,6 +74,7 @@ services:
       DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
       DB_READER_PASSWORD: ${DB_READER_PASSWORD}
       DB_REFRESHER_PASSWORD: ${DB_REFRESHER_PASSWORD}
+      DB_RANKER_PASSWORD: ${DB_RANKER_PASSWORD}
 
     entrypoint: ["/custom-entrypoint.sh"]
 
@@ -229,7 +231,16 @@ services:
       pgbouncer:
         condition: service_healthy
 
-    command: ["bigbrotr", "seeder", "--once"]
+    command:
+      - "bigbrotr"
+      - "seeder"
+      - "--profile"
+      - "bigbrotr"
+      - "--brotr-config"
+      - "config/brotr.yaml"
+      - "--config"
+      - "config/services/seeder.yaml"
+      - "--once"
 
     healthcheck:
       disable: true
@@ -271,7 +282,15 @@ services:
       pgbouncer:
         condition: service_healthy
 
-    command: ["bigbrotr", "finder"]
+    command:
+      - "bigbrotr"
+      - "finder"
+      - "--profile"
+      - "bigbrotr"
+      - "--brotr-config"
+      - "config/brotr.yaml"
+      - "--config"
+      - "config/services/finder.yaml"
 
     stop_grace_period: 60s
 
@@ -303,7 +322,6 @@ services:
 
     environment:
       DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
-      NOSTR_PRIVATE_KEY: ${NOSTR_PRIVATE_KEY}
 
     volumes:
       - ./config:/app/config:ro
@@ -326,7 +344,15 @@ services:
       # lokinet:
       #   condition: service_healthy
 
-    command: ["bigbrotr", "validator"]
+    command:
+      - "bigbrotr"
+      - "validator"
+      - "--profile"
+      - "bigbrotr"
+      - "--brotr-config"
+      - "config/brotr.yaml"
+      - "--config"
+      - "config/services/validator.yaml"
 
     stop_grace_period: 60s
 
@@ -358,7 +384,7 @@ services:
 
     environment:
       DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
-      NOSTR_PRIVATE_KEY: ${NOSTR_PRIVATE_KEY}
+      NOSTR_PRIVATE_KEY_MONITOR: ${NOSTR_PRIVATE_KEY_MONITOR}
 
     volumes:
       - ./config:/app/config:ro
@@ -382,7 +408,15 @@ services:
       # lokinet:
       #   condition: service_healthy
 
-    command: ["bigbrotr", "monitor"]
+    command:
+      - "bigbrotr"
+      - "monitor"
+      - "--profile"
+      - "bigbrotr"
+      - "--brotr-config"
+      - "config/brotr.yaml"
+      - "--config"
+      - "config/services/monitor.yaml"
 
     stop_grace_period: 60s
 
@@ -414,7 +448,7 @@ services:
 
     environment:
       DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
-      NOSTR_PRIVATE_KEY: ${NOSTR_PRIVATE_KEY}
+      NOSTR_PRIVATE_KEY_SYNCHRONIZER: ${NOSTR_PRIVATE_KEY_SYNCHRONIZER}
 
     volumes:
       - ./config:/app/config:ro
@@ -437,7 +471,15 @@ services:
       # lokinet:
       #   condition: service_healthy
 
-    command: ["bigbrotr", "synchronizer"]
+    command:
+      - "bigbrotr"
+      - "synchronizer"
+      - "--profile"
+      - "bigbrotr"
+      - "--brotr-config"
+      - "config/brotr.yaml"
+      - "--config"
+      - "config/services/synchronizer.yaml"
 
     stop_grace_period: 60s
 
@@ -485,7 +527,15 @@ services:
       pgbouncer:
         condition: service_healthy
 
-    command: ["bigbrotr", "refresher"]
+    command:
+      - "bigbrotr"
+      - "refresher"
+      - "--profile"
+      - "bigbrotr"
+      - "--brotr-config"
+      - "config/brotr.yaml"
+      - "--config"
+      - "config/services/refresher.yaml"
 
     stop_grace_period: 30s
 
@@ -496,6 +546,62 @@ services:
       retries: 3
       start_period: 30s
 
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # --------------------------------------------------------------------------
+  # BigBrotr Ranker Service
+  # --------------------------------------------------------------------------
+  ranker:
+    build:
+      context: ../../
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: bigbrotr
+    container_name: bigbrotr-ranker
+    restart: unless-stopped
+
+    environment:
+      DB_RANKER_PASSWORD: ${DB_RANKER_PASSWORD}
+
+    volumes:
+      - ./config:/app/config:ro
+      - ./gai.conf:/etc/gai.conf:ro
+      - ./data/ranker:/app/data
+
+    ports:
+      - "127.0.0.1:${RANKER_METRICS_PORT:-8009}:8000"  # Prometheus metrics
+
+    networks:
+      - bigbrotr-data-network
+      - bigbrotr-monitoring-network
+
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+
+    command:
+      - "bigbrotr"
+      - "ranker"
+      - "--profile"
+      - "bigbrotr"
+      - "--brotr-config"
+      - "config/brotr.yaml"
+      - "--config"
+      - "config/services/ranker.yaml"
+
+    stop_grace_period: 30s
+
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
     logging:
       driver: "json-file"
@@ -534,7 +640,15 @@ services:
       pgbouncer:
         condition: service_healthy
 
-    command: ["bigbrotr", "api"]
+    command:
+      - "bigbrotr"
+      - "api"
+      - "--profile"
+      - "bigbrotr"
+      - "--brotr-config"
+      - "config/brotr.yaml"
+      - "--config"
+      - "config/services/api.yaml"
 
     stop_grace_period: 30s
 
@@ -566,7 +680,7 @@ services:
 
     environment:
       DB_READER_PASSWORD: ${DB_READER_PASSWORD}
-      NOSTR_PRIVATE_KEY: ${NOSTR_PRIVATE_KEY}
+      NOSTR_PRIVATE_KEY_DVM: ${NOSTR_PRIVATE_KEY_DVM}
 
     volumes:
       - ./config:/app/config:ro
@@ -583,7 +697,15 @@ services:
       pgbouncer:
         condition: service_healthy
 
-    command: ["bigbrotr", "dvm"]
+    command:
+      - "bigbrotr"
+      - "dvm"
+      - "--profile"
+      - "bigbrotr"
+      - "--brotr-config"
+      - "config/brotr.yaml"
+      - "--config"
+      - "config/services/dvm.yaml"
 
     stop_grace_period: 30s
 
@@ -594,6 +716,62 @@ services:
       retries: 3
       start_period: 30s
 
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # --------------------------------------------------------------------------
+  # BigBrotr Assertor Service (NIP-85 Trusted Assertions)
+  # --------------------------------------------------------------------------
+  assertor:
+    build:
+      context: ../../
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: bigbrotr
+    container_name: bigbrotr-assertor
+    restart: unless-stopped
+
+    environment:
+      DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
+      NOSTR_PRIVATE_KEY_ASSERTOR: ${NOSTR_PRIVATE_KEY_ASSERTOR}
+
+    volumes:
+      - ./config:/app/config:ro
+      - ./gai.conf:/etc/gai.conf:ro
+
+    ports:
+      - "127.0.0.1:${ASSERTOR_METRICS_PORT:-8008}:8000"     # Prometheus metrics
+
+    networks:
+      - bigbrotr-data-network
+      - bigbrotr-monitoring-network
+
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+
+    command:
+      - "bigbrotr"
+      - "assertor"
+      - "--profile"
+      - "bigbrotr"
+      - "--brotr-config"
+      - "config/brotr.yaml"
+      - "--config"
+      - "config/services/assertor.yaml"
+
+    stop_grace_period: 30s
+
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
     logging:
       driver: "json-file"
@@ -789,7 +967,7 @@ networks:
 # ============================================================================
 #
 # 1. Setup:
-#    cp .env.example .env && nano .env  # Set all DB passwords, NOSTR_PRIVATE_KEY, GRAFANA_PASSWORD
+#    cp .env.example .env && nano .env  # Set DB passwords, both Nostr keys, and GRAFANA_PASSWORD
 #
 # 2. Start:
 #    docker-compose up -d

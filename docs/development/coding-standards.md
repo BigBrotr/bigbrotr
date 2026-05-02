@@ -149,13 +149,14 @@ Key type locations:
 | Type | Module |
 |------|--------|
 | `NetworkType`, `ServiceName`, `EventKind`, `EVENT_KIND_MAX` | `models/constants.py` |
-| `MetadataType` | `models/metadata.py` |
+| `DocumentType` | `models/document.py` |
 | `ServiceState`, `ServiceStateType`, `ServiceStateDbParams` | `models/service_state.py` |
 
 Design principles:
 
 - **Fail-fast validation**: invalid instances never escape the constructor
-- **Content-addressed deduplication**: Metadata hashed with SHA-256 (same data = same hash)
+- **Content-addressed deduplication**: Documents are hashed with SHA-256
+  (same canonical data = same hash within a document type)
 - **Never trust stored data**: constructors re-validate all inputs and re-compute hashes
 
 ---
@@ -175,9 +176,12 @@ The project uses Python built-in and library exceptions (e.g., `ConnectionError`
 
 Rules:
 
-- **Never** use bare `except Exception` in service code. `run_forever()` is the only broad boundary.
+- **Never** use bare `except Exception` in service code. The only intentional
+  broad boundaries are `run_forever()` and the per-worker isolation wrappers
+  inside `_iter_concurrent`.
 - **Never** catch `asyncio.CancelledError`, `KeyboardInterrupt`, or `SystemExit`.
-- **Always** re-raise after logging in catch blocks unless intentionally swallowed (document why).
+- **Always** re-raise after logging in catch blocks unless intentionally
+  swallowed (document why).
 
 ---
 
@@ -211,8 +215,8 @@ graph TD
 | **models** | stdlib only | Pure frozen dataclasses, zero I/O |
 | **core** | models | Pool, Brotr, BaseService, Logger, Metrics, YAML |
 | **utils** | models | DNS resolution, keys, transport helpers |
-| **nips** | models, utils, core | NIP-11 and NIP-66 protocol I/O |
-| **services** | core, nips, utils, models | Business logic (all 8 services) |
+| **nips** | models, utils, core | NIP-aware protocol layer, static registry, and builder/data helpers |
+| **services** | core, nips, utils, models | Business logic (all 10 services) |
 
 ### Adding a New Service
 
@@ -220,12 +224,17 @@ graph TD
 
 2. Service class inherits `BaseService[MyServiceConfig]` and implements `async def run()`
 
-3. Register in `src/bigbrotr/__main__.py`:
+3. Register in `src/bigbrotr/services/registry.py`:
 
     ```python
-    SERVICE_REGISTRY[ServiceName.MYSERVICE] = ServiceEntry(
-        cls=MyService,
-        config_path=Path("config/services/myservice.yaml"),
+    from .myservice import MyService
+
+    SERVICE_REGISTRY: dict[str, ServiceEntry] = dict(
+        _service_entry(service_class)
+        for service_class in (
+            # ... existing built-ins ...
+            MyService,
+        )
     )
     ```
 

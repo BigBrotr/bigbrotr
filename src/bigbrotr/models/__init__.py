@@ -1,8 +1,10 @@
-"""Pure frozen dataclasses with zero I/O for Nostr relays, events, and metadata.
+"""Pure frozen dataclasses with zero I/O for the shared BigBrotr data model.
 
 The models layer is the foundation of the diamond DAG. It has **no dependencies**
-on any other BigBrotr package -- only the Python standard library. Every model uses
-``@dataclass(frozen=True, slots=True)`` for immutability and memory efficiency.
+on any higher-level BigBrotr package. Leaf modules may still depend on focused
+third-party libraries such as ``nostr_sdk`` and ``rfc3986`` where the domain
+contract requires them. Every model uses ``@dataclass(frozen=True, slots=True)``
+for immutability and memory efficiency.
 
 Database parameter containers use ``NamedTuple`` and are cached in ``__post_init__``
 to avoid repeated conversions. All validation happens in ``__post_init__`` so
@@ -10,24 +12,18 @@ invalid instances never escape the constructor.
 
 NIP models (``Nip11``, ``Nip66``) are in the separate ``bigbrotr.nips`` package.
 
-Attributes:
-    Relay: Validated Nostr relay URL with RFC 3986 parsing and automatic
-        [NetworkType][bigbrotr.models.constants.NetworkType] detection
-        (clearnet, Tor, I2P, Lokinet). Rejects local IPs.
-    Event: Immutable wrapper around ``nostr_sdk.Event`` with BYTEA encoding for
-        binary fields (ID, pubkey, sig) and fail-fast DB conversion.
-    EventRelay: Junction linking an [Event][bigbrotr.models.event.Event] to the
-        [Relay][bigbrotr.models.relay.Relay] where it was observed, with cascade
-        insert support for atomic multi-table writes.
-    Metadata: Content-addressed metadata with SHA-256 hashing.
-        Supports seven [MetadataType][bigbrotr.models.metadata.MetadataType]
-        values (nip11_info, nip66_rtt, etc.).
-    RelayMetadata: Junction linking a [Relay][bigbrotr.models.relay.Relay] to a
-        [Metadata][bigbrotr.models.metadata.Metadata] record via
-        content-addressed hashing, with cascade insert support.
-    ServiceState: Cursor-based processing state for services,
-        enabling resume after restart.
-    NetworkType: Enum classifying relay URLs into clearnet, tor, i2p, loki,
+Public model families:
+    Relay: Validated relay URL plus derived network classification.
+    Event: Immutable archived event payload and identity.
+    EventObservation: Observation history linking an event to the relay where
+        it was seen.
+    Document: Content-addressed stored document for NIP-11, NIP-66, and other
+        shared document families.
+    RelayDocument: History table model linking a relay to a stored document and
+        role.
+    ServiceState: Shared service-owned state records used for cursors,
+        checkpoints, and resumable background work.
+    NetworkType: Enum classifying relay URLs into clearnet, Tor, I2P, Lokinet,
         local, or unknown.
 
 Note:
@@ -38,34 +34,36 @@ Note:
 
 See Also:
     [bigbrotr.models.relay][]: Relay URL validation and network detection.
-    [bigbrotr.models.event][]: Nostr event wrapper with database serialization.
-    [bigbrotr.models.event_relay][]: Event-to-relay junction model.
-    [bigbrotr.models.metadata][]: Content-addressed metadata with SHA-256 hashing.
-    [bigbrotr.models.relay_metadata][]: Relay-to-metadata junction model.
-    [bigbrotr.models.service_state][]: Service state persistence types.
+    [bigbrotr.models.event][]: Archived Nostr event model.
+    [bigbrotr.models.event_observation][]: Event-to-relay observation history.
+    [bigbrotr.models.document][]: Content-addressed document storage.
+    [bigbrotr.models.relay_document][]: Relay-to-document history model.
+    [bigbrotr.models.service_state][]: Shared service-state types.
     [bigbrotr.models.constants][]: Shared constants and enumerations.
-    [bigbrotr.nips][]: NIP-11 and NIP-66 models (separate package with I/O).
+    [bigbrotr.nips][]: NIP-aware protocol package with runtime I/O,
+        static capability registry, historical-name result containers, and
+        provider/probe builder surfaces.
 """
 
 from .constants import EVENT_KIND_MAX, EventKind, NetworkType, ServiceName
+from .document import Document, DocumentType
 from .event import Event
-from .event_relay import EventRelay
-from .metadata import Metadata, MetadataType
+from .event_observation import EventObservation
 from .relay import Relay
-from .relay_metadata import RelayMetadata
+from .relay_document import RelayDocument
 from .service_state import ServiceState, ServiceStateDbParams, ServiceStateType
 
 
 __all__ = [
     "EVENT_KIND_MAX",
+    "Document",
+    "DocumentType",
     "Event",
     "EventKind",
-    "EventRelay",
-    "Metadata",
-    "MetadataType",
+    "EventObservation",
     "NetworkType",
     "Relay",
-    "RelayMetadata",
+    "RelayDocument",
     "ServiceName",
     "ServiceState",
     "ServiceStateDbParams",

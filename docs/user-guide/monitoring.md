@@ -12,6 +12,10 @@ BigBrotr exposes operational telemetry through three channels:
 2. **Structured logging** -- key=value text or JSON output
 3. **Grafana dashboards** -- auto-provisioned visualization
 
+The built-in deployment stacks pair application metrics with
+`prometheuscommunity/postgres-exporter:v0.17.0`, Prometheus, Alertmanager, and
+Grafana.
+
 ```mermaid
 flowchart LR
     subgraph Services
@@ -20,8 +24,10 @@ flowchart LR
         M["Monitor<br/><small>:8003</small>"]
         S["Synchronizer<br/><small>:8004</small>"]
         R["Refresher<br/><small>:8005</small>"]
-        A["Api<br/><small>:8006</small>"]
-        D["Dvm<br/><small>:8007</small>"]
+        K["Ranker<br/><small>:8009</small>"]
+        A["API<br/><small>:8006</small>"]
+        D["DVM<br/><small>:8007</small>"]
+        T["Assertor<br/><small>:8008</small>"]
     end
 
     P["Prometheus<br/><small>:9090</small>"]
@@ -32,8 +38,10 @@ flowchart LR
     M -->|"/metrics"| P
     S -->|"/metrics"| P
     R -->|"/metrics"| P
+    K -->|"/metrics"| P
     A -->|"/metrics"| P
     D -->|"/metrics"| P
+    T -->|"/metrics"| P
     P -->|"datasource"| G
 
 ```
@@ -50,7 +58,7 @@ Each service exposes four metric types via the `/metrics` endpoint, implemented 
 |-------------|----------------|--------|-------------|
 | `service_info` | Info | `service` | Static service metadata (version, name) |
 | `service_gauge` | Gauge | `service`, `name` | Point-in-time operational state |
-| `service_counter` | Counter | `service`, `name` | Cumulative totals since startup |
+| `service_counter_total` | Counter | `service`, `name` | Cumulative totals since startup |
 | `cycle_duration_seconds` | Histogram | `service` | Cycle execution latency distribution |
 
 ### Gauge Names
@@ -97,19 +105,33 @@ metrics:
 
 ## Health Checks
 
-Each service container uses the `/metrics` endpoint as its Docker health check:
+The deployment uses endpoint-level Docker health checks instead of PID-only
+probes:
 
 ```yaml
-healthcheck:
-  test: ["CMD", "curl", "-sf", "http://localhost:8000/metrics"]
-  interval: 30s
-  timeout: 10s
-  retries: 3
-  start_period: 30s
+# Continuous worker services with metrics endpoints
+test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')\""]
+
+# API container
+test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/health')\""]
+
+# postgres-exporter
+test: ["CMD-SHELL", "wget -q --spider http://localhost:9187/metrics || exit 1"]
+
+# Prometheus
+test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+
+# Alertmanager
+test: ["CMD", "wget", "-q", "--spider", "http://localhost:9093/-/healthy"]
+
+# Grafana
+test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
 ```
 
 !!! note
-    This is a real health check, not a PID-based fake check. If the metrics endpoint is unreachable, Docker marks the container as unhealthy.
+    Finder, Validator, Monitor, Synchronizer, Refresher, Ranker, DVM, and
+    Assertor use `/metrics`; API uses `/health`; Seeder remains a one-shot
+    container with no long-lived health check.
 
 ---
 
@@ -150,6 +172,11 @@ scrape_configs:
       - targets: ["refresher:8000"]
     scrape_interval: 30s
 
+  - job_name: "ranker"
+    static_configs:
+      - targets: ["ranker:8000"]
+    scrape_interval: 30s
+
   - job_name: "api"
     static_configs:
       - targets: ["api:8000"]
@@ -158,6 +185,11 @@ scrape_configs:
   - job_name: "dvm"
     static_configs:
       - targets: ["dvm:8000"]
+    scrape_interval: 30s
+
+  - job_name: "assertor"
+    static_configs:
+      - targets: ["assertor:8000"]
     scrape_interval: 30s
 
   - job_name: "postgres"
@@ -178,7 +210,9 @@ Prometheus is configured with 30-day data retention. Data is persisted to a name
 
 ## Alerting Rules
 
-Seven alerting rules are defined in `deployments/bigbrotr/monitoring/prometheus/rules/alerts.yml`:
+Alerting rules are defined in `deployments/*/monitoring/prometheus/rules/alerts.yml`.
+They combine shared platform alerts with service-specific rules for the
+scraped service surface:
 
 ### ServiceDown
 
@@ -261,17 +295,17 @@ labels:
 
 Fires when the PostgreSQL buffer cache hit ratio drops below 95%. This may indicate insufficient `shared_buffers` or dataset growth exceeding available memory.
 
-### RefresherViewsFailing
+### RefresherTargetsFailing
 
 ```yaml
-alert: RefresherViewsFailing
-expr: service_gauge{service="refresher", name="views_failed"} > 0
+alert: RefresherTargetsFailing
+expr: service_gauge{service="refresher", name="targets_failed"} > 0
 for: 10m
 labels:
   severity: warning
 ```
 
-Fires when the Refresher service has failing materialized view refreshes for more than 10 minutes. Check database health and view definitions.
+Fires when the Refresher service has failing current-state, analytics, or periodic refresh targets for more than 10 minutes. Check database health and refresh definitions.
 
 ### Alert Summary
 
@@ -283,17 +317,56 @@ Fires when the Refresher service has failing materialized view refreshes for mor
 | SlowCycles | p99 cycle duration > 300s | 5 min | warning |
 | DatabaseConnectionsHigh | PG connections > 80 | 5 min | warning |
 | CacheHitRatioLow | Buffer cache hit < 95% | 10 min | warning |
-| RefresherViewsFailing | Failing view refreshes > 0 | 10 min | warning |
+| RefresherTargetsFailing | Failing refresh targets > 0 | 10 min | warning |
+| RefresherEventWatermarkLagHigh | Event watermark lag > 1h | 30 min | warning |
+| RefresherDocumentWatermarkLagHigh | Relay-document watermark lag > 1h | 30 min | warning |
+| RefresherMaxDurationBudgetHit | Cycle cut by `processing.max_duration` | 30 min | warning |
+| RefresherNoSuccessfulCycle | No successful refresher cycle for > 48h | 15 min | critical |
+| FinderNoSuccessfulCycle | No successful finder cycle for > 1h | 15 min | warning |
+| ValidatorNoSuccessfulCycle | No successful validator cycle for > 1h | 15 min | warning |
+| MonitorNoSuccessfulCycle | No successful monitor cycle for > 1h | 15 min | warning |
+| MonitorRelayFailures | Failed relay checks > 0 | 30 min | warning |
+| SynchronizerNoSuccessfulCycle | No successful synchronizer cycle for > 1h | 15 min | warning |
+| ApiNoSuccessfulCycle | No successful API metrics heartbeat for > 10m | 5 min | critical |
+| ApiRequestFailures | API request failures > 0.05/s | 10 min | warning |
+| DvmNoSuccessfulCycle | No successful DVM cycle for > 10m | 5 min | critical |
+| DvmRequestFailures | DVM request failures > 0.05/s | 10 min | warning |
+| RankerNoSuccessfulCycle | No successful ranker cycle for > 2h | 15 min | critical |
+| RankerCheckpointLagHigh | Ranker checkpoint lag > 24h | 30 min | warning |
+| RankerCycleBudgetHit | Ranker cycle cut by a configured budget | 30 min | warning |
+| RankerFailedRunsIncreasing | Ranker DuckDB-local failed-run count increased | 15 min | warning |
+| AssertorNoSuccessfulCycle | No successful assertor cycle for > 2h | 15 min | critical |
+| AssertorPublishFailures | NIP-85 assertion publish failures > 0 | 15 min | warning |
+| AssertorProviderProfileFailures | Provider profile publish failures > 0 | 15 min | warning |
+| AssertorTrustedProviderListFailures | Trusted-provider-list publish failures > 0 | 15 min | warning |
+| AssertorEligibleSubjectsNotHandled | Eligible subjects but no published/skipped assertions | 30 min | warning |
 
 ---
 
 ## Grafana Dashboards
 
-Grafana is auto-provisioned with a Prometheus datasource and a BigBrotr dashboard. The dashboard provides per-service panels organized in rows.
+Grafana is auto-provisioned with a default `Prometheus` datasource (UID
+`prometheus`), one deployment overview dashboard, and dedicated per-service
+dashboards for:
+
+- Finder
+- Validator
+- Monitor
+- Synchronizer
+- Refresher
+- Ranker
+- API
+- DVM
+- Assertor
+
+The overview dashboard provides summary rows for every continuous service
+(`finder`, `validator`, `monitor`, `synchronizer`, `refresher`, `ranker`,
+`api`, `dvm`, and `assertor`) plus database-health and data-overview sections.
+Dedicated dashboards provide the operational detail for each service.
 
 ### Dashboard Panels
 
-Each service has a row with:
+Each dashboard includes the shared lifecycle panels:
 
 | Panel | Visualization | Query |
 |-------|--------------|-------|
@@ -301,6 +374,20 @@ Each service has a row with:
 | Cycle Duration | Histogram | `cycle_duration_seconds{service="<name>"}` |
 | Error Count (24h) | Stat | `increase(service_counter_total{service="<name>", name=~"errors_.*"}[24h])` |
 | Consecutive Failures | Stat | `service_gauge{service="<name>", name="consecutive_failures"}` |
+
+Service-specific dashboards add focused panels:
+
+| Dashboard | Additional Panels |
+|-----------|-------------------|
+| Finder | source progress, discovery volume, discovery rate |
+| Validator | validation progress and validation totals |
+| Monitor | relay check progress and failed relay checks |
+| Synchronizer | relay sync progress and event/relay processing rate |
+| Refresher | targets by class, target outcomes, watermark lag, per-target durations, rows refreshed |
+| Ranker | graph and sync volume, staged fact rows, exported score rows, phase durations, checkpoint lag, cycle budgets, and DuckDB-local store hygiene |
+| API | readable resources exposed, request counters, request failure rate |
+| DVM | readable resources exposed, request counters, request failure rate |
+| Assertor | assertion outcomes, provider package status, per-kind assertion counts, publish phase durations |
 
 ### Thresholds
 
@@ -319,10 +406,19 @@ Grafana provisioning files are located in `deployments/*/monitoring/grafana/prov
 ```text
 grafana/provisioning/
 +-- datasources/
-|   +-- prometheus.yaml       # Prometheus datasource (auto-configured)
+|   +-- prometheus.yaml       # Prometheus datasource (uid: prometheus)
 +-- dashboards/
     +-- dashboards.yaml       # Dashboard provider configuration
-    +-- bigbrotr.json         # BigBrotr dashboard definition
+    +-- <profile>.json        # Profile overview dashboard
+    +-- finder.json           # Finder dashboard
+    +-- validator.json        # Validator dashboard
+    +-- monitor.json          # Monitor dashboard
+    +-- synchronizer.json     # Synchronizer dashboard
+    +-- refresher.json        # Refresher dashboard
+    +-- ranker.json           # Ranker dashboard
+    +-- api.json              # API dashboard
+    +-- dvm.json              # DVM dashboard
+    +-- assertor.json         # Assertor dashboard
 ```
 
 !!! note
@@ -398,7 +494,7 @@ Docker Compose is configured with JSON file logging and size limits:
 
 ```promql
 # Are all services up?
-up{job=~"finder|validator|monitor|synchronizer|refresher|api|dvm"}
+up{job=~"finder|validator|monitor|synchronizer|refresher|ranker|api|dvm|assertor"}
 
 # Time since last successful cycle per service
 time() - service_gauge{name="last_cycle_timestamp"}
@@ -417,17 +513,17 @@ rate(cycle_duration_seconds_sum[5m]) / rate(cycle_duration_seconds_count[5m])
 histogram_quantile(0.99, rate(cycle_duration_seconds_bucket[5m]))
 
 # Error rate per service
-rate(service_counter{name="errors"}[5m])
+rate(service_counter_total{name=~"errors_.*"}[5m])
 ```
 
 ### Throughput
 
 ```promql
 # Successful cycles per hour
-increase(service_counter{name="cycles_success"}[1h])
+increase(service_counter_total{name="cycles_success"}[1h])
 
 # Total errors in past 24h
-increase(service_counter{name="errors"}[24h])
+increase(service_counter_total{name=~"errors_.*"}[24h])
 ```
 
 ---
@@ -435,6 +531,6 @@ increase(service_counter{name="errors"}[24h])
 ## Related Documentation
 
 - [Architecture](architecture.md) -- System architecture and module reference
-- [Services](services.md) -- Deep dive into the eight independent services
+- [Services](services.md) -- Deep dive into the ten independent services
 - [Configuration](configuration.md) -- YAML configuration reference (MetricsConfig details)
 - [Database](database.md) -- PostgreSQL schema and stored functions

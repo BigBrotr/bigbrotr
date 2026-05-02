@@ -1,8 +1,11 @@
 # =============================================================================
 # Refresher Service Configuration (BigBrotr)
 # =============================================================================
-# Periodically refreshes materialized views in dependency order.
-# Only values that differ from defaults are specified here.
+# Periodically refreshes narrow current winners, shared analytics facts,
+# and operational contact-graph facts.
+# This deployment file keeps deployment-local overrides and a few restated
+# operator-facing defaults. See docs/user-guide/services.md and
+# src/bigbrotr/services/refresher/configs.py for the full config contract.
 # =============================================================================
 
 pool:
@@ -13,3 +16,41 @@ pool:
 metrics:
   enabled: true
   host: "0.0.0.0"                       # Bind to all interfaces for Docker access
+
+processing:
+  max_source_window: 86400               # Max source timestamp span per incremental target slice
+  max_duration: null                     # Optional cycle time budget in seconds
+  max_targets_per_cycle: null            # Optional cap for partial refresh cycles
+  continue_on_target_error: true
+
+current:
+  targets:
+    - relay_document_current
+    - replaceable_event_current
+    - addressable_event_current
+
+analytics:
+  targets:
+    - daily_counts
+    - relay_software_counts
+    - supported_nip_counts
+    - pubkey_kind_stats
+    - pubkey_relay_stats
+    - relay_kind_stats
+    - pubkey_stats
+    - kind_stats
+    - relay_stats
+    - contact_lists_current
+    - contact_list_edges_current
+    - nip85_pubkey_stats
+    - nip85_event_stats
+    - nip85_addressable_stats
+    - nip85_identifier_stats
+
+periodic:
+  rolling_windows: true
+  relay_stats_document: true
+  nip85_followers: true
+
+cleanup:
+  enabled: true

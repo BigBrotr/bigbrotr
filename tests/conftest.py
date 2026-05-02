@@ -3,7 +3,7 @@ Pytest configuration and shared fixtures for BigBrotr tests.
 
 Provides:
 - Mock fixtures for Pool, Brotr, and asyncpg
-- Sample data fixtures for events, relays, and metadata
+- Sample data fixtures for events, relays, and relay documents
 - Environment variable fixtures for secrets
 - Custom pytest markers for test categorization
 """
@@ -16,12 +16,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from nostr_sdk import Event as NostrEvent
+from nostr_sdk import Keys
 
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.core.pool import Pool
-from bigbrotr.models import EventRelay, Relay, RelayMetadata
+from bigbrotr.core.pool_config import DatabaseConfig, PoolConfig
+from bigbrotr.models import EventObservation, Relay, RelayDocument
+from bigbrotr.models.document import Document, DocumentType
 from bigbrotr.models.event import Event
-from bigbrotr.models.metadata import Metadata, MetadataType
 
 
 pytest_plugins = ["tests.fixtures.relays"]
@@ -36,8 +38,11 @@ def setup_logging() -> None:
 @pytest.fixture
 def mock_private_key(monkeypatch: pytest.MonkeyPatch) -> str:
     """Set up a mock private key in environment."""
-    key = "0" * 64
-    monkeypatch.setenv("NOSTR_PRIVATE_KEY", key)
+    key = Keys.generate().secret_key().to_hex()
+    monkeypatch.setenv("NOSTR_PRIVATE_KEY_MONITOR", key)
+    monkeypatch.setenv("NOSTR_PRIVATE_KEY_SYNCHRONIZER", key)
+    monkeypatch.setenv("NOSTR_PRIVATE_KEY_DVM", key)
+    monkeypatch.setenv("NOSTR_PRIVATE_KEY_ASSERTOR", key)
     return key
 
 
@@ -89,8 +94,6 @@ def mock_pool(
     mock_db_password: str,
 ) -> Pool:
     """Create a Pool with mocked internals."""
-    from bigbrotr.core.pool import DatabaseConfig, PoolConfig
-
     config = PoolConfig(
         database=DatabaseConfig(
             host="localhost",
@@ -101,7 +104,6 @@ def mock_pool(
     )
     pool = Pool(config=config)
     pool._pool = mock_asyncpg_pool
-    pool._is_connected = True
 
     # Store mock connection for easy access in tests
     pool._mock_connection = mock_connection  # type: ignore[attr-defined]
@@ -209,59 +211,59 @@ def make_mock_event(
 
 
 @pytest.fixture
-def sample_event() -> EventRelay:
-    """Sample Nostr EventRelay for testing."""
+def sample_event() -> EventObservation:
+    """Sample Nostr EventObservation for testing."""
     mock_nostr_event = make_mock_event()
     event = Event(mock_nostr_event)
-    relay = Relay("wss://relay.example.com", discovered_at=1700000000)
-    return EventRelay(event=event, relay=relay, seen_at=1700000001)
+    relay = Relay("wss://relay.example.com", stored_at=1700000000)
+    return EventObservation(event=event, relay=relay, observed_at=1700000001)
 
 
 @pytest.fixture
 def sample_relay() -> Relay:
     """Sample clearnet Relay for testing."""
-    return Relay("wss://relay.example.com", discovered_at=1700000000)
+    return Relay("wss://relay.example.com", stored_at=1700000000)
 
 
 @pytest.fixture
 def sample_tor_relay() -> Relay:
     """Sample Tor relay for testing."""
-    return Relay(f"ws://{'a' * 56}.onion", discovered_at=1700000000)
+    return Relay(f"ws://{'a' * 56}.onion", stored_at=1700000000)
 
 
 @pytest.fixture
 def sample_i2p_relay() -> Relay:
     """Sample I2P relay for testing."""
-    return Relay("wss://example.i2p", discovered_at=1700000000)
+    return Relay("wss://example.i2p", stored_at=1700000000)
 
 
 @pytest.fixture
 def sample_loki_relay() -> Relay:
     """Sample Lokinet relay for testing."""
-    return Relay(f"ws://{'d' * 52}.loki", discovered_at=1700000000)
+    return Relay(f"ws://{'d' * 52}.loki", stored_at=1700000000)
 
 
 @pytest.fixture
-def sample_metadata() -> RelayMetadata:
-    """Sample RelayMetadata for testing."""
-    relay = Relay("wss://relay.example.com", discovered_at=1700000000)
-    metadata = Metadata(
-        type=MetadataType.NIP11_INFO,
+def sample_relay_document() -> RelayDocument:
+    """Sample RelayDocument for testing."""
+    relay = Relay("wss://relay.example.com", stored_at=1700000000)
+    document = Document(
+        type=DocumentType.NIP11_INFO,
         data={"name": "Test Relay", "supported_nips": [1, 2, 9, 11]},
     )
-    return RelayMetadata(
+    return RelayDocument(
         relay=relay,
-        metadata=metadata,
-        generated_at=1700000001,
+        document=document,
+        associated_at=1700000001,
     )
 
 
 @pytest.fixture
-def sample_events_batch() -> list[EventRelay]:
-    """Generate a batch of sample EventRelay objects."""
-    relay = Relay("wss://relay.example.com", discovered_at=1700000000)
+def sample_events_batch() -> list[EventObservation]:
+    """Generate a batch of sample EventObservation objects."""
+    relay = Relay("wss://relay.example.com", stored_at=1700000000)
     return [
-        EventRelay(
+        EventObservation(
             event=Event(
                 make_mock_event(
                     event_id=f"{i:064x}",
@@ -270,7 +272,7 @@ def sample_events_batch() -> list[EventRelay]:
                 )
             ),
             relay=relay,
-            seen_at=1700000001,
+            observed_at=1700000001,
         )
         for i in range(10)
     ]
@@ -279,7 +281,7 @@ def sample_events_batch() -> list[EventRelay]:
 @pytest.fixture
 def sample_relays_batch() -> list[Relay]:
     """Generate a batch of sample Relay objects."""
-    return [Relay(f"wss://relay{i}.example.com", discovered_at=1700000000) for i in range(10)]
+    return [Relay(f"wss://relay{i}.example.com", stored_at=1700000000) for i in range(10)]
 
 
 def create_mock_record(data: dict[str, Any]) -> MagicMock:
@@ -301,6 +303,14 @@ def pytest_configure(config: pytest.Config) -> None:
     )
     config.addinivalue_line(
         "markers",
+        "system: marks tests as higher-band system tests requiring Docker Compose",
+    )
+    config.addinivalue_line(
+        "markers",
+        "live_smoke: marks tests as quarantined live-network smoke tests",
+    )
+    config.addinivalue_line(
+        "markers",
         "unit: marks tests as unit tests (no external dependencies)",
     )
     config.addinivalue_line("markers", "slow: marks tests as slow running")
@@ -311,5 +321,9 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     for item in items:
         if "integration" in str(item.fspath):
             item.add_marker(pytest.mark.integration)
+        elif "live_smoke" in str(item.fspath):
+            item.add_marker(pytest.mark.live_smoke)
+        elif "system" in str(item.fspath):
+            item.add_marker(pytest.mark.system)
         elif "unit" in str(item.fspath):
             item.add_marker(pytest.mark.unit)

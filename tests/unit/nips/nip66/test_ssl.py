@@ -1,10 +1,10 @@
 """
-Unit tests for models.nips.nip66.ssl module.
+Unit tests for the ``bigbrotr.nips.nip66.ssl`` module.
 
 Tests:
 - CertificateExtractor.extract_fingerprint() - SHA-256 fingerprint
 - Nip66SslMetadata._ssl() - synchronous SSL check
-- Nip66SslMetadata.execute() - async SSL check with clearnet validation
+- Nip66SslMetadata.probe() - async SSL check with clearnet validation
 """
 
 from __future__ import annotations
@@ -12,6 +12,8 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from bigbrotr.models import Relay
 from bigbrotr.nips.nip66.ssl import CertificateExtractor, Nip66SslMetadata
@@ -95,7 +97,7 @@ class TestNip66SslMetadataSslSync:
         mock_x509_cert.extensions.get_extension_for_class.return_value = san_ext
 
         mock_x509_cert.serial_number = 0x04ABCDEF12345678
-        mock_x509_cert.version = MagicMock(value=3)
+        mock_x509_cert.version = MagicMock(value=2)
 
         with (
             patch("socket.create_connection") as mock_conn,
@@ -129,6 +131,7 @@ class TestNip66SslMetadataSslSync:
         assert result.get("ssl_cipher") == "TLS_AES_256_GCM_SHA384"
         assert result.get("ssl_cipher_bits") == 256
         assert result.get("ssl_san") == ["relay.example.com", "*.example.com"]
+        assert result.get("ssl_version") == 2
 
     def test_ssl_error_returns_empty(self) -> None:
         """SSL error during extraction skips validation, returns empty dict."""
@@ -154,12 +157,47 @@ class TestNip66SslMetadataSslSync:
         assert result == {}
         assert "ssl_valid" not in result
 
+    def test_validation_uses_remaining_timeout_budget(self) -> None:
+        """Validation phase receives only the timeout budget left after extraction."""
+        with (
+            patch.object(
+                Nip66SslMetadata,
+                "_extract_certificate_data",
+                return_value={"ssl_subject_cn": "relay.example.com"},
+            ) as mock_extract,
+            patch.object(
+                Nip66SslMetadata, "_validate_certificate", return_value=True
+            ) as mock_validate,
+            patch("bigbrotr.nips.nip66.ssl.monotonic", side_effect=[100.0, 100.0, 106.5]),
+        ):
+            result = Nip66SslMetadata._ssl("example.com", 443, 10.0)
+
+        assert result == {"ssl_subject_cn": "relay.example.com", "ssl_valid": True}
+        mock_extract.assert_called_once_with("example.com", 443, 10.0)
+        mock_validate.assert_called_once_with("example.com", 443, 3.5)
+
+    def test_validation_timeout_exhaustion_raises_timeout(self) -> None:
+        """Validation aborts when extraction has already consumed the full timeout budget."""
+        with (
+            patch.object(
+                Nip66SslMetadata,
+                "_extract_certificate_data",
+                return_value={"ssl_subject_cn": "relay.example.com"},
+            ),
+            patch.object(Nip66SslMetadata, "_validate_certificate") as mock_validate,
+            patch("bigbrotr.nips.nip66.ssl.monotonic", side_effect=[100.0, 100.0, 110.1]),
+            pytest.raises(TimeoutError, match="ssl timeout during certificate validation"),
+        ):
+            Nip66SslMetadata._ssl("example.com", 443, 10.0)
+
+        mock_validate.assert_not_called()
+
 
 class TestNip66SslMetadataSslAsync:
-    """Test Nip66SslMetadata.execute() async class method."""
+    """Test Nip66SslMetadata.probe() async class method."""
 
-    async def test_clearnet_wss_returns_ssl_metadata(self, relay: Relay) -> None:
-        """Returns Nip66SslMetadata for clearnet wss:// relay."""
+    async def test_clearnet_wss_returns_ssl_result_container(self, relay: Relay) -> None:
+        """Returns the SSL result container for a clearnet wss:// relay."""
         ssl_result = {
             "ssl_valid": True,
             "ssl_issuer": "Test CA",
@@ -167,17 +205,73 @@ class TestNip66SslMetadataSslAsync:
         }
 
         with patch.object(Nip66SslMetadata, "_ssl", return_value=ssl_result):
-            result = await Nip66SslMetadata.execute(relay, 10.0)
+            result = await Nip66SslMetadata.probe(relay, 10.0)
 
         assert isinstance(result, Nip66SslMetadata)
         assert result.data.ssl_valid is True
         assert result.data.ssl_protocol == "TLSv1.3"
         assert result.logs.success is True
 
-    async def test_ssl_failure_returns_metadata_with_failure(self, relay: Relay) -> None:
-        """SSL check failure returns Nip66SslMetadata with success=False."""
+    async def test_probe_normalizes_san_values(self, relay: Relay) -> None:
+        """Probe output normalizes SAN values before building the model."""
+        ssl_result = {
+            "ssl_valid": True,
+            "ssl_san": [
+                "RELAY.EXAMPLE.COM.",
+                "*.EXAMPLE.COM.",
+                "relay.example.com",
+            ],
+        }
+
+        with patch.object(Nip66SslMetadata, "_ssl", return_value=ssl_result):
+            result = await Nip66SslMetadata.probe(relay, 10.0)
+
+        assert result.data.ssl_san == ["*.example.com", "relay.example.com"]
+        assert result.logs.success is True
+
+    async def test_probe_filters_invalid_san_values(self, relay: Relay) -> None:
+        """Probe drops malformed SAN values while preserving valid DNS names."""
+        ssl_result = {
+            "ssl_valid": True,
+            "ssl_san": ["RELAY.EXAMPLE.COM", "*.EXAMPLE.COM", "singlehost"],
+        }
+
+        with patch.object(Nip66SslMetadata, "_ssl", return_value=ssl_result):
+            result = await Nip66SslMetadata.probe(relay, 10.0)
+
+        assert result.data.ssl_san == ["*.example.com", "relay.example.com"]
+        assert result.logs.success is True
+
+    async def test_probe_filters_invalid_ssl_protocol_value(self, relay: Relay) -> None:
+        """Probe drops malformed TLS protocol names while preserving success."""
+        ssl_result = {
+            "ssl_valid": True,
+            "ssl_protocol": "TLS1.3",
+        }
+
+        with patch.object(Nip66SslMetadata, "_ssl", return_value=ssl_result):
+            result = await Nip66SslMetadata.probe(relay, 10.0)
+
+        assert result.data.ssl_protocol is None
+        assert result.logs.success is True
+
+    async def test_probe_filters_invalid_ssl_version_value(self, relay: Relay) -> None:
+        """Probe drops malformed X.509 version values while preserving success."""
+        ssl_result = {
+            "ssl_valid": True,
+            "ssl_version": 3,
+        }
+
+        with patch.object(Nip66SslMetadata, "_ssl", return_value=ssl_result):
+            result = await Nip66SslMetadata.probe(relay, 10.0)
+
+        assert result.data.ssl_version is None
+        assert result.logs.success is True
+
+    async def test_ssl_failure_returns_result_container_with_failure(self, relay: Relay) -> None:
+        """SSL check failure returns a result container with success=False."""
         with patch.object(Nip66SslMetadata, "_ssl", return_value={}):
-            result = await Nip66SslMetadata.execute(relay, 10.0)
+            result = await Nip66SslMetadata.probe(relay, 10.0)
 
         assert isinstance(result, Nip66SslMetadata)
         assert result.logs.success is False
@@ -185,28 +279,31 @@ class TestNip66SslMetadataSslAsync:
 
     async def test_tor_returns_failure(self, tor_relay: Relay) -> None:
         """Returns failure for Tor relay (SSL not applicable)."""
-        result = await Nip66SslMetadata.execute(tor_relay, 10.0)
+        result = await Nip66SslMetadata.probe(tor_relay, 10.0)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
+        assert "Tor" in result.logs.reason
 
     async def test_i2p_returns_failure(self, i2p_relay: Relay) -> None:
         """Returns failure for I2P relay (SSL not applicable)."""
-        result = await Nip66SslMetadata.execute(i2p_relay, 10.0)
+        result = await Nip66SslMetadata.probe(i2p_relay, 10.0)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
+        assert "I2P" in result.logs.reason
 
     async def test_loki_returns_failure(self, loki_relay: Relay) -> None:
         """Returns failure for Lokinet relay (SSL not applicable)."""
-        result = await Nip66SslMetadata.execute(loki_relay, 10.0)
+        result = await Nip66SslMetadata.probe(loki_relay, 10.0)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
+        assert "Lokinet" in result.logs.reason
 
     async def test_uses_default_port_443(self, relay: Relay) -> None:
         """Uses port 443 when relay has no explicit port."""
         ssl_result = {"ssl_valid": True}
 
         with patch.object(Nip66SslMetadata, "_ssl", return_value=ssl_result) as mock_ssl:
-            await Nip66SslMetadata.execute(relay, 10.0)
+            await Nip66SslMetadata.probe(relay, 10.0)
 
         mock_ssl.assert_called_once()
         call_args = mock_ssl.call_args
@@ -217,7 +314,7 @@ class TestNip66SslMetadataSslAsync:
         ssl_result = {"ssl_valid": True}
 
         with patch.object(Nip66SslMetadata, "_ssl", return_value=ssl_result) as mock_ssl:
-            await Nip66SslMetadata.execute(relay_with_port, 10.0)
+            await Nip66SslMetadata.probe(relay_with_port, 10.0)
 
         mock_ssl.assert_called_once()
         call_args = mock_ssl.call_args
@@ -226,7 +323,7 @@ class TestNip66SslMetadataSslAsync:
     async def test_exception_returns_failure(self, relay: Relay) -> None:
         """Exception during SSL check returns failure logs."""
         with patch.object(Nip66SslMetadata, "_ssl", side_effect=OSError("Network error")):
-            result = await Nip66SslMetadata.execute(relay, 10.0)
+            result = await Nip66SslMetadata.probe(relay, 10.0)
 
         assert isinstance(result, Nip66SslMetadata)
         assert result.logs.success is False
@@ -237,11 +334,22 @@ class TestNip66SslMetadataSslAsync:
         ssl_result = {"ssl_valid": True}
 
         with patch.object(Nip66SslMetadata, "_ssl", return_value=ssl_result) as mock_ssl:
-            await Nip66SslMetadata.execute(relay, None)
+            await Nip66SslMetadata.probe(relay, None)
 
         mock_ssl.assert_called_once()
         call_args = mock_ssl.call_args
         assert call_args[0][2] > 0
+
+    @pytest.mark.parametrize("value", [True, 0, -1, float("nan")])
+    async def test_rejects_invalid_timeout_before_ssl(self, relay: Relay, value: object) -> None:
+        """Invalid timeout budgets fail before any SSL work starts."""
+        with (
+            patch.object(Nip66SslMetadata, "_ssl") as mock_ssl,
+            pytest.raises(ValueError, match="timeout must be a positive finite number"),
+        ):
+            await Nip66SslMetadata.probe(relay, value)
+
+        mock_ssl.assert_not_called()
 
 
 class TestCertificateExtractorMissingFields:
@@ -349,6 +457,40 @@ class TestExtractCertificateDataNoCertBinary:
         assert "ssl_subject_cn" not in result
         assert result.get("ssl_protocol") == "TLSv1.3"
         assert result.get("ssl_cipher") == "AES256-SHA"
+
+    def test_malformed_der_keeps_fingerprint_and_tls_info(self) -> None:
+        """Malformed DER skips x509 fields but keeps fingerprint and negotiated TLS info."""
+        cert_binary = b"not-a-valid-der-certificate"
+
+        with (
+            patch("socket.create_connection") as mock_conn,
+            patch("ssl.create_default_context") as mock_ctx,
+            patch(
+                "bigbrotr.nips.nip66.ssl.x509.load_der_x509_certificate",
+                side_effect=ValueError("malformed certificate"),
+            ),
+        ):
+            mock_socket = MagicMock()
+            mock_conn.return_value.__enter__.return_value = mock_socket
+            mock_conn.return_value.__exit__ = MagicMock(return_value=False)
+
+            mock_ssl_socket = MagicMock()
+            mock_ssl_socket.getpeercert.return_value = cert_binary
+            mock_ssl_socket.version.return_value = "TLSv1.3"
+            mock_ssl_socket.cipher.return_value = ("AES256-SHA", "TLSv1.3", 256)
+
+            mock_wrapped = MagicMock()
+            mock_wrapped.__enter__.return_value = mock_ssl_socket
+            mock_wrapped.__exit__ = MagicMock(return_value=False)
+            mock_ctx.return_value.wrap_socket.return_value = mock_wrapped
+
+            result = Nip66SslMetadata._extract_certificate_data("example.com", 443, 10.0)
+
+        assert result["ssl_fingerprint"] == CertificateExtractor.extract_fingerprint(cert_binary)
+        assert result["ssl_protocol"] == "TLSv1.3"
+        assert result["ssl_cipher"] == "AES256-SHA"
+        assert result["ssl_cipher_bits"] == 256
+        assert "ssl_subject_cn" not in result
 
 
 class TestExtractTlsInfoMissingValues:

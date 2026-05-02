@@ -1,5 +1,5 @@
 """
-NIP-66 SSL metadata container with certificate inspection capabilities.
+NIP-66 SSL result container with certificate inspection capabilities.
 
 Connects to a relay's TLS endpoint, extracts certificate details (subject,
 issuer, validity, SANs, fingerprint, cipher), and separately validates the
@@ -18,7 +18,8 @@ Note:
        to verify the certificate chain against the system trust store.
 
     Both connections are synchronous socket operations delegated to a thread
-    pool via ``asyncio.to_thread`` to avoid blocking the event loop.
+    pool via ``asyncio.to_thread`` to avoid blocking the event loop. They
+    share a single caller-provided timeout budget end-to-end.
 
 See Also:
     [bigbrotr.nips.nip66.data.Nip66SslData][bigbrotr.nips.nip66.data.Nip66SslData]:
@@ -38,6 +39,7 @@ import hashlib
 import logging
 import socket
 import ssl
+from time import monotonic
 from typing import Any, Self
 
 from cryptography import x509
@@ -46,8 +48,8 @@ from cryptography.x509.oid import NameOID
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 from bigbrotr.nips.base import BaseNipMetadata
-from bigbrotr.utils.transport import DEFAULT_TIMEOUT
 
+from ._validation import normalize_timeout_budget
 from .data import Nip66SslData
 from .logs import Nip66SslLogs
 
@@ -115,7 +117,7 @@ class CertificateExtractor:
 class Nip66SslMetadata(BaseNipMetadata):
     """Container for SSL/TLS certificate data and inspection logs.
 
-    Provides the ``execute()`` class method that performs certificate
+    Provides the semantic ``probe()`` class method that performs certificate
     extraction and chain validation against a relay's TLS endpoint.
 
     Warning:
@@ -127,7 +129,7 @@ class Nip66SslMetadata(BaseNipMetadata):
     See Also:
         [bigbrotr.nips.nip66.nip66.Nip66][bigbrotr.nips.nip66.nip66.Nip66]:
             Top-level model that orchestrates this alongside other tests.
-        [bigbrotr.models.metadata.MetadataType][bigbrotr.models.metadata.MetadataType]:
+        [bigbrotr.models.document.DocumentType][bigbrotr.models.document.DocumentType]:
             The ``NIP66_SSL`` variant used when storing these results.
         [bigbrotr.nips.nip66.rtt.Nip66RttMetadata][bigbrotr.nips.nip66.rtt.Nip66RttMetadata]:
             RTT test that also involves SSL connections.
@@ -142,21 +144,37 @@ class Nip66SslMetadata(BaseNipMetadata):
 
         First extracts certificate data using a non-validating context,
         then separately validates the certificate chain using a default
-        (validating) context.
+        (validating) context. Both phases share one end-to-end timeout budget.
 
         Args:
             host: Hostname to connect to.
             port: TCP port number.
-            timeout: Socket timeout in seconds.
+            timeout: End-to-end SSL inspection timeout in seconds.
 
         Returns:
             Dictionary of extracted SSL fields including ``ssl_valid``.
         """
         result: dict[str, Any] = {}
-        cert_data = Nip66SslMetadata._extract_certificate_data(host, port, timeout)
+        deadline = monotonic() + timeout
+
+        def _remaining_timeout(error_message: str) -> float:
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                raise TimeoutError(error_message)
+            return remaining
+
+        cert_data = Nip66SslMetadata._extract_certificate_data(
+            host,
+            port,
+            _remaining_timeout("ssl timeout during certificate extraction"),
+        )
         result.update(cert_data)
         if cert_data:
-            result["ssl_valid"] = Nip66SslMetadata._validate_certificate(host, port, timeout)
+            result["ssl_valid"] = Nip66SslMetadata._validate_certificate(
+                host,
+                port,
+                _remaining_timeout("ssl timeout during certificate validation"),
+            )
         return result
 
     @staticmethod
@@ -185,8 +203,12 @@ class Nip66SslMetadata(BaseNipMetadata):
                     result["ssl_fingerprint"] = CertificateExtractor.extract_fingerprint(
                         cert_binary
                     )
-                    parsed = x509.load_der_x509_certificate(cert_binary)
-                    result.update(CertificateExtractor.extract_all_from_x509(parsed))
+                    try:
+                        parsed = x509.load_der_x509_certificate(cert_binary)
+                    except ValueError as e:
+                        logger.debug("ssl_cert_parse_error error=%s", str(e))
+                    else:
+                        result.update(CertificateExtractor.extract_all_from_x509(parsed))
 
                 result.update(Nip66SslMetadata._extract_tls_info(ssock))
 
@@ -234,7 +256,7 @@ class Nip66SslMetadata(BaseNipMetadata):
             return False
 
     @classmethod
-    async def execute(
+    async def probe(
         cls,
         relay: Relay,
         timeout: float | None = None,  # noqa: ASYNC109
@@ -251,14 +273,15 @@ class Nip66SslMetadata(BaseNipMetadata):
         Returns:
             An ``Nip66SslMetadata`` instance with certificate data and logs.
         """
-        timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
+        timeout = normalize_timeout_budget(timeout)
         logger.debug("ssl_testing relay=%s timeout_s=%s", relay.url, timeout)
 
         if relay.network != NetworkType.CLEARNET:
             return cls(
                 data=Nip66SslData(),
                 logs=Nip66SslLogs(
-                    success=False, reason=f"requires clearnet, got {relay.network.value}"
+                    success=False,
+                    reason=f"requires clearnet, got {relay.network.display_name}",
                 ),
             )
 
@@ -279,7 +302,9 @@ class Nip66SslMetadata(BaseNipMetadata):
             logs["reason"] = str(e) or type(e).__name__
             logger.debug("ssl_error relay=%s error=%s", relay.url, logs["reason"])
 
+        data_report = Nip66SslData.parse_report(data)
+        Nip66SslData.log_parse_issues(logger, relay.url, data_report)
         return cls(
-            data=Nip66SslData.model_validate(Nip66SslData.parse(data)),
+            data=Nip66SslData.model_validate(data_report.parsed),
             logs=Nip66SslLogs.model_validate(logs),
         )

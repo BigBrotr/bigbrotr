@@ -1,9 +1,9 @@
 """
-Unit tests for models.nips.nip66.net module.
+Unit tests for the ``bigbrotr.nips.nip66.net`` module.
 
 Tests:
 - Nip66NetMetadata._net() - synchronous ASN lookup
-- Nip66NetMetadata.execute() - async network lookup with clearnet validation
+- Nip66NetMetadata.probe() - async network lookup with clearnet validation
 - IPv4 and IPv6 ASN resolution
 - Dual-stack handling
 """
@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from bigbrotr.models import Relay
 from bigbrotr.nips.nip66.net import Nip66NetMetadata
@@ -168,16 +170,109 @@ class TestNip66NetMetadataNetSync:
 
         assert result["net_network"] == "8.8.8.0/24"
 
+    def test_ipv4_asn_partial_fields(self) -> None:
+        """IPv4 ASN lookup with some fields None."""
+        mock_asn_response = MagicMock()
+        mock_asn_response.autonomous_system_number = None
+        mock_asn_response.autonomous_system_organization = None
+        mock_asn_response.network = None
+
+        mock_asn_reader = MagicMock()
+        mock_asn_reader.asn.return_value = mock_asn_response
+
+        result = Nip66NetMetadata._net("8.8.8.8", None, mock_asn_reader)
+
+        assert result["net_ip"] == "8.8.8.8"
+        assert "net_asn" not in result
+        assert "net_asn_org" not in result
+        assert "net_network" not in result
+
+    def test_ipv6_only_asn_fallback(self) -> None:
+        """IPv6-only lookup provides ASN when IPv4 is absent."""
+        mock_asn_response = MagicMock()
+        mock_asn_response.autonomous_system_number = 15169
+        mock_asn_response.autonomous_system_organization = "GOOGLE"
+        mock_asn_response.network = "2001:4860::/32"
+
+        mock_asn_reader = MagicMock()
+        mock_asn_reader.asn.return_value = mock_asn_response
+
+        result = Nip66NetMetadata._net(None, "2001:4860:4860::8888", mock_asn_reader)
+
+        assert result["net_ipv6"] == "2001:4860:4860::8888"
+        assert result["net_asn"] == 15169
+        assert result["net_asn_org"] == "GOOGLE"
+        assert result["net_network_v6"] == "2001:4860::/32"
+
+    def test_ipv6_partial_fields_no_network(self) -> None:
+        """IPv6 ASN lookup with network None."""
+        mock_asn_response = MagicMock()
+        mock_asn_response.autonomous_system_number = 15169
+        mock_asn_response.autonomous_system_organization = "GOOGLE"
+        mock_asn_response.network = None
+
+        mock_asn_reader = MagicMock()
+        mock_asn_reader.asn.return_value = mock_asn_response
+
+        result = Nip66NetMetadata._net(None, "2001:4860:4860::8888", mock_asn_reader)
+
+        assert "net_network_v6" not in result
+        assert result["net_asn"] == 15169
+
+    def test_ipv6_backfills_org_when_ipv4_asn_matches(self) -> None:
+        """IPv6 may backfill the org name when it confirms the IPv4 ASN."""
+        mock_asn_response_v4 = MagicMock()
+        mock_asn_response_v4.autonomous_system_number = 15169
+        mock_asn_response_v4.autonomous_system_organization = None
+        mock_asn_response_v4.network = "8.8.8.0/24"
+
+        mock_asn_response_v6 = MagicMock()
+        mock_asn_response_v6.autonomous_system_number = 15169
+        mock_asn_response_v6.autonomous_system_organization = "GOOGLE"
+        mock_asn_response_v6.network = "2001:4860::/32"
+
+        mock_asn_reader = MagicMock()
+        mock_asn_reader.asn.side_effect = [mock_asn_response_v4, mock_asn_response_v6]
+
+        result = Nip66NetMetadata._net("8.8.8.8", "2001:4860:4860::8888", mock_asn_reader)
+
+        assert result["net_asn"] == 15169
+        assert result["net_asn_org"] == "GOOGLE"
+        assert result["net_network"] == "8.8.8.0/24"
+        assert result["net_network_v6"] == "2001:4860::/32"
+
+    def test_ipv6_org_does_not_backfill_when_asn_differs(self) -> None:
+        """IPv6 org data is ignored when it does not confirm the IPv4 ASN."""
+        mock_asn_response_v4 = MagicMock()
+        mock_asn_response_v4.autonomous_system_number = 15169
+        mock_asn_response_v4.autonomous_system_organization = None
+        mock_asn_response_v4.network = "8.8.8.0/24"
+
+        mock_asn_response_v6 = MagicMock()
+        mock_asn_response_v6.autonomous_system_number = 99999
+        mock_asn_response_v6.autonomous_system_organization = "OTHER"
+        mock_asn_response_v6.network = "2001:4860::/32"
+
+        mock_asn_reader = MagicMock()
+        mock_asn_reader.asn.side_effect = [mock_asn_response_v4, mock_asn_response_v6]
+
+        result = Nip66NetMetadata._net("8.8.8.8", "2001:4860:4860::8888", mock_asn_reader)
+
+        assert result["net_asn"] == 15169
+        assert "net_asn_org" not in result
+        assert result["net_network"] == "8.8.8.0/24"
+        assert result["net_network_v6"] == "2001:4860::/32"
+
 
 class TestNip66NetMetadataNetAsync:
-    """Test Nip66NetMetadata.execute() async class method."""
+    """Test Nip66NetMetadata.probe() async class method."""
 
-    async def test_clearnet_returns_net_metadata(
+    async def test_clearnet_returns_net_result_container(
         self,
         relay: Relay,
         mock_asn_reader: MagicMock,
     ) -> None:
-        """Returns Nip66NetMetadata for clearnet relay."""
+        """Returns the net result container for a clearnet relay."""
         net_result = {
             "net_ip": "8.8.8.8",
             "net_asn": 15169,
@@ -198,11 +293,41 @@ class TestNip66NetMetadataNetAsync:
             ),
             patch.object(Nip66NetMetadata, "_net", return_value=net_result),
         ):
-            result = await Nip66NetMetadata.execute(relay, mock_asn_reader)
+            result = await Nip66NetMetadata.probe(relay, mock_asn_reader)
 
         assert isinstance(result, Nip66NetMetadata)
         assert result.data.net_ip == "8.8.8.8"
         assert result.data.net_asn == 15169
+        assert result.logs.success is True
+
+    async def test_probe_canonicalizes_ipv6_net_fields(
+        self,
+        relay: Relay,
+        mock_asn_reader: MagicMock,
+    ) -> None:
+        """Probe canonicalizes equivalent IPv6 address and network strings."""
+        net_result = {
+            "net_ipv6": "2001:DB8:0:0:0:0:0:1",
+            "net_network_v6": "2001:DB8:0:0::/32",
+        }
+
+        mock_resolved = MagicMock()
+        mock_resolved.ipv4 = None
+        mock_resolved.ipv6 = "2001:db8::1"
+        mock_resolved.has_ip = True
+
+        with (
+            patch(
+                "bigbrotr.nips.nip66.net.resolve_host",
+                new_callable=AsyncMock,
+                return_value=mock_resolved,
+            ),
+            patch.object(Nip66NetMetadata, "_net", return_value=net_result),
+        ):
+            result = await Nip66NetMetadata.probe(relay, mock_asn_reader)
+
+        assert result.data.net_ipv6 == "2001:db8::1"
+        assert result.data.net_network_v6 == "2001:db8::/32"
         assert result.logs.success is True
 
     async def test_tor_returns_failure(
@@ -211,9 +336,10 @@ class TestNip66NetMetadataNetAsync:
         mock_asn_reader: MagicMock,
     ) -> None:
         """Returns failure for Tor relay (net not applicable)."""
-        result = await Nip66NetMetadata.execute(tor_relay, mock_asn_reader)
+        result = await Nip66NetMetadata.probe(tor_relay, mock_asn_reader)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
+        assert "Tor" in result.logs.reason
 
     async def test_i2p_returns_failure(
         self,
@@ -221,9 +347,10 @@ class TestNip66NetMetadataNetAsync:
         mock_asn_reader: MagicMock,
     ) -> None:
         """Returns failure for I2P relay (net not applicable)."""
-        result = await Nip66NetMetadata.execute(i2p_relay, mock_asn_reader)
+        result = await Nip66NetMetadata.probe(i2p_relay, mock_asn_reader)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
+        assert "I2P" in result.logs.reason
 
     async def test_loki_returns_failure(
         self,
@@ -231,9 +358,10 @@ class TestNip66NetMetadataNetAsync:
         mock_asn_reader: MagicMock,
     ) -> None:
         """Returns failure for Lokinet relay (net not applicable)."""
-        result = await Nip66NetMetadata.execute(loki_relay, mock_asn_reader)
+        result = await Nip66NetMetadata.probe(loki_relay, mock_asn_reader)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
+        assert "Lokinet" in result.logs.reason
 
     async def test_no_ip_resolved_returns_failure(
         self,
@@ -251,7 +379,7 @@ class TestNip66NetMetadataNetAsync:
             new_callable=AsyncMock,
             return_value=mock_resolved,
         ):
-            result = await Nip66NetMetadata.execute(relay, mock_asn_reader)
+            result = await Nip66NetMetadata.probe(relay, mock_asn_reader)
 
         assert isinstance(result, Nip66NetMetadata)
         assert result.logs.success is False
@@ -276,7 +404,7 @@ class TestNip66NetMetadataNetAsync:
             ),
             patch.object(Nip66NetMetadata, "_net", return_value={}),
         ):
-            result = await Nip66NetMetadata.execute(relay, mock_asn_reader)
+            result = await Nip66NetMetadata.probe(relay, mock_asn_reader)
 
         assert isinstance(result, Nip66NetMetadata)
         assert result.logs.success is False
@@ -307,7 +435,7 @@ class TestNip66NetMetadataNetAsync:
             ),
             patch.object(Nip66NetMetadata, "_net", return_value=net_result) as mock_net,
         ):
-            await Nip66NetMetadata.execute(relay, mock_asn_reader)
+            await Nip66NetMetadata.probe(relay, mock_asn_reader)
 
         mock_net.assert_called_once_with("8.8.8.8", "2001:4860:4860::8888", mock_asn_reader)
 
@@ -336,11 +464,50 @@ class TestNip66NetMetadataNetAsync:
             ),
             patch.object(Nip66NetMetadata, "_net", return_value=net_result),
         ):
-            result = await Nip66NetMetadata.execute(relay, mock_asn_reader)
+            result = await Nip66NetMetadata.probe(relay, mock_asn_reader)
 
         assert result.logs.success is True
         assert result.data.net_asn == 15169
         assert result.data.net_asn_org is None
+
+    async def test_probe_requests_timeout_propagation_from_resolver(
+        self,
+        relay: Relay,
+        mock_asn_reader: MagicMock,
+    ) -> None:
+        """Net probe asks the shared resolver to preserve real timeout outcomes."""
+        mock_resolved = MagicMock()
+        mock_resolved.ipv4 = "8.8.8.8"
+        mock_resolved.ipv6 = None
+        mock_resolved.has_ip = True
+
+        with (
+            patch(
+                "bigbrotr.nips.nip66.net.resolve_host",
+                new_callable=AsyncMock,
+                return_value=mock_resolved,
+            ) as mock_resolve,
+            patch.object(Nip66NetMetadata, "_net", return_value={"net_asn": 15169}),
+        ):
+            await Nip66NetMetadata.probe(relay, mock_asn_reader, timeout=0.5)
+
+        assert mock_resolve.await_args.kwargs["raise_on_timeout"] is True
+
+    @pytest.mark.parametrize("value", [True, 0, -1, float("nan")])
+    async def test_rejects_invalid_timeout_before_resolve(
+        self,
+        relay: Relay,
+        mock_asn_reader: MagicMock,
+        value: object,
+    ) -> None:
+        """Invalid timeout budgets fail before any resolver or ASN lookup starts."""
+        with (
+            patch("bigbrotr.nips.nip66.net.resolve_host", new_callable=AsyncMock) as mock_resolve,
+            pytest.raises(ValueError, match="timeout must be a positive finite number"),
+        ):
+            await Nip66NetMetadata.probe(relay, mock_asn_reader, timeout=value)
+
+        mock_resolve.assert_not_awaited()
 
     async def test_resolve_timeout_returns_failure(
         self,
@@ -353,7 +520,7 @@ class TestNip66NetMetadataNetAsync:
             new_callable=AsyncMock,
             side_effect=TimeoutError,
         ):
-            result = await Nip66NetMetadata.execute(relay, mock_asn_reader, timeout=0.1)
+            result = await Nip66NetMetadata.probe(relay, mock_asn_reader, timeout=0.1)
 
         assert result.logs.success is False
         assert "timeout" in result.logs.reason
@@ -380,6 +547,44 @@ class TestNip66NetMetadataNetAsync:
             ),
             patch("bigbrotr.nips.nip66.net.asyncio.to_thread", side_effect=slow_thread),
         ):
-            result = await Nip66NetMetadata.execute(relay, mock_asn_reader, timeout=0.1)
+            result = await Nip66NetMetadata.probe(relay, mock_asn_reader, timeout=0.1)
 
         assert result.logs.success is False
+
+    async def test_timeout_budget_is_shared_between_resolve_and_lookup(
+        self,
+        relay: Relay,
+        mock_asn_reader: MagicMock,
+    ) -> None:
+        """ASN lookup receives only the timeout budget left after DNS resolve."""
+        mock_resolved = MagicMock()
+        mock_resolved.ipv4 = "8.8.8.8"
+        mock_resolved.ipv6 = None
+        mock_resolved.has_ip = True
+        captured_timeouts: list[float] = []
+
+        async def slow_resolve(*args: object, **kwargs: object) -> MagicMock:
+            await asyncio.sleep(0.05)
+            return mock_resolved
+
+        async def fast_thread(*args: object, **kwargs: object) -> dict[str, int]:
+            return {"net_asn": 15169}
+
+        async def fake_wait_for(awaitable: object, timeout: float) -> object:
+            captured_timeouts.append(timeout)
+            return await awaitable
+
+        with (
+            patch(
+                "bigbrotr.nips.nip66.net.resolve_host",
+                new_callable=AsyncMock,
+                side_effect=slow_resolve,
+            ),
+            patch("bigbrotr.nips.nip66.net.asyncio.to_thread", side_effect=fast_thread),
+            patch("bigbrotr.nips.nip66.net.asyncio.wait_for", side_effect=fake_wait_for),
+        ):
+            result = await Nip66NetMetadata.probe(relay, mock_asn_reader, timeout=0.1)
+
+        assert result.logs.success is True
+        assert len(captured_timeouts) == 1
+        assert 0 < captured_timeouts[0] < 0.1

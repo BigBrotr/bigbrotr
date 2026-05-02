@@ -288,7 +288,7 @@ class TestStructuredFormatter:
         """Test that stdlib loggers without structured_kv still format correctly."""
         formatter = StructuredFormatter()
         record = logging.LogRecord(
-            name="models.metadata",
+            name="models.document",
             level=logging.WARNING,
             pathname="",
             lineno=0,
@@ -298,7 +298,7 @@ class TestStructuredFormatter:
         )
         # No structured_kv attribute at all
         result = formatter.format(record)
-        assert result == "warning models.metadata validation failed"
+        assert result == "warning models.document validation failed"
 
     def test_message_with_percent_args(self) -> None:
         """Test that getMessage() properly expands %-formatting args."""
@@ -634,6 +634,33 @@ class TestLogLevelsJsonMode:
         parsed = json.loads(mock.debug.call_args[0][0])
         assert parsed["message"] == "simple"
 
+    def test_warning_json(self, mock_logger: tuple[Logger, MagicMock]) -> None:
+        logger, mock = mock_logger
+        logger.warning("watch_out", detail="something")
+
+        mock.warning.assert_called_once()
+        parsed = json.loads(mock.warning.call_args[0][0])
+        assert parsed["message"] == "watch_out"
+        assert parsed["level"] == "warning"
+
+    def test_critical_json(self, mock_logger: tuple[Logger, MagicMock]) -> None:
+        logger, mock = mock_logger
+        logger.critical("system_down", code=1)
+
+        mock.critical.assert_called_once()
+        parsed = json.loads(mock.critical.call_args[0][0])
+        assert parsed["message"] == "system_down"
+        assert parsed["level"] == "critical"
+
+    def test_exception_json(self, mock_logger: tuple[Logger, MagicMock]) -> None:
+        logger, mock = mock_logger
+        logger.exception("crash", trace="tb")
+
+        mock.exception.assert_called_once()
+        parsed = json.loads(mock.exception.call_args[0][0])
+        assert parsed["message"] == "crash"
+        assert parsed["level"] == "error"
+
 
 # ============================================================================
 # Integration Tests
@@ -732,7 +759,7 @@ class TestIntegration:
         """Test plain stdlib logger records format cleanly through StructuredFormatter."""
         formatter = StructuredFormatter()
         record = logging.LogRecord(
-            name="models.metadata",
+            name="models.document",
             level=logging.WARNING,
             pathname="",
             lineno=0,
@@ -741,7 +768,7 @@ class TestIntegration:
             exc_info=None,
         )
         result = formatter.format(record)
-        assert result == "warning models.metadata unknown type: foo"
+        assert result == "warning models.document unknown type: foo"
 
     def test_truncation_end_to_end(self) -> None:
         """Test that truncation flows from Logger config through StructuredFormatter."""

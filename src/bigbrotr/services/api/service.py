@@ -1,9 +1,9 @@
-"""REST API service for read-only database exposure via FastAPI.
+"""REST API service for public readable-resource exposure via FastAPI.
 
-Auto-generates paginated endpoints for all discovered tables, views, and
-materialized views.  Per-table access control via
-[TableConfig][bigbrotr.services.common.configs.TableConfig] allows
-disabling individual endpoints.
+The API adapter is built on the shared
+[ReadCore][bigbrotr.services.common.read_models.ReadCore]. It exposes enabled
+readable resources over HTTP while preserving the stable historical
+``read_model`` transport contract under ``/read-models``.
 
 The HTTP server runs as a background ``asyncio.Task`` alongside the
 standard ``run_forever()`` cycle.  Each ``run()`` cycle logs request
@@ -13,15 +13,14 @@ Note:
     Rate limiting is not enforced at the application level — it is
     expected to be handled by the reverse proxy (e.g., Cloudflare,
     Nginx).  The API is strictly read-only: only GET methods are
-    registered, and all queries are executed through the
-    [Catalog][bigbrotr.services.common.catalog.Catalog] safe query
-    builder.
+        registered, and all queries are executed through the shared read core
+        and its catalog-backed validation layer.
 
 See Also:
     [ApiConfig][bigbrotr.services.api.ApiConfig]: Configuration model
-        for HTTP settings, pagination, and CORS.
-    [Catalog][bigbrotr.services.common.catalog.Catalog]: Schema
-        introspection and query builder shared with the DVM service.
+        for HTTP settings, pagination, CORS, and exposure policy.
+    [ReadCore][bigbrotr.services.common.read_models.ReadCore]: Shared
+        protocol-agnostic read core used by the API and DVM adapters.
     [BaseService][bigbrotr.core.base_service.BaseService]: Abstract
         base class providing lifecycle and metrics.
 
@@ -30,8 +29,8 @@ Examples:
     from bigbrotr.core import Brotr
     from bigbrotr.services import Api
 
-    brotr = Brotr.from_yaml("config/brotr.yaml")
-    api = Api.from_yaml("config/services/api.yaml", brotr=brotr)
+    brotr = Brotr.from_yaml("deployments/bigbrotr/config/brotr.yaml")
+    api = Api.from_yaml("deployments/bigbrotr/config/services/api.yaml", brotr=brotr)
 
     async with brotr:
         async with api:
@@ -53,10 +52,13 @@ from fastapi.responses import JSONResponse
 
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
-from bigbrotr.services.common.catalog import CatalogError
-from bigbrotr.services.common.mixins import CatalogAccessMixin
+from bigbrotr.services.common.read_models import ReadCore
 
 from .configs import ApiConfig
+from .routes import (
+    register_readable_resource_data_routes,
+    register_readable_resource_routes,
+)
 
 
 if TYPE_CHECKING:
@@ -67,12 +69,12 @@ if TYPE_CHECKING:
 _HTTP_ERROR_THRESHOLD = 400
 
 
-class Api(CatalogAccessMixin, BaseService[ApiConfig]):
-    """REST API service exposing the BigBrotr database read-only.
+class Api(BaseService[ApiConfig]):
+    """HTTP adapter exposing BigBrotr public readable resources.
 
-    Auto-generates paginated GET endpoints for each enabled table,
-    view, and materialized view discovered by the
-    [Catalog][bigbrotr.services.common.catalog.Catalog].
+    The public transport still speaks in terms of ``read models`` for backward
+    compatibility, but the runtime contract is now the shared read core plus
+    per-adapter exposure policy.
 
     Lifecycle:
         1. ``__aenter__``: discover schema, build FastAPI app, start uvicorn.
@@ -80,10 +82,10 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
         3. ``__aexit__``: cancel the HTTP server task.
 
     See Also:
-        [ApiConfig][bigbrotr.services.api.ApiConfig]: Configuration
-            model for this service.
+        [ApiConfig][bigbrotr.services.api.ApiConfig]: Configuration model for
+            this adapter.
         [Dvm][bigbrotr.services.dvm.Dvm]: Sibling service that exposes
-            the same Catalog data via Nostr NIP-90.
+            the same readable-resource data via Nostr NIP-90.
     """
 
     SERVICE_NAME: ClassVar[ServiceName] = ServiceName.API
@@ -92,19 +94,39 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
     def __init__(self, brotr: Brotr, config: ApiConfig | None = None) -> None:
         super().__init__(brotr=brotr, config=config)
         self._config: ApiConfig
+        self._read_core = ReadCore(policy_source=lambda: self._config.exposure_policy)
+        self._server: uvicorn.Server | None = None
         self._server_task: asyncio.Task[None] | None = None
         self._requests_total = 0
         self._requests_failed = 0
 
     async def __aenter__(self) -> Api:
         await super().__aenter__()
+        await self._read_core.discover(self._brotr, logger=self._logger)
 
         app = self._build_app()
-        endpoint_count = sum(1 for name in self._catalog.tables if self._is_table_enabled(name))
-        self._logger.info("endpoints_registered", count=endpoint_count)
-        self.set_gauge("tables_exposed", endpoint_count)
+        resource_count = len(self._read_core.enabled_resource_ids("api"))
+        self._logger.info("endpoints_registered", count=resource_count)
+        self.set_gauge("readable_resources_exposed", resource_count)
 
-        self._server_task = asyncio.create_task(self._run_server(app))
+        config = uvicorn.Config(
+            app,
+            host=self._config.host,
+            port=self._config.port,
+            log_level="warning",
+            access_log=False,
+        )
+        self._server = uvicorn.Server(config)
+        self._server_task = asyncio.create_task(self._server.serve())
+        startup_complete = False
+        try:
+            while not self._server.started:
+                self._raise_if_server_task_stopped()
+                await asyncio.sleep(0)
+            startup_complete = True
+        finally:
+            if not startup_complete:
+                await self._stop_server_task()
         self._logger.info(
             "http_server_started",
             host=self._config.host,
@@ -119,11 +141,7 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
         _exc_val: BaseException | None,
         _exc_tb: TracebackType | None,
     ) -> None:
-        if self._server_task is not None:
-            self._server_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._server_task
-            self._server_task = None
+        await self._stop_server_task()
         self._logger.info("http_server_stopped")
         await super().__aexit__(_exc_type, _exc_val, _exc_tb)
 
@@ -138,10 +156,7 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
         to trigger the ``run_forever()`` failure counter.  Per-cycle
         request counters are snapshotted and reset atomically.
         """
-        if self._server_task is not None and self._server_task.done():
-            exc = self._server_task.exception() if not self._server_task.cancelled() else None
-            self._logger.error("http_server_crashed", error=str(exc) if exc else "cancelled")
-            raise RuntimeError("HTTP server task has stopped unexpectedly") from exc
+        self._raise_if_server_task_stopped()
 
         # Snapshot and reset per-cycle counters
         total = self._requests_total
@@ -149,31 +164,31 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
         self._requests_total = 0
         self._requests_failed = 0
 
-        tables_exposed = sum(1 for name in self._catalog.tables if self._is_table_enabled(name))
+        readable_resources_exposed = len(self._read_core.enabled_resource_ids("api"))
         self._logger.info(
             "cycle_stats",
             requests_total=total,
             requests_failed=failed,
-            tables_exposed=tables_exposed,
+            readable_resources_exposed=readable_resources_exposed,
         )
         self.inc_counter("requests_total", total)
         self.inc_counter("requests_failed", failed)
-        self.set_gauge("tables_exposed", tables_exposed)
+        self.set_gauge("readable_resources_exposed", readable_resources_exposed)
 
     # ── App construction ──────────────────────────────────────────
 
     def _build_app(self) -> FastAPI:
-        """Construct the FastAPI application with auto-generated routes.
+        """Construct the FastAPI application with auto-generated public routes.
 
         Delegates to sub-methods for each route group:
-        middleware, health, schema endpoints, and per-table CRUD routes.
+        middleware, health, discovery, and readable-resource data routes.
         """
         app = FastAPI(title=self._config.title)
 
         self._add_middleware(app)
         self._add_health_route(app)
-        self._add_schema_routes(app)
-        self._add_table_routes(app)
+        self._add_resource_discovery_routes(app)
+        self._add_resource_data_routes(app)
 
         return app
 
@@ -236,154 +251,54 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
         async def health() -> dict[str, str]:
             return {"status": "ok"}
 
-    def _add_schema_routes(self, app: FastAPI) -> None:
-        """Register schema list and detail endpoints."""
-        prefix = self._config.route_prefix
+    def _add_resource_discovery_routes(self, app: FastAPI) -> None:
+        """Register discovery endpoints for the public readable-resource surface."""
+        register_readable_resource_routes(
+            app,
+            read_core=self._read_core,
+            route_prefix=self._config.route_prefix,
+        )
 
-        @app.get(f"{prefix}/schema")
-        async def list_schema() -> JSONResponse:
-            tables = [
-                {
-                    "name": schema.name,
-                    "is_view": schema.is_view,
-                    "columns": len(schema.columns),
-                    "has_primary_key": bool(schema.primary_key),
-                }
-                for name, schema in sorted(self._catalog.tables.items())
-                if self._is_table_enabled(name)
-            ]
-            return JSONResponse({"data": tables})
-
-        @app.get(f"{prefix}/schema/{{table}}")
-        async def get_schema(table: str) -> JSONResponse:
-            if table not in self._catalog.tables or not self._is_table_enabled(table):
-                return JSONResponse(
-                    {"error": f"table not found: {table}"},
-                    status_code=404,
-                )
-            schema = self._catalog.tables[table]
-            return JSONResponse(
-                {
-                    "data": {
-                        "name": schema.name,
-                        "is_view": schema.is_view,
-                        "columns": [
-                            {
-                                "name": c.name,
-                                "type": c.pg_type,
-                                "nullable": c.nullable,
-                            }
-                            for c in schema.columns
-                        ],
-                        "primary_key": list(schema.primary_key),
-                    },
-                }
-            )
-
-    def _add_table_routes(self, app: FastAPI) -> None:
-        """Register auto-generated list and detail routes for enabled tables."""
-        for table_name in self._catalog.tables:
-            if not self._is_table_enabled(table_name):
-                continue
-            self._register_table_routes(app, table_name)
-
-    def _register_table_routes(self, app: FastAPI, table_name: str) -> None:
-        """Register list and detail routes for a single table.
-
-        Each call creates a new scope, so closures safely capture
-        ``table_name`` and ``pk_cols`` without the loop-variable gotcha.
-        """
-        schema = self._catalog.tables[table_name]
-        pk_cols = schema.primary_key
-
-        @app.get(f"{self._config.route_prefix}/{table_name}")
-        async def list_rows(request: Request) -> JSONResponse:
-            params = dict(request.query_params)
-            try:
-                limit = int(params.pop("limit", self._config.default_page_size))
-                offset = int(params.pop("offset", 0))
-            except (ValueError, TypeError):
-                return JSONResponse(
-                    {"error": "Invalid limit or offset"},
-                    status_code=400,
-                )
-            sort = params.pop("sort", None)
-            filters = params or None
-
-            try:
-                result = await asyncio.wait_for(
-                    self._catalog.query(
-                        self._brotr,
-                        table_name,
-                        limit=limit,
-                        offset=offset,
-                        max_page_size=self._config.max_page_size,
-                        filters=filters,
-                        sort=sort,
-                    ),
-                    timeout=self._config.request_timeout,
-                )
-            except TimeoutError:
-                return JSONResponse({"error": "Query timeout"}, status_code=504)
-            except CatalogError as e:
-                return JSONResponse({"error": e.client_message}, status_code=400)
-
-            return JSONResponse(
-                {
-                    "data": result.rows,
-                    "meta": {
-                        "total": result.total,
-                        "limit": result.limit,
-                        "offset": result.offset,
-                        "table": table_name,
-                    },
-                }
-            )
-
-        # PK-based detail route (only for tables with a primary key)
-        if pk_cols:
-            if len(pk_cols) == 1:
-                pk_col = pk_cols[0]
-                pk_path = f"{{{pk_col}:path}}"
-            else:
-                pk_path = "/".join(f"{{{pk}}}" for pk in pk_cols)
-
-            @app.get(f"{self._config.route_prefix}/{table_name}/{pk_path}")
-            async def get_row(request: Request) -> JSONResponse:
-                pk_values = {col: request.path_params[col] for col in pk_cols}
-                try:
-                    row = await asyncio.wait_for(
-                        self._catalog.get_by_pk(
-                            self._brotr,
-                            table_name,
-                            pk_values,
-                        ),
-                        timeout=self._config.request_timeout,
-                    )
-                except TimeoutError:
-                    return JSONResponse({"error": "Query timeout"}, status_code=504)
-                except ValueError:
-                    return JSONResponse(
-                        {"error": "Invalid request parameters"},
-                        status_code=400,
-                    )
-                except CatalogError as e:
-                    return JSONResponse({"error": e.client_message}, status_code=400)
-
-                if row is None:
-                    return JSONResponse({"error": "not found"}, status_code=404)
-                return JSONResponse({"data": row})
+    def _add_resource_data_routes(self, app: FastAPI) -> None:
+        """Register list and detail routes for enabled public readable resources."""
+        register_readable_resource_data_routes(
+            app,
+            brotr=self._brotr,
+            read_core=self._read_core,
+            route_prefix=self._config.route_prefix,
+            default_page_size=self._config.default_page_size,
+            max_page_size=self._config.max_page_size,
+            request_timeout=self._config.request_timeout,
+        )
 
     # ── Server lifecycle ──────────────────────────────────────────
 
-    async def _run_server(self, app: FastAPI) -> None:
-        """Run uvicorn as an asyncio server."""
-        config = uvicorn.Config(
-            app,
-            host=self._config.host,
-            port=self._config.port,
-            log_level="warning",
-            access_log=False,
-        )
-        server = uvicorn.Server(config)
-        await server.serve()
+    async def _stop_server_task(self) -> None:
+        """Cancel the HTTP server task and clear local server state."""
+        task = self._server_task
+        self._server_task = None
+
+        if task is not None:
+            if task.done():
+                if not task.cancelled():
+                    task.exception()
+            else:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+        self._server = None
+
+    def _raise_if_server_task_stopped(self) -> None:
+        """Raise when the HTTP server task has exited unexpectedly."""
+        if self._server_task is None or not self._server_task.done():
+            return
+
+        exc: BaseException | None = None
+        if not self._server_task.cancelled():
+            try:
+                exc = self._server_task.exception()
+            except BaseException as task_exc:
+                exc = task_exc
+
+        self._logger.error("http_server_crashed", error=str(exc) if exc else "cancelled")
+        raise RuntimeError("HTTP server task has stopped unexpectedly") from exc

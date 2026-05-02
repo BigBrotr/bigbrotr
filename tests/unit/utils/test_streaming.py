@@ -1,4 +1,4 @@
-"""Unit tests for utils.streaming module.
+"""Unit tests for the ``bigbrotr.utils.streaming`` module.
 
 Tests:
 - _to_domain_events() sorting and conversion
@@ -7,10 +7,12 @@ Tests:
 - _try_verify_completeness() data-driven verification
 - stream_events() windowing algorithm
 - stream_events() idle timeout
+- stream_events() idle timeout check between fetch cycles
 - _fetch_validated() recv timeout on stream.next()
 """
 
 import asyncio
+import logging
 from dataclasses import FrozenInstanceError
 from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -125,6 +127,23 @@ class TestToDomainEvents:
             MockEvent.side_effect = lambda e: e
             result = _to_domain_events([evt], max_event_size=1000)
         assert result == []
+
+    def test_logs_when_dropping_event_exceeding_max_size(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        evt = _make_raw_event(event_id="b" * 64)
+        evt.as_json.return_value = "x" * 1001
+
+        with (
+            patch("bigbrotr.utils.streaming.Event") as MockEvent,
+            caplog.at_level(logging.DEBUG, logger="bigbrotr.utils.streaming"),
+        ):
+            MockEvent.side_effect = lambda e: e
+            result = _to_domain_events([evt], max_event_size=1000)
+
+        assert result == []
+        assert "event_too_large" in caplog.text
+        assert "b" * 16 in caplog.text
 
     def test_accepts_event_within_max_size(self) -> None:
         evt = _make_raw_event()
@@ -360,6 +379,134 @@ class TestTryVerifyCompleteness:
 class TestStreamEvents:
     """Tests for stream_events() async generator."""
 
+    async def test_rejects_invalid_start_time_before_fetch(self) -> None:
+        with (
+            patch(
+                "bigbrotr.utils.streaming._fetch_validated", new_callable=AsyncMock
+            ) as mock_fetch,
+            pytest.raises(ValueError, match="start_time must be a non-negative int"),
+        ):
+            async for _ in stream_events(
+                client=MagicMock(),
+                filters=[MagicMock()],
+                start_time=True,  # type: ignore[arg-type]
+                end_time=100,
+                limit=10,
+                request_timeout=5.0,
+                idle_timeout=60.0,
+            ):
+                pass
+
+        mock_fetch.assert_not_awaited()
+
+    async def test_rejects_invalid_end_time_before_fetch(self) -> None:
+        with (
+            patch(
+                "bigbrotr.utils.streaming._fetch_validated", new_callable=AsyncMock
+            ) as mock_fetch,
+            pytest.raises(ValueError, match="end_time must be a non-negative int"),
+        ):
+            async for _ in stream_events(
+                client=MagicMock(),
+                filters=[MagicMock()],
+                start_time=0,
+                end_time=-1,
+                limit=10,
+                request_timeout=5.0,
+                idle_timeout=60.0,
+            ):
+                pass
+
+        mock_fetch.assert_not_awaited()
+
+    async def test_rejects_invalid_limit_before_fetch(self) -> None:
+        with (
+            patch(
+                "bigbrotr.utils.streaming._fetch_validated", new_callable=AsyncMock
+            ) as mock_fetch,
+            pytest.raises(ValueError, match="limit must be a positive int"),
+        ):
+            async for _ in stream_events(
+                client=MagicMock(),
+                filters=[MagicMock()],
+                start_time=0,
+                end_time=100,
+                limit=0,
+                request_timeout=5.0,
+                idle_timeout=60.0,
+            ):
+                pass
+
+        mock_fetch.assert_not_awaited()
+
+    @pytest.mark.parametrize("request_timeout", [True, 0, -1.0, float("nan")])
+    async def test_rejects_invalid_request_timeout_before_fetch(
+        self, request_timeout: object
+    ) -> None:
+        with (
+            patch(
+                "bigbrotr.utils.streaming._fetch_validated", new_callable=AsyncMock
+            ) as mock_fetch,
+            pytest.raises(ValueError, match="request_timeout must be a positive finite number"),
+        ):
+            async for _ in stream_events(
+                client=MagicMock(),
+                filters=[MagicMock()],
+                start_time=0,
+                end_time=100,
+                limit=10,
+                request_timeout=request_timeout,  # type: ignore[arg-type]
+                idle_timeout=60.0,
+            ):
+                pass
+
+        mock_fetch.assert_not_awaited()
+
+    @pytest.mark.parametrize("idle_timeout", [True, -1.0, float("nan")])
+    async def test_rejects_invalid_idle_timeout_before_fetch(self, idle_timeout: object) -> None:
+        with (
+            patch(
+                "bigbrotr.utils.streaming._fetch_validated", new_callable=AsyncMock
+            ) as mock_fetch,
+            pytest.raises(ValueError, match="idle_timeout must be a non-negative finite number"),
+        ):
+            async for _ in stream_events(
+                client=MagicMock(),
+                filters=[MagicMock()],
+                start_time=0,
+                end_time=100,
+                limit=10,
+                request_timeout=5.0,
+                idle_timeout=idle_timeout,  # type: ignore[arg-type]
+            ):
+                pass
+
+        mock_fetch.assert_not_awaited()
+
+    @pytest.mark.parametrize("max_event_size", [True, 0, -1, "1024"])
+    async def test_rejects_invalid_max_event_size_before_fetch(
+        self, max_event_size: object
+    ) -> None:
+        with (
+            patch(
+                "bigbrotr.utils.streaming._fetch_validated", new_callable=AsyncMock
+            ) as mock_fetch,
+            pytest.raises(ValueError, match="max_event_size must be a positive int or None"),
+        ):
+            async for _ in stream_events(
+                client=MagicMock(),
+                filters=[MagicMock()],
+                start_time=0,
+                end_time=100,
+                limit=10,
+                request_timeout=5.0,
+                idle_timeout=60.0,
+                max_event_size=max_event_size,  # type: ignore[arg-type]
+            ):
+                pass
+
+        mock_fetch.assert_not_awaited()
+
     async def test_start_after_end_yields_nothing(self) -> None:
         events = [
             evt
@@ -562,6 +709,43 @@ class TestStreamEvents:
 
         # Both events yielded — idle timer reset after first yield
         assert len(events) == 2
+
+    async def test_idle_timeout_does_not_cancel_inflight_fetch(self) -> None:
+        """Idle timeout is checked between loop iterations, not mid-fetch."""
+        raw = _make_raw_event(event_id="a" * 64, created_at=100)
+        domain_event = MagicMock()
+
+        with (
+            patch(
+                "bigbrotr.utils.streaming._fetch_validated", new_callable=AsyncMock
+            ) as mock_fetch,
+            patch(
+                "bigbrotr.utils.streaming._try_verify_completeness", new_callable=AsyncMock
+            ) as mock_verify,
+            patch("bigbrotr.utils.streaming._to_domain_events") as mock_convert,
+            patch(
+                "bigbrotr.utils.streaming.time.monotonic",
+                side_effect=[0.0, 0.0, 1.0],
+            ),
+        ):
+            mock_fetch.return_value = [raw]
+            mock_verify.return_value = [raw]
+            mock_convert.return_value = [domain_event]
+
+            events = [
+                evt
+                async for evt in stream_events(
+                    client=MagicMock(),
+                    filters=[MagicMock()],
+                    start_time=50,
+                    end_time=200,
+                    limit=10,
+                    request_timeout=5.0,
+                    idle_timeout=0.1,
+                )
+            ]
+
+        assert events == [domain_event]
 
 
 # ============================================================================

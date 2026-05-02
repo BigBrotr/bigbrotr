@@ -7,60 +7,50 @@ Prometheus metrics server.
 Examples:
     ```bash
     python -m bigbrotr <service> [options]
-    python -m bigbrotr seeder --once
-    python -m bigbrotr finder --log-level DEBUG
-    python -m bigbrotr monitor --config config/services/monitor.yaml
+    python -m bigbrotr seeder --profile bigbrotr --once
+    python -m bigbrotr finder --profile bigbrotr --log-level DEBUG
+    python -m bigbrotr monitor --config deployments/bigbrotr/config/services/monitor.yaml
     ```
 """
 
 import argparse
 import asyncio
 import logging
-import signal
 import sys
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any
 
 from bigbrotr.core import Brotr, start_metrics_server
 from bigbrotr.core.base_service import BaseService
+from bigbrotr.core.deployments import (
+    BUILTIN_DEPLOYMENT_PROFILES,
+    DEFAULT_DEPLOYMENT_PROFILE,
+    deployment_layout,
+)
 from bigbrotr.core.logger import Logger, StructuredFormatter
+from bigbrotr.core.service_runtime import ServiceCliRunner
 from bigbrotr.core.yaml import load_yaml
-from bigbrotr.models.constants import ServiceName
-from bigbrotr.services.api import Api
-from bigbrotr.services.dvm import Dvm
-from bigbrotr.services.finder import Finder
-from bigbrotr.services.monitor import Monitor
-from bigbrotr.services.refresher import Refresher
-from bigbrotr.services.seeder import Seeder
-from bigbrotr.services.synchronizer import Synchronizer
-from bigbrotr.services.validator import Validator
+from bigbrotr.services.registry import SERVICE_REGISTRY
+from bigbrotr.services.registry import ServiceEntry as _ServiceEntry
 
 
 CONFIG_BASE = Path("config")
 CORE_CONFIG = CONFIG_BASE / "brotr.yaml"
-
-
-class ServiceEntry(NamedTuple):
-    """Registry entry mapping a service to its class and default config path."""
-
-    cls: type[BaseService[Any]]
-    config_path: Path
-
-
-SERVICE_REGISTRY: dict[str, ServiceEntry] = {
-    ServiceName.SEEDER: ServiceEntry(Seeder, CONFIG_BASE / "services" / "seeder.yaml"),
-    ServiceName.FINDER: ServiceEntry(Finder, CONFIG_BASE / "services" / "finder.yaml"),
-    ServiceName.VALIDATOR: ServiceEntry(Validator, CONFIG_BASE / "services" / "validator.yaml"),
-    ServiceName.MONITOR: ServiceEntry(Monitor, CONFIG_BASE / "services" / "monitor.yaml"),
-    ServiceName.REFRESHER: ServiceEntry(Refresher, CONFIG_BASE / "services" / "refresher.yaml"),
-    ServiceName.SYNCHRONIZER: ServiceEntry(
-        Synchronizer, CONFIG_BASE / "services" / "synchronizer.yaml"
-    ),
-    ServiceName.API: ServiceEntry(Api, CONFIG_BASE / "services" / "api.yaml"),
-    ServiceName.DVM: ServiceEntry(Dvm, CONFIG_BASE / "services" / "dvm.yaml"),
-}
+DEFAULT_PROFILE = DEFAULT_DEPLOYMENT_PROFILE
+DEPLOYMENT_PROFILES = BUILTIN_DEPLOYMENT_PROFILES
+ServiceEntry = _ServiceEntry
 
 logger = Logger("cli")
+
+
+def _default_brotr_config_path(profile: str) -> Path:
+    """Resolve the default shared config path for a deployment profile."""
+    return deployment_layout(profile).brotr_config_path
+
+
+def _default_service_config_path(profile: str, service_name: str) -> Path:
+    """Resolve the default service config path for a deployment profile."""
+    return deployment_layout(profile).service_config_path(service_name)
 
 
 async def run_service(
@@ -91,50 +81,13 @@ async def run_service(
         service = service_class.from_dict(service_dict, brotr=brotr)
     else:
         service = service_class(brotr=brotr)
-
-    # One-shot mode: single cycle, no metrics server
-    if once:
-        try:
-            async with service:
-                await service.run()
-            logger.info(f"{service_name}_completed")
-            return 0
-        except Exception as e:  # Intentionally broad: CLI error boundary for one-shot mode
-            logger.error(f"{service_name}_failed", error=str(e))
-            return 1
-
-    # Continuous mode: metrics server + indefinite operation
-    metrics_config = service.config.metrics
-    metrics_server = await start_metrics_server(metrics_config)
-
-    if metrics_config.enabled:
-        logger.info(
-            "metrics_server_started",
-            host=metrics_config.host,
-            port=metrics_config.port,
-            path=metrics_config.path,
-        )
-
-    # Signal handling for graceful shutdown
-    def handle_signal(sig: signal.Signals) -> None:
-        logger.info("shutdown_signal", signal=sig.name)
-        service.request_shutdown()
-
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, handle_signal, sig)
-
-    try:
-        async with service:
-            await service.run_forever()
-        return 0
-    except Exception as e:  # Intentionally broad: CLI error boundary for continuous mode
-        logger.error(f"{service_name}_failed", error=str(e))
-        return 1
-    finally:
-        await metrics_server.stop()
-        if metrics_config.enabled:
-            logger.info("metrics_server_stopped")
+    runner = ServiceCliRunner(
+        service,
+        logger=logger,
+        service_name=service_name,
+        start_metrics_server_fn=start_metrics_server,
+    )
+    return await runner.run(once=once)
 
 
 def parse_args() -> argparse.Namespace:
@@ -153,14 +106,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config",
         type=Path,
-        help="Service config path (default: config/services/<service>.yaml)",
+        help="Service config path (default: deployments/<profile>/config/services/<service>.yaml)",
     )
 
     parser.add_argument(
         "--brotr-config",
         type=Path,
-        default=CORE_CONFIG,
-        help=f"Brotr config path (default: {CORE_CONFIG})",
+        help="Brotr config path (default: deployments/<profile>/config/brotr.yaml)",
+    )
+
+    parser.add_argument(
+        "--profile",
+        choices=DEPLOYMENT_PROFILES,
+        default=DEFAULT_PROFILE,
+        help=f"Deployment profile for default config resolution (default: {DEFAULT_PROFILE})",
     )
 
     parser.add_argument(
@@ -187,9 +146,12 @@ def setup_logging(level: str) -> None:
     plain ``logging.getLogger()`` calls in models/utils -- is unified as
     ``level name message key=value ...``.
     """
-    handler = logging.StreamHandler()
-    handler.setFormatter(StructuredFormatter())
-    logging.root.addHandler(handler)
+    if not any(
+        isinstance(handler.formatter, StructuredFormatter) for handler in logging.root.handlers
+    ):
+        handler = logging.StreamHandler()
+        handler.setFormatter(StructuredFormatter())
+        logging.root.addHandler(handler)
     logging.root.setLevel(getattr(logging, level))
 
 
@@ -245,9 +207,10 @@ async def main() -> int:
     setup_logging(args.log_level)
 
     entry = SERVICE_REGISTRY[args.service]
-    config_path = args.config or entry.config_path
+    config_path = args.config or _default_service_config_path(args.profile, args.service)
+    brotr_config_path = args.brotr_config or _default_brotr_config_path(args.profile)
 
-    brotr_dict = _load_yaml_dict(args.brotr_config)
+    brotr_dict = _load_yaml_dict(brotr_config_path)
     service_dict = _load_yaml_dict(config_path)
     pool_overrides = service_dict.pop("pool", None)
     _apply_pool_overrides(brotr_dict, pool_overrides, args.service)
@@ -258,7 +221,7 @@ async def main() -> int:
         async with brotr:
             return await run_service(
                 service_name=args.service,
-                service_class=entry.cls,
+                service_class=entry.load_class(),
                 brotr=brotr,
                 service_dict=service_dict,
                 once=args.once,

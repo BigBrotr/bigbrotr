@@ -1,9 +1,9 @@
 """
-Unit tests for models.nips.nip66.dns module.
+Unit tests for the ``bigbrotr.nips.nip66.dns`` module.
 
 Tests:
 - Nip66DnsMetadata._dns() - synchronous DNS resolution
-- Nip66DnsMetadata.execute() - async DNS resolution with clearnet validation
+- Nip66DnsMetadata.probe() - async DNS resolution with clearnet validation
 - DNS record type extraction (A, AAAA, CNAME, NS, PTR)
 """
 
@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import dns.resolver
+import pytest
 
 from bigbrotr.models import Relay
 from bigbrotr.nips.nip66.dns import Nip66DnsMetadata
@@ -58,7 +59,7 @@ class TestNip66DnsMetadataDnsSync:
         with patch("dns.resolver.Resolver", return_value=mock_resolver):
             result = Nip66DnsMetadata._dns("example.com", 5.0)
 
-        assert result.get("dns_ips") == ["8.8.8.8", "8.8.4.4"]
+        assert result.get("dns_ips") == ["8.8.4.4", "8.8.8.8"]
 
     def test_resolves_aaaa_records(self) -> None:
         """Resolve AAAA records (IPv6)."""
@@ -76,7 +77,7 @@ class TestNip66DnsMetadataDnsSync:
 
         mock_resolver = MagicMock()
 
-        def resolve_side_effect(host: str, record_type: str) -> MagicMock:
+        def resolve_side_effect(host: str, record_type: str, **kwargs: Any) -> MagicMock:
             if record_type == "A":
                 return mock_a_response
             if record_type == "AAAA":
@@ -106,7 +107,7 @@ class TestNip66DnsMetadataDnsSync:
 
         mock_resolver = MagicMock()
 
-        def resolve_side_effect(host: str, record_type: str) -> MagicMock:
+        def resolve_side_effect(host: str, record_type: str, **kwargs: Any) -> MagicMock:
             if record_type == "A":
                 return mock_a_response
             if record_type == "CNAME":
@@ -152,6 +153,7 @@ class TestNip66DnsMetadataDnsSync:
         mock_ext = MagicMock()
         mock_ext.domain = "example"
         mock_ext.suffix = "com"
+        mock_ext.top_domain_under_public_suffix = "example.com"
 
         with (
             patch("dns.resolver.Resolver", return_value=mock_resolver),
@@ -160,6 +162,7 @@ class TestNip66DnsMetadataDnsSync:
             result = Nip66DnsMetadata._dns("www.example.com", 5.0)
 
         assert result.get("dns_ns") == ["ns1.google.com", "ns2.google.com"]
+        mock_resolver.resolve.assert_any_call("example.com", "NS", lifetime=ANY)
 
     def test_resolves_ptr_record(self) -> None:
         """Resolve PTR record (reverse DNS)."""
@@ -198,6 +201,84 @@ class TestNip66DnsMetadataDnsSync:
 
         assert result.get("dns_reverse") == "dns.google"
 
+    def test_ptr_uses_canonical_primary_ipv4(self) -> None:
+        """PTR lookup follows the normalized primary IPv4, not resolver order."""
+        mock_a_response = MagicMock()
+        mock_a_rdata1 = MagicMock()
+        mock_a_rdata1.address = "8.8.8.8"
+        mock_a_rdata2 = MagicMock()
+        mock_a_rdata2.address = "8.8.4.4"
+        mock_a_response.__iter__ = lambda _: iter([mock_a_rdata1, mock_a_rdata2])
+        mock_a_response.rrset = MagicMock()
+        mock_a_response.rrset.ttl = 300
+
+        mock_ptr_response = MagicMock()
+        mock_ptr_rdata = MagicMock()
+        mock_ptr_rdata.target = "dns.google."
+        mock_ptr_response.__iter__ = lambda _: iter([mock_ptr_rdata])
+
+        mock_resolver = MagicMock()
+
+        def resolve_side_effect(*args: Any, **kwargs: Any) -> MagicMock:
+            if args[1] == "A":
+                return mock_a_response
+            if args[1] == "PTR":
+                return mock_ptr_response
+            raise dns.resolver.NXDOMAIN
+
+        mock_resolver.resolve.side_effect = resolve_side_effect
+
+        with (
+            patch("dns.resolver.Resolver", return_value=mock_resolver),
+            patch(
+                "dns.reversename.from_address",
+                return_value="8.8.4.4.in-addr.arpa",
+            ) as mock_reverse_name,
+        ):
+            result = Nip66DnsMetadata._dns("example.com", 5.0)
+
+        assert result.get("dns_ips") == ["8.8.4.4", "8.8.8.8"]
+        mock_reverse_name.assert_called_once_with("8.8.4.4")
+        assert result.get("dns_reverse") == "dns.google"
+
+    def test_ptr_falls_back_to_canonical_primary_ipv6(self) -> None:
+        """PTR lookup uses the canonical IPv6 address when no IPv4 records exist."""
+        mock_aaaa_response = MagicMock()
+        mock_aaaa_rdata1 = MagicMock()
+        mock_aaaa_rdata1.address = "2001:4860:4860::8888"
+        mock_aaaa_rdata2 = MagicMock()
+        mock_aaaa_rdata2.address = "2001:4860:4860::8844"
+        mock_aaaa_response.__iter__ = lambda _: iter([mock_aaaa_rdata1, mock_aaaa_rdata2])
+
+        mock_ptr_response = MagicMock()
+        mock_ptr_rdata = MagicMock()
+        mock_ptr_rdata.target = "dns.google."
+        mock_ptr_response.__iter__ = lambda _: iter([mock_ptr_rdata])
+
+        mock_resolver = MagicMock()
+
+        def resolve_side_effect(*args: Any, **kwargs: Any) -> MagicMock:
+            if args[1] == "AAAA":
+                return mock_aaaa_response
+            if args[1] == "PTR":
+                return mock_ptr_response
+            raise dns.resolver.NXDOMAIN
+
+        mock_resolver.resolve.side_effect = resolve_side_effect
+
+        with (
+            patch("dns.resolver.Resolver", return_value=mock_resolver),
+            patch(
+                "dns.reversename.from_address",
+                return_value="2001:4860:4860::8844.ip6.arpa",
+            ) as mock_reverse_name,
+        ):
+            result = Nip66DnsMetadata._dns("example.com", 5.0)
+
+        assert result.get("dns_ips_v6") == ["2001:4860:4860::8844", "2001:4860:4860::8888"]
+        mock_reverse_name.assert_called_once_with("2001:4860:4860::8844")
+        assert result.get("dns_reverse") == "dns.google"
+
     def test_empty_result_when_no_records(self) -> None:
         """Return empty dict when no DNS records found."""
         mock_resolver = MagicMock()
@@ -207,6 +288,104 @@ class TestNip66DnsMetadataDnsSync:
             result = Nip66DnsMetadata._dns("nonexistent.invalid", 5.0)
 
         assert result == {}
+
+    def test_a_records_empty_list(self) -> None:
+        """A record resolves but returns no addresses."""
+        mock_response = MagicMock()
+        mock_response.__iter__ = lambda _: iter([])
+        mock_response.rrset = None
+
+        mock_resolver = MagicMock()
+        call_count = 0
+
+        def resolve_side_effect(*args: Any, **kwargs: Any) -> Any:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return mock_response
+            raise dns.resolver.NXDOMAIN
+
+        mock_resolver.resolve.side_effect = resolve_side_effect
+
+        with patch("dns.resolver.Resolver", return_value=mock_resolver):
+            result = Nip66DnsMetadata._dns("example.com", 5.0)
+
+        assert "dns_ips" not in result
+        assert "dns_ttl" not in result
+
+    def test_a_records_present_but_no_rrset(self) -> None:
+        """A record has addresses but rrset is None (no TTL)."""
+        mock_rdata = MagicMock()
+        mock_rdata.address = "1.2.3.4"
+        mock_response = MagicMock()
+        mock_response.__iter__ = lambda _: iter([mock_rdata])
+        mock_response.rrset = None
+
+        mock_resolver = MagicMock()
+        call_count = 0
+
+        def resolve_side_effect(*args: Any, **kwargs: Any) -> Any:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return mock_response
+            raise dns.resolver.NXDOMAIN
+
+        mock_resolver.resolve.side_effect = resolve_side_effect
+
+        with patch("dns.resolver.Resolver", return_value=mock_resolver):
+            result = Nip66DnsMetadata._dns("example.com", 5.0)
+
+        assert result.get("dns_ips") == ["1.2.3.4"]
+        assert "dns_ttl" not in result
+
+    def test_registered_domain_parse_failure_skips_ns(self) -> None:
+        """NS resolution is skipped when registered-domain parsing fails."""
+        mock_rdata = MagicMock()
+        mock_rdata.address = "8.8.8.8"
+        mock_response = MagicMock()
+        mock_response.__iter__ = lambda _: iter([mock_rdata])
+        mock_response.rrset = MagicMock()
+        mock_response.rrset.ttl = 300
+
+        mock_resolver = MagicMock()
+        call_count = 0
+
+        def resolve_side_effect(*args: Any, **kwargs: Any) -> Any:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return mock_response
+            raise dns.resolver.NXDOMAIN
+
+        mock_resolver.resolve.side_effect = resolve_side_effect
+
+        with (
+            patch("dns.resolver.Resolver", return_value=mock_resolver),
+            patch("tldextract.extract", side_effect=ValueError("no tlds set")),
+        ):
+            result = Nip66DnsMetadata._dns("example.com", 5.0)
+
+        assert result.get("dns_ips") == ["8.8.8.8"]
+        assert "dns_ns" not in result
+
+    def test_registered_domain_helper_returns_none_for_empty_suffix(self) -> None:
+        """Registered-domain helper returns None when no public suffix exists."""
+        mock_ext = MagicMock()
+        mock_ext.top_domain_under_public_suffix = ""
+
+        with patch("tldextract.extract", return_value=mock_ext):
+            result = Nip66DnsMetadata._registered_domain("localhost")
+
+        assert result is None
+
+    def test_registered_domain_helper_propagates_unexpected_failure(self) -> None:
+        """Unexpected extractor failures are not hidden by the helper."""
+        with (
+            patch("tldextract.extract", side_effect=RuntimeError("boom")),
+            pytest.raises(RuntimeError, match="boom"),
+        ):
+            Nip66DnsMetadata._registered_domain("example.com")
 
     def test_sets_timeout_and_lifetime(self) -> None:
         """Sets resolver timeout and lifetime."""
@@ -220,47 +399,116 @@ class TestNip66DnsMetadataDnsSync:
         assert resolver_instance.timeout == 7.5
         assert resolver_instance.lifetime == 7.5
 
+    def test_record_lookups_share_remaining_timeout_budget(self) -> None:
+        """Later record families use only the remaining DNS probe budget."""
+        mock_resolver = MagicMock()
+        mock_resolver.resolve.side_effect = dns.resolver.NXDOMAIN()
+
+        with (
+            patch("dns.resolver.Resolver", return_value=mock_resolver),
+            patch.object(Nip66DnsMetadata, "_registered_domain", return_value=None),
+            patch(
+                "bigbrotr.nips.nip66.dns.time.monotonic",
+                side_effect=[100.0, 100.0, 102.0, 104.5],
+            ),
+        ):
+            result = Nip66DnsMetadata._dns("example.com", 5.0)
+
+        assert result == {}
+        assert mock_resolver.resolve.call_args_list == [
+            (("example.com", "A"), {"lifetime": 5.0}),
+            (("example.com", "AAAA"), {"lifetime": 3.0}),
+            (("example.com", "CNAME"), {"lifetime": 0.5}),
+        ]
+
+    def test_budget_exhaustion_raises_timeout_instead_of_no_data(self) -> None:
+        """Shared-budget exhaustion aborts the probe instead of degrading to empty data."""
+        mock_resolver = MagicMock()
+        mock_resolver.resolve.side_effect = dns.resolver.NXDOMAIN()
+
+        with (
+            patch("dns.resolver.Resolver", return_value=mock_resolver),
+            patch.object(Nip66DnsMetadata, "_registered_domain", return_value=None),
+            patch(
+                "bigbrotr.nips.nip66.dns.time.monotonic",
+                side_effect=[100.0, 100.0, 102.0, 105.0],
+            ),
+            pytest.raises(TimeoutError, match="dns timeout during record collection"),
+        ):
+            Nip66DnsMetadata._dns("example.com", 5.0)
+
 
 class TestNip66DnsMetadataDnsAsync:
-    """Test Nip66DnsMetadata.execute() async class method."""
+    """Test Nip66DnsMetadata.probe() async class method."""
 
-    async def test_clearnet_returns_dns_metadata(self, relay: Relay) -> None:
-        """Returns Nip66DnsMetadata for clearnet relay."""
+    async def test_clearnet_returns_dns_result_container(self, relay: Relay) -> None:
+        """Returns the DNS result container for a clearnet relay."""
         dns_result = {
             "dns_ips": ["8.8.8.8"],
             "dns_ttl": 300,
         }
 
         with patch.object(Nip66DnsMetadata, "_dns", return_value=dns_result):
-            result = await Nip66DnsMetadata.execute(relay, 5.0)
+            result = await Nip66DnsMetadata.probe(relay, 5.0)
 
         assert isinstance(result, Nip66DnsMetadata)
         assert result.data.dns_ips == ["8.8.8.8"]
         assert result.data.dns_ttl == 300
         assert result.logs.success is True
 
+    async def test_probe_canonicalizes_ipv6_dns_records(self, relay: Relay) -> None:
+        """Probe canonicalizes equivalent IPv6 AAAA records before deduping."""
+        dns_result = {
+            "dns_ips_v6": ["2001:DB8:0:0:0:0:0:1", "2001:db8::1"],
+        }
+
+        with patch.object(Nip66DnsMetadata, "_dns", return_value=dns_result):
+            result = await Nip66DnsMetadata.probe(relay, 5.0)
+
+        assert result.data.dns_ips_v6 == ["2001:db8::1"]
+        assert result.logs.success is True
+
+    async def test_probe_canonicalizes_fqdn_hostnames(self, relay: Relay) -> None:
+        """Probe canonicalizes FQDN DNS hostnames before building the model."""
+        dns_result = {
+            "dns_cname": "DNS.GOOGLE.",
+            "dns_reverse": "PTR.EXAMPLE.COM.",
+            "dns_ns": ["NS2.GOOGLE.COM.", "ns1.google.com."],
+        }
+
+        with patch.object(Nip66DnsMetadata, "_dns", return_value=dns_result):
+            result = await Nip66DnsMetadata.probe(relay, 5.0)
+
+        assert result.data.dns_cname == "dns.google"
+        assert result.data.dns_reverse == "ptr.example.com"
+        assert result.data.dns_ns == ["ns1.google.com", "ns2.google.com"]
+        assert result.logs.success is True
+
     async def test_tor_returns_failure(self, tor_relay: Relay) -> None:
         """Returns failure for Tor relay (DNS not applicable)."""
-        result = await Nip66DnsMetadata.execute(tor_relay, 5.0)
+        result = await Nip66DnsMetadata.probe(tor_relay, 5.0)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
+        assert "Tor" in result.logs.reason
 
     async def test_i2p_returns_failure(self, i2p_relay: Relay) -> None:
         """Returns failure for I2P relay (DNS not applicable)."""
-        result = await Nip66DnsMetadata.execute(i2p_relay, 5.0)
+        result = await Nip66DnsMetadata.probe(i2p_relay, 5.0)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
+        assert "I2P" in result.logs.reason
 
     async def test_loki_returns_failure(self, loki_relay: Relay) -> None:
         """Returns failure for Lokinet relay (DNS not applicable)."""
-        result = await Nip66DnsMetadata.execute(loki_relay, 5.0)
+        result = await Nip66DnsMetadata.probe(loki_relay, 5.0)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
+        assert "Lokinet" in result.logs.reason
 
     async def test_no_records_returns_failure(self, relay: Relay) -> None:
         """No DNS records returns failure logs."""
         with patch.object(Nip66DnsMetadata, "_dns", return_value={}):
-            result = await Nip66DnsMetadata.execute(relay, 5.0)
+            result = await Nip66DnsMetadata.probe(relay, 5.0)
 
         assert isinstance(result, Nip66DnsMetadata)
         assert result.logs.success is False
@@ -269,7 +517,7 @@ class TestNip66DnsMetadataDnsAsync:
     async def test_exception_returns_failure(self, relay: Relay) -> None:
         """Exception during DNS resolution returns failure logs."""
         with patch.object(Nip66DnsMetadata, "_dns", side_effect=OSError("DNS error")):
-            result = await Nip66DnsMetadata.execute(relay, 5.0)
+            result = await Nip66DnsMetadata.probe(relay, 5.0)
 
         assert isinstance(result, Nip66DnsMetadata)
         assert result.logs.success is False
@@ -280,18 +528,29 @@ class TestNip66DnsMetadataDnsAsync:
         dns_result = {"dns_ips": ["8.8.8.8"]}
 
         with patch.object(Nip66DnsMetadata, "_dns", return_value=dns_result) as mock_dns:
-            await Nip66DnsMetadata.execute(relay, None)
+            await Nip66DnsMetadata.probe(relay, None)
 
         mock_dns.assert_called_once()
         call_args = mock_dns.call_args
         assert call_args[0][1] > 0  # Second positional arg is timeout
+
+    @pytest.mark.parametrize("value", [True, 0, -1, float("nan")])
+    async def test_rejects_invalid_timeout_before_dns(self, relay: Relay, value: object) -> None:
+        """Invalid timeout budgets fail before the DNS resolver is entered."""
+        with (
+            patch.object(Nip66DnsMetadata, "_dns") as mock_dns,
+            pytest.raises(ValueError, match="timeout must be a positive finite number"),
+        ):
+            await Nip66DnsMetadata.probe(relay, value)
+
+        mock_dns.assert_not_called()
 
     async def test_uses_relay_host(self, relay: Relay) -> None:
         """Uses relay's host for DNS resolution."""
         dns_result = {"dns_ips": ["8.8.8.8"]}
 
         with patch.object(Nip66DnsMetadata, "_dns", return_value=dns_result) as mock_dns:
-            await Nip66DnsMetadata.execute(relay, 5.0)
+            await Nip66DnsMetadata.probe(relay, 5.0)
 
         mock_dns.assert_called_once()
         call_args = mock_dns.call_args
@@ -307,13 +566,28 @@ class TestNip66DnsMetadataDnsAsync:
         }
 
         with patch.object(Nip66DnsMetadata, "_dns", return_value=dns_result):
-            result = await Nip66DnsMetadata.execute(relay, 5.0)
+            result = await Nip66DnsMetadata.probe(relay, 5.0)
 
         assert result.logs.success is True
         assert result.logs.reason is None
-        assert result.data.dns_ips == ["8.8.8.8", "8.8.4.4"]
+        assert result.data.dns_ips == ["8.8.4.4", "8.8.8.8"]
         assert result.data.dns_ips_v6 == ["2001:4860:4860::8888"]
         assert result.data.dns_cname == "dns.google"
+
+    async def test_probe_normalizes_set_like_dns_fields(self, relay: Relay) -> None:
+        """Probe output normalizes set-like DNS lists before building the model."""
+        dns_result = {
+            "dns_ips": ["8.8.8.8", "8.8.4.4", "8.8.8.8"],
+            "dns_ips_v6": ["2001:4860:4860::8888", "2001:4860:4860::8844"],
+            "dns_ns": ["ns2.google.com", "ns1.google.com", "ns2.google.com"],
+        }
+
+        with patch.object(Nip66DnsMetadata, "_dns", return_value=dns_result):
+            result = await Nip66DnsMetadata.probe(relay, 5.0)
+
+        assert result.data.dns_ips == ["8.8.4.4", "8.8.8.8"]
+        assert result.data.dns_ips_v6 == ["2001:4860:4860::8844", "2001:4860:4860::8888"]
+        assert result.data.dns_ns == ["ns1.google.com", "ns2.google.com"]
 
     async def test_outer_timeout(self, relay: Relay) -> None:
         """Outer timeout fires when thread hangs indefinitely."""
@@ -323,7 +597,19 @@ class TestNip66DnsMetadataDnsAsync:
             return {}
 
         with patch("bigbrotr.nips.nip66.dns.asyncio.to_thread", side_effect=_hang):
-            result = await Nip66DnsMetadata.execute(relay, 0.1)
+            result = await Nip66DnsMetadata.probe(relay, 0.1)
 
         assert result.logs.success is False
         assert result.logs.reason == "TimeoutError"
+
+    async def test_internal_dns_timeout_reports_timeout_reason(self, relay: Relay) -> None:
+        """Internal DNS deadline exhaustion is reported as a timeout, not empty data."""
+        with patch.object(
+            Nip66DnsMetadata,
+            "_dns",
+            side_effect=TimeoutError("dns timeout during record collection"),
+        ):
+            result = await Nip66DnsMetadata.probe(relay, 5.0)
+
+        assert result.logs.success is False
+        assert result.logs.reason == "dns timeout during record collection"

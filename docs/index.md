@@ -1,8 +1,19 @@
 # BigBrotr
 
-**Modular Nostr network observatory.**
+**Storage-first Nostr relay observatory.**
 
-BigBrotr discovers relays across clearnet, Tor, I2P, and Lokinet, validates their connectivity, runs NIP-11 and NIP-66 health checks, archives events, materializes analytics views, and exposes everything through a REST API and a NIP-90 Data Vending Machine. Eight independent async services share a PostgreSQL 18 backend, each deployable and scalable on its own. Built on Python 3.11+ with strict typing and asyncio.
+BigBrotr discovers relays across clearnet, Tor, I2P, and Lokinet, validates
+their connectivity, collects relay documents and archived events, refreshes
+shared derived facts, computes public NIP-85 scores, publishes the NIP-85
+provider package, and exposes public data through HTTP and NIP-90.
+
+The project is organized as:
+
+- a shared PostgreSQL archive and facts database;
+- ten independent async services;
+- a protocol-agnostic read core;
+- deployment profiles that define storage and exposure shape;
+- a Python package surface that is usable beyond the built-in services.
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 [![PostgreSQL 18](https://img.shields.io/badge/PostgreSQL-18-blue.svg)](https://www.postgresql.org/)
@@ -11,9 +22,24 @@ BigBrotr discovers relays across clearnet, Tor, I2P, and Lokinet, validates thei
 
 ---
 
-## How It Works
+## What BigBrotr Is
 
-Eight independent async services share a PostgreSQL database, each with a distinct role in the discovery-monitoring-archiving pipeline:
+BigBrotr is not just a relay monitor and not just an archive.
+
+It is a storage-first observability system for the Nostr relay ecosystem:
+
+- **Discovery** finds and promotes candidate relays.
+- **Monitoring** captures NIP-11 and NIP-66 document history.
+- **Archiving** stores event observations and event payloads.
+- **Refresh** maintains current tables, analytics facts, and operational facts.
+- **Ranking and assertion** produce the public NIP-85 outputs.
+- **Public read adapters** expose the resulting data without exposing the raw
+  schema as the product surface.
+
+## Runtime Shape
+
+Ten independent async services share a PostgreSQL database, each with a
+distinct role in the archive, facts, score, and publication pipeline:
 
 --8<-- "docs/_snippets/pipeline.md"
 
@@ -39,7 +65,9 @@ Eight independent async services share a PostgreSQL database, each with a distin
 
     ---
 
-    25 stored functions, 11 materialized views, content-addressed metadata with SHA-256 deduplication.
+    Shared archive tables, narrow current winner tables, analytics and
+    operational facts, public score tables, and content-addressed document
+    storage.
 
 -   :material-lightning-bolt:{ .lg .middle } **Fully Async**
 
@@ -71,7 +99,7 @@ The codebase follows a strict Diamond DAG — imports flow strictly downward:
 |-------|---------------|-----|
 | **models** | Pure frozen dataclasses, enums, type definitions | None |
 | **core** | Pool, Brotr, BaseService, Logger, Metrics | Database |
-| **nips** | NIP-11 info fetch, NIP-66 health checks | HTTP, DNS, SSL, WebSocket, GeoIP |
+| **nips** | NIP-11 info fetch, NIP-66 health checks, static NIP capability registry, NIP-85 builders/data | HTTP, DNS, SSL, WebSocket, GeoIP |
 | **utils** | DNS resolution, key management, WebSocket transport | Network |
 | **services** | Business logic: discovery, validation, monitoring, archiving | All |
 
@@ -92,9 +120,11 @@ For a complete walkthrough, see the [Getting Started](getting-started/index.md) 
 
 | Section | Description |
 |---------|-------------|
+| [Project](project/index.md) | Repository orientation, map, data flow, glossary, and deep current-state references |
 | [Getting Started](getting-started/index.md) | Installation, quick start tutorial, and first deployment |
-| [User Guide](user-guide/index.md) | Architecture, services, configuration, database, and monitoring |
-| [How-to Guides](how-to/index.md) | Docker deployment, Tor support, backups, and troubleshooting |
+| [User Guide](user-guide/index.md) | Architecture, service ownership, shared database, NIP-85 pipeline, read side, deployments, configuration, and monitoring |
+| [How-to Guides](how-to/index.md) | Deployment, operator workflows, customization, backups, and troubleshooting |
 | [Development](development/index.md) | Dev setup, testing, coding standards, and contributing |
-| [API Reference](reference/index.md) | Auto-generated Python API documentation |
+| [Python API Reference](reference/index.md) | Auto-generated Python package API documentation |
+| [Appendices](appendices/decision-record.md) | Decision record, evidence map, and Nostr protocol analysis |
 | [Changelog](changelog.md) | Version history and release notes |

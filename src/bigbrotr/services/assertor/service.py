@@ -1,0 +1,450 @@
+"""Assertor service for BigBrotr.
+
+Reads NIP-85 facts and public score outputs and publishes the full provider
+package for one algorithm-scoped service key:
+
+- trusted assertions (kinds 30382-30385);
+- optional Kind 0 provider profile;
+- optional Kind 10040 trusted-provider list.
+
+Change detection uses canonical ``<algorithm_id>:<kind>:<subject_id>``
+checkpoint keys, and stale checkpoints are removed when subjects are no longer
+eligible.
+"""
+
+from __future__ import annotations
+
+import time
+from typing import TYPE_CHECKING, Any, ClassVar
+
+from bigbrotr.core.base_service import BaseService
+from bigbrotr.models.constants import EventKind, ServiceName
+from bigbrotr.models.service_state import ServiceState, ServiceStateType
+from bigbrotr.nips.nip85 import (
+    AddressableAssertion,
+    EventAssertion,
+    IdentifierAssertion,
+    UserAssertion,
+    build_addressable_assertion,
+    build_event_assertion,
+    build_identifier_assertion,
+    build_provider_profile,
+    build_trusted_provider_list,
+    build_user_assertion,
+)
+from bigbrotr.services.common.state_store import ServiceStateStore
+from bigbrotr.utils.protocol import (
+    NostrClientManager,
+)
+from bigbrotr.utils.protocol import (
+    broadcast_events_detailed as broadcast_events,
+)
+from bigbrotr.utils.transport import DEFAULT_TIMEOUT
+
+from .configs import AssertorConfig
+from .publishing import (
+    ProviderProfileRuntime,
+    PublishPlan,
+    PublishRuntime,
+    TrustedProviderListRuntime,
+    publish_assertion_rows,
+    publish_provider_profile,
+    publish_trusted_provider_list,
+)
+from .queries import (
+    fetch_addressable_rows,
+    fetch_event_rows,
+    fetch_identifier_rows,
+    fetch_user_rows,
+)
+from .runtime import (
+    PublishCycleResult,
+    PublishKindResult,
+    emit_publish_metrics,
+    publish_timed,
+    run_checkpoint_cleanup,
+    run_selected_publishers,
+)
+from .utils import (
+    build_state_key,
+    content_hash,
+    parse_state_key,
+    provider_profile_content,
+    trusted_provider_declarations,
+)
+
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+    from types import TracebackType
+
+    from nostr_sdk import Client, Keys
+
+    from bigbrotr.core.brotr import Brotr
+
+
+__all__ = ["Assertor", "PublishCycleResult", "PublishKindResult"]
+
+
+class Assertor(BaseService[AssertorConfig]):
+    """NIP-85 provider-package publisher."""
+
+    SERVICE_NAME: ClassVar[ServiceName] = ServiceName.ASSERTOR
+    CONFIG_CLASS: ClassVar[type[AssertorConfig]] = AssertorConfig
+
+    def __init__(self, brotr: Brotr, config: AssertorConfig | None = None) -> None:
+        super().__init__(brotr=brotr, config=config)
+        self._config: AssertorConfig
+        self._client: Client | None = None
+        self._keys: Keys = self._config.keys.keys
+        self._client_manager = NostrClientManager(
+            keys=self._keys,
+            allow_insecure=self._config.publishing.allow_insecure,
+        )
+        self._state_store = ServiceStateStore(self._brotr)
+        self._cycle_seen_state_keys: set[str] = set()
+
+    async def __aenter__(self) -> Assertor:
+        await super().__aenter__()
+        keys = self._keys
+        manager = self._client_manager
+        session = await manager.connect_session(
+            "assertor-publish-relays",
+            self._config.publishing.relays,
+            timeout=DEFAULT_TIMEOUT,
+        )
+        client = session.client
+        connect_result = session.connect_result
+        self._client = client
+
+        pubkey = keys.public_key().to_hex()
+        self._logger.info(
+            "client_created",
+            pubkey=pubkey,
+            algorithm_id=self._config.algorithm_id,
+        )
+        self._logger.info(
+            "client_connected",
+            relays_connected=len(connect_result.connected),
+            relays_failed=len(connect_result.failed),
+        )
+        for relay_url, error in connect_result.failed.items():
+            self._logger.warning("relay_connect_failed", url=relay_url, error=error)
+        if not connect_result.connected:
+            await manager.disconnect()
+            self._client = None
+            raise TimeoutError("assertor could not connect to any publishing relay")
+
+        return self
+
+    async def __aexit__(
+        self,
+        _exc_type: type[BaseException] | None,
+        _exc_val: BaseException | None,
+        _exc_tb: TracebackType | None,
+    ) -> None:
+        if self._client is not None:
+            await self._client_manager.disconnect()
+            self._client = None
+            self._logger.info("client_disconnected")
+        await super().__aexit__(_exc_type, _exc_val, _exc_tb)
+
+    async def cleanup(self) -> int:
+        """No-op: post-run checkpoint cleanup depends on current eligible subjects."""
+        return 0
+
+    async def run(self) -> None:
+        """Execute one assertion cycle."""
+        await self.publish()
+
+    async def publish(self) -> PublishCycleResult:
+        """Publish one algorithm-aware NIP-85 assertion cycle."""
+        if self._client is None:
+            return PublishCycleResult()
+
+        self._cycle_seen_state_keys = set()
+
+        (
+            user_result,
+            event_result,
+            addressable_result,
+            identifier_result,
+            provider_profile_result,
+            trusted_provider_list_result,
+        ) = await self._run_selected_publishers()
+
+        removed, cleanup_duration = await self._run_checkpoint_cleanup()
+
+        result = PublishCycleResult(
+            user=user_result,
+            event=event_result,
+            addressable=addressable_result,
+            identifier=identifier_result,
+            provider_profile=provider_profile_result,
+            trusted_provider_list=trusted_provider_list_result,
+            checkpoint_cleanup_removed=removed,
+        )
+        self._emit_publish_metrics(result, cleanup_duration=cleanup_duration)
+        self._logger.info(
+            "cycle_completed",
+            algorithm_id=self._config.algorithm_id,
+            published=result.assertions_published,
+            skipped=result.assertions_skipped,
+            failed=result.assertions_failed,
+            provider_profiles_published=result.provider_profiles_published,
+            provider_profiles_skipped=result.provider_profiles_skipped,
+            provider_profiles_failed=result.provider_profiles_failed,
+            trusted_provider_lists_published=result.trusted_provider_lists_published,
+            trusted_provider_lists_skipped=result.trusted_provider_lists_skipped,
+            trusted_provider_lists_failed=result.trusted_provider_lists_failed,
+            checkpoints_removed=result.checkpoint_cleanup_removed,
+        )
+
+        return result
+
+    async def _run_selected_publishers(
+        self,
+    ) -> tuple[
+        PublishKindResult,
+        PublishKindResult,
+        PublishKindResult,
+        PublishKindResult,
+        PublishKindResult,
+        PublishKindResult,
+    ]:
+        """Run the enabled publish branches for this cycle."""
+        return await run_selected_publishers(
+            config=self._config,
+            publish_timed_func=self._publish_timed,
+            publish_user_assertions=self._publish_user_assertions,
+            publish_event_assertions=self._publish_event_assertions,
+            publish_addressable_assertions=self._publish_addressable_assertions,
+            publish_identifier_assertions=self._publish_identifier_assertions,
+            publish_provider_profile=self._publish_provider_profile,
+            publish_trusted_provider_list=self._publish_trusted_provider_list,
+        )
+
+    async def _run_checkpoint_cleanup(self) -> tuple[int, float]:
+        """Remove stale checkpoints when configured and report elapsed time."""
+        return await run_checkpoint_cleanup(
+            cleanup_enabled=self._config.cleanup.remove_stale_checkpoints,
+            delete_stale_checkpoints=self._delete_stale_checkpoints,
+        )
+
+    async def _publish_timed(
+        self,
+        publish_func: Callable[[], Awaitable[tuple[int, int, int]]],
+    ) -> PublishKindResult:
+        """Run one publish branch and return counts plus duration."""
+        return await publish_timed(publish_func)
+
+    def _emit_publish_metrics(
+        self,
+        result: PublishCycleResult,
+        *,
+        cleanup_duration: float,
+    ) -> None:
+        """Emit aggregate and per-kind publish metrics from the cycle result."""
+        emit_publish_metrics(self, result, cleanup_duration=cleanup_duration)
+
+    async def _publish_user_assertions(self) -> tuple[int, int, int]:
+        """Publish kind 30382 user assertions for qualifying pubkeys."""
+
+        async def _fetch(offset: int) -> list[dict[str, Any]]:
+            rows = await fetch_user_rows(
+                self._brotr,
+                self._config.algorithm_id,
+                self._config.selection.min_events,
+                self._config.selection.batch_size,
+                offset,
+            )
+            for row in rows:
+                row["top_topics_limit"] = self._config.selection.top_topics
+            return rows
+
+        return await self._publish_assertion_rows(
+            PublishPlan(
+                kind=EventKind.NIP85_USER_ASSERTION,
+                fetch_rows=_fetch,
+                assertion_from_row=UserAssertion.from_db_row,
+                subject_getter=lambda assertion: assertion.pubkey,
+                builder_from_assertion=build_user_assertion,
+                error_event_name="user_assertion_failed",
+                error_subject_field="pubkey",
+            )
+        )
+
+    async def _publish_event_assertions(self) -> tuple[int, int, int]:
+        """Publish kind 30383 event assertions for events with engagement."""
+        return await self._publish_assertion_rows(
+            PublishPlan(
+                kind=EventKind.NIP85_EVENT_ASSERTION,
+                fetch_rows=lambda offset: fetch_event_rows(
+                    self._brotr,
+                    self._config.algorithm_id,
+                    self._config.selection.batch_size,
+                    offset,
+                ),
+                assertion_from_row=EventAssertion.from_db_row,
+                subject_getter=lambda assertion: assertion.event_id,
+                builder_from_assertion=build_event_assertion,
+                error_event_name="event_assertion_failed",
+                error_subject_field="event_id",
+            ),
+        )
+
+    async def _publish_addressable_assertions(self) -> tuple[int, int, int]:
+        """Publish kind 30384 addressable assertions for ranked addressable subjects."""
+        return await self._publish_assertion_rows(
+            PublishPlan(
+                kind=EventKind.NIP85_ADDRESSABLE_ASSERTION,
+                fetch_rows=lambda offset: fetch_addressable_rows(
+                    self._brotr,
+                    self._config.algorithm_id,
+                    self._config.selection.batch_size,
+                    offset,
+                ),
+                assertion_from_row=AddressableAssertion.from_db_row,
+                subject_getter=lambda assertion: assertion.event_address,
+                builder_from_assertion=build_addressable_assertion,
+                error_event_name="addressable_assertion_failed",
+                error_subject_field="event_address",
+            ),
+        )
+
+    async def _publish_identifier_assertions(self) -> tuple[int, int, int]:
+        """Publish kind 30385 identifier assertions for ranked NIP-73 subjects."""
+        return await self._publish_assertion_rows(
+            PublishPlan(
+                kind=EventKind.NIP85_IDENTIFIER_ASSERTION,
+                fetch_rows=lambda offset: fetch_identifier_rows(
+                    self._brotr,
+                    self._config.algorithm_id,
+                    self._config.selection.batch_size,
+                    offset,
+                ),
+                assertion_from_row=IdentifierAssertion.from_db_row,
+                subject_getter=lambda assertion: assertion.identifier,
+                builder_from_assertion=build_identifier_assertion,
+                error_event_name="identifier_assertion_failed",
+                error_subject_field="identifier",
+            ),
+        )
+
+    async def _publish_assertion_rows(
+        self,
+        plan: PublishPlan[Any],
+    ) -> tuple[int, int, int]:
+        """Publish one assertion subject type using the shared change-detection flow."""
+        if self._client is None:
+            return 0, 0, 0
+
+        return await publish_assertion_rows(
+            plan,
+            PublishRuntime(
+                algorithm_id=self._config.algorithm_id,
+                batch_size=self._config.selection.batch_size,
+                client=self._client,
+                logger=self._logger,
+                mark_seen_state_key=self._mark_seen_state_key,
+                is_unchanged=self._is_unchanged,
+                save_hash=self._save_hash,
+                publish_events=broadcast_events,
+                build_state_key=build_state_key,
+            ),
+        )
+
+    async def _publish_provider_profile(self) -> tuple[int, int, int]:
+        """Publish the optional Kind 0 provider profile when its content changes."""
+        if self._client is None:
+            return 0, 0, 0
+
+        return await publish_provider_profile(
+            ProviderProfileRuntime(
+                config=self._config,
+                client=self._client,
+                logger=self._logger,
+                mark_seen_state_key=self._mark_seen_state_key,
+                is_unchanged=self._is_unchanged,
+                save_hash=self._save_hash,
+                publish_events=broadcast_events,
+                build_state_key=build_state_key,
+                build_provider_profile=build_provider_profile,
+                provider_profile_content=provider_profile_content,
+                content_hash=content_hash,
+            )
+        )
+
+    async def _publish_trusted_provider_list(self) -> tuple[int, int, int]:
+        """Publish the optional Kind 10040 trusted-provider list when it changes."""
+        if self._client is None:
+            return 0, 0, 0
+
+        return await publish_trusted_provider_list(
+            TrustedProviderListRuntime(
+                config=self._config,
+                client=self._client,
+                logger=self._logger,
+                service_pubkey=self._keys.public_key().to_hex(),
+                mark_seen_state_key=self._mark_seen_state_key,
+                is_unchanged=self._is_unchanged,
+                save_hash=self._save_hash,
+                publish_events=broadcast_events,
+                build_state_key=build_state_key,
+                build_trusted_provider_list=build_trusted_provider_list,
+                trusted_provider_declarations=trusted_provider_declarations,
+                content_hash=content_hash,
+            )
+        )
+
+    def _mark_seen_state_key(self, state_key: str) -> None:
+        """Track checkpoints that were still eligible in the current cycle."""
+        self._cycle_seen_state_keys.add(state_key)
+
+    async def _delete_stale_checkpoints(self) -> int:
+        """Delete non-canonical or current-algorithm checkpoints that are no longer eligible."""
+        store = self._state_store
+        states = await store.get(ServiceName.ASSERTOR, ServiceStateType.CHECKPOINT)
+        configured_kinds = {int(kind) for kind in self._config.selection.kinds}
+        if self._config.provider_profile.enabled:
+            configured_kinds.add(int(EventKind.SET_METADATA))
+        if self._config.trusted_provider_list.enabled:
+            configured_kinds.add(int(EventKind.NIP85_TRUSTED_PROVIDER_LIST))
+
+        stale: list[ServiceState] = []
+        for state in states:
+            parsed = parse_state_key(state.state_key)
+            if parsed is None:
+                stale.append(state)
+                continue
+
+            algorithm_id, kind, _subject_id = parsed
+            if algorithm_id != self._config.algorithm_id:
+                continue
+            if kind not in configured_kinds or state.state_key not in self._cycle_seen_state_keys:
+                stale.append(state)
+
+        if not stale:
+            return 0
+
+        deleted = await store.delete_states(stale)
+        self._logger.info(
+            "stale_checkpoint_cleanup_completed",
+            removed=deleted,
+            algorithm_id=self._config.algorithm_id,
+        )
+        return deleted
+
+    async def _is_unchanged(self, subject: str, current_hash: str) -> bool:
+        """Check if the assertion/profile for this subject has the same hash as last published."""
+        saved_hash = await self._state_store.fetch_hash(ServiceName.ASSERTOR, subject)
+        return saved_hash == current_hash
+
+    async def _save_hash(self, subject: str, hash_value: str) -> None:
+        """Persist the published object hash for change detection."""
+        await self._state_store.upsert_hash(
+            ServiceName.ASSERTOR,
+            subject,
+            hash_value,
+            timestamp=int(time.time()),
+        )

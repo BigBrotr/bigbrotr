@@ -33,6 +33,8 @@ See Also:
 
 from __future__ import annotations
 
+from typing import Any
+
 from aiohttp import web
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
@@ -42,7 +44,7 @@ from prometheus_client import (
     Info,
     generate_latest,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 
 class MetricsConfig(BaseModel):
@@ -59,6 +61,17 @@ class MetricsConfig(BaseModel):
             Parent configuration that embeds this model.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="before")
+    @classmethod
+    def require_string_field_keys(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            invalid_key = next((key for key in data if not isinstance(key, str)), None)
+            if invalid_key is not None:
+                raise ValueError(f"config: expected string keys, got {type(invalid_key).__name__}")
+        return data
+
     enabled: bool = Field(default=False, description="Enable metrics collection")
     port: int = Field(default=8000, ge=1024, le=65535, description="Metrics HTTP port")
     host: str = Field(
@@ -68,6 +81,46 @@ class MetricsConfig(BaseModel):
         "(relies on Docker network isolation for access control)",
     )
     path: str = Field(default="/metrics", min_length=1, description="Metrics endpoint path")
+
+    @field_validator("enabled", mode="before")
+    @classmethod
+    def require_boolean_enabled(cls, value: Any, info: ValidationInfo) -> bool:
+        """Require canonical booleans for the shared metrics toggle."""
+        if not isinstance(value, bool):
+            raise ValueError(f"{info.field_name}: expected bool, got {type(value).__name__}")
+        return value
+
+    @field_validator("port", mode="before")
+    @classmethod
+    def require_integer_port(cls, value: Any, info: ValidationInfo) -> int:
+        """Require canonical integers for the shared metrics port."""
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(f"{info.field_name}: expected integer, got {type(value).__name__}")
+        return int(value)
+
+    @field_validator("host", mode="before")
+    @classmethod
+    def normalize_host(cls, value: Any, info: ValidationInfo) -> str:
+        """Normalize the shared metrics bind host and reject blank values."""
+        if not isinstance(value, str):
+            raise ValueError(f"{info.field_name}: expected string, got {type(value).__name__}")
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError(f"{info.field_name} must not be blank")
+        return normalized
+
+    @field_validator("path", mode="before")
+    @classmethod
+    def normalize_path(cls, value: Any, info: ValidationInfo) -> str:
+        """Normalize the shared metrics path and reject blank values."""
+        if not isinstance(value, str):
+            raise ValueError(f"{info.field_name}: expected string, got {type(value).__name__}")
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError(f"{info.field_name} must not be blank")
+        if not normalized.startswith("/"):
+            normalized = f"/{normalized}"
+        return normalized
 
 
 # Static service metadata (set once at startup)

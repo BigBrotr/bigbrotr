@@ -1,21 +1,25 @@
 """
-Unit tests for models.nips.nip66.rtt module.
+Unit tests for the ``bigbrotr.nips.nip66.rtt`` module.
 
 Tests:
-- Nip66RttMetadata._validate_network() - network/proxy validation
 - Nip66RttMetadata._test_open() - connection phase
 - Nip66RttMetadata._test_read() - read phase
 - Nip66RttMetadata._test_write() - write phase
 - Nip66RttMetadata._verify_write() - write verification
 - Nip66RttMetadata._cleanup() - client disconnection
-- Nip66RttMetadata.execute() - full RTT test
+- Nip66RttMetadata.probe() - full RTT test
+- Nip66RttDependencies - grouped signing/read dependencies for the probe
 """
 
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+from nostr_sdk import NostrSdkError
 
 from bigbrotr.models import Relay
 from bigbrotr.nips.nip66.rtt import Nip66RttDependencies, Nip66RttMetadata
@@ -207,6 +211,43 @@ class TestNip66RttMetadataTestWrite:
         assert isinstance(result["rtt_write"], int)
         assert result["write_reason"] is None
 
+    async def test_write_verification_uses_remaining_timeout_budget(
+        self,
+        mock_nostr_client: MagicMock,
+        mock_event_builder: MagicMock,
+    ) -> None:
+        """Verification receives only the timeout budget left after publish."""
+        from nostr_sdk import RelayUrl
+
+        relay_url = RelayUrl.parse("wss://relay.example.com")
+        mock_output = MagicMock()
+        mock_output.success = [relay_url]
+        mock_output.failed = {}
+        mock_output.id = MagicMock()
+
+        async def slow_send(*args: Any, **kwargs: Any) -> MagicMock:
+            await asyncio.sleep(0.05)
+            return mock_output
+
+        mock_nostr_client.send_event_builder = AsyncMock(side_effect=slow_send)
+
+        with patch.object(
+            Nip66RttMetadata,
+            "_verify_write",
+            new_callable=AsyncMock,
+            return_value={"verified": True, "reason": None},
+        ) as mock_verify:
+            result = await Nip66RttMetadata._test_write(
+                mock_nostr_client,
+                mock_event_builder,
+                relay_url,
+                0.1,
+                "wss://relay.example.com",
+            )
+
+        assert result["write_success"] is True
+        assert 0 < mock_verify.await_args.args[2] < 0.1
+
     async def test_write_rejected_by_relay(
         self,
         mock_nostr_client: MagicMock,
@@ -283,6 +324,28 @@ class TestNip66RttMetadataTestWrite:
 
         assert result["write_success"] is False
         assert "Send error" in result["write_reason"]
+
+    async def test_empty_exception_reason_falls_back_to_exception_type(
+        self,
+        mock_nostr_client: MagicMock,
+        mock_event_builder: MagicMock,
+    ) -> None:
+        """Empty transport errors still produce a non-empty write reason."""
+        from nostr_sdk import RelayUrl
+
+        relay_url = RelayUrl.parse("wss://relay.example.com")
+        mock_nostr_client.send_event_builder = AsyncMock(side_effect=OSError(""))
+
+        result = await Nip66RttMetadata._test_write(
+            mock_nostr_client,
+            mock_event_builder,
+            relay_url,
+            10.0,
+            "wss://relay.example.com",
+        )
+
+        assert result["write_success"] is False
+        assert result["write_reason"] == "OSError"
 
     async def test_verification_fails(
         self,
@@ -370,6 +433,23 @@ class TestNip66RttMetadataVerifyWrite:
         assert result["verified"] is False
         assert "Verification error" in result["reason"]
 
+    async def test_empty_exception_reason_falls_back_to_exception_type(
+        self,
+        mock_nostr_client: MagicMock,
+    ) -> None:
+        """Verification failures with empty messages stay model-valid."""
+        from nostr_sdk import EventId
+
+        event_id = EventId.parse("a" * 64)
+        mock_nostr_client.stream_events = AsyncMock(side_effect=OSError(""))
+
+        result = await Nip66RttMetadata._verify_write(
+            mock_nostr_client, event_id, 10.0, "wss://relay.example.com"
+        )
+
+        assert result["verified"] is False
+        assert result["reason"] == "OSError"
+
 
 class TestNip66RttMetadataCleanup:
     """Test Nip66RttMetadata._cleanup() method."""
@@ -379,18 +459,27 @@ class TestNip66RttMetadataCleanup:
         await Nip66RttMetadata._cleanup(mock_nostr_client)
         mock_nostr_client.shutdown.assert_called_once()
 
-    async def test_shutdown_exception_suppressed(self, mock_nostr_client: MagicMock) -> None:
-        """Exceptions during shutdown are suppressed."""
-        mock_nostr_client.shutdown = AsyncMock(side_effect=Exception("Shutdown error"))
+    async def test_expected_shutdown_errors_are_suppressed(
+        self, mock_nostr_client: MagicMock
+    ) -> None:
+        """Expected transport or SDK shutdown failures stay best-effort."""
+        mock_nostr_client.shutdown = AsyncMock(side_effect=NostrSdkError("Shutdown error"))
 
         # Should not raise
         await Nip66RttMetadata._cleanup(mock_nostr_client)
 
+    async def test_unexpected_shutdown_errors_propagate(self, mock_nostr_client: MagicMock) -> None:
+        """Unexpected teardown bugs are surfaced after cleanup is attempted."""
+        mock_nostr_client.shutdown = AsyncMock(side_effect=ValueError("Shutdown bug"))
+
+        with pytest.raises(ValueError, match="Shutdown bug"):
+            await Nip66RttMetadata._cleanup(mock_nostr_client)
+
 
 class TestNip66RttMetadataRtt:
-    """Test Nip66RttMetadata.execute() main entry point."""
+    """Test Nip66RttMetadata.probe() main entry point."""
 
-    async def test_clearnet_returns_rtt_metadata(
+    async def test_clearnet_returns_rtt_result_container(
         self,
         relay: Relay,
         mock_keys: MagicMock,
@@ -398,7 +487,7 @@ class TestNip66RttMetadataRtt:
         mock_read_filter: MagicMock,
         mock_nostr_client: MagicMock,
     ) -> None:
-        """Returns Nip66RttMetadata for clearnet relay."""
+        """Returns the RTT result container for a clearnet relay."""
         deps = Nip66RttDependencies(
             keys=mock_keys, event_builder=mock_event_builder, read_filter=mock_read_filter
         )
@@ -407,7 +496,7 @@ class TestNip66RttMetadataRtt:
             return mock_nostr_client
 
         with patch("bigbrotr.utils.protocol.connect_relay", side_effect=mock_connect):
-            result = await Nip66RttMetadata.execute(relay, deps, timeout=10.0)
+            result = await Nip66RttMetadata.probe(relay, deps, timeout=10.0)
 
         assert isinstance(result, Nip66RttMetadata)
         assert result.data.rtt_open is not None
@@ -429,7 +518,7 @@ class TestNip66RttMetadataRtt:
             raise TimeoutError("Connection refused")
 
         with patch("bigbrotr.utils.protocol.connect_relay", side_effect=mock_connect):
-            result = await Nip66RttMetadata.execute(relay, deps, timeout=10.0)
+            result = await Nip66RttMetadata.probe(relay, deps, timeout=10.0)
 
         assert isinstance(result, Nip66RttMetadata)
         assert result.logs.open_success is False
@@ -447,9 +536,9 @@ class TestNip66RttMetadataRtt:
         deps = Nip66RttDependencies(
             keys=mock_keys, event_builder=mock_event_builder, read_filter=mock_read_filter
         )
-        result = await Nip66RttMetadata.execute(tor_relay, deps, timeout=10.0, proxy_url=None)
+        result = await Nip66RttMetadata.probe(tor_relay, deps, timeout=10.0, proxy_url=None)
         assert result.logs.open_success is False
-        assert "overlay network tor requires proxy" in result.logs.open_reason
+        assert "overlay network Tor requires proxy" in result.logs.open_reason
         assert result.logs.read_success is False
         assert result.logs.write_success is False
 
@@ -470,7 +559,7 @@ class TestNip66RttMetadataRtt:
             return mock_nostr_client
 
         with patch("bigbrotr.utils.protocol.connect_relay", side_effect=mock_connect):
-            result = await Nip66RttMetadata.execute(
+            result = await Nip66RttMetadata.probe(
                 tor_relay, deps, timeout=10.0, proxy_url="socks5://localhost:9050"
             )
 
@@ -493,9 +582,75 @@ class TestNip66RttMetadataRtt:
             return mock_nostr_client
 
         with patch("bigbrotr.utils.protocol.connect_relay", side_effect=mock_connect):
-            result = await Nip66RttMetadata.execute(relay, deps, timeout=None)
+            result = await Nip66RttMetadata.probe(relay, deps, timeout=None)
 
         assert isinstance(result, Nip66RttMetadata)
+
+    @pytest.mark.parametrize("value", [True, 0, -1, float("nan")])
+    async def test_rejects_invalid_timeout_before_open_phase(
+        self,
+        relay: Relay,
+        mock_keys: MagicMock,
+        mock_event_builder: MagicMock,
+        mock_read_filter: MagicMock,
+        value: object,
+    ) -> None:
+        """Invalid timeout budgets fail before the open phase starts."""
+        deps = Nip66RttDependencies(
+            keys=mock_keys, event_builder=mock_event_builder, read_filter=mock_read_filter
+        )
+
+        with (
+            patch.object(Nip66RttMetadata, "_test_open", new_callable=AsyncMock) as mock_open,
+            pytest.raises(ValueError, match="timeout must be a positive finite number"),
+        ):
+            await Nip66RttMetadata.probe(relay, deps, timeout=value)
+
+        mock_open.assert_not_awaited()
+
+    async def test_rejects_non_bool_allow_insecure_before_open_phase(
+        self,
+        relay: Relay,
+        mock_keys: MagicMock,
+        mock_event_builder: MagicMock,
+        mock_read_filter: MagicMock,
+    ) -> None:
+        """Non-bool insecure aliases fail before the open phase starts."""
+        deps = Nip66RttDependencies(
+            keys=mock_keys, event_builder=mock_event_builder, read_filter=mock_read_filter
+        )
+
+        with (
+            patch.object(Nip66RttMetadata, "_test_open", new_callable=AsyncMock) as mock_open,
+            pytest.raises(ValueError, match="allow_insecure must be a bool"),
+        ):
+            await Nip66RttMetadata.probe(relay, deps, timeout=10.0, allow_insecure=1)  # type: ignore[arg-type]
+
+        mock_open.assert_not_awaited()
+
+    @pytest.mark.parametrize("value", [True, "", "   ", "garbage", "socks5://:9050"])
+    async def test_rejects_invalid_proxy_url_before_open_phase(
+        self,
+        relay: Relay,
+        mock_keys: MagicMock,
+        mock_event_builder: MagicMock,
+        mock_read_filter: MagicMock,
+        value: object,
+    ) -> None:
+        """Malformed proxy URLs fail before the open phase starts."""
+        deps = Nip66RttDependencies(
+            keys=mock_keys, event_builder=mock_event_builder, read_filter=mock_read_filter
+        )
+
+        with (
+            patch.object(Nip66RttMetadata, "_test_open", new_callable=AsyncMock) as mock_open,
+            pytest.raises(
+                ValueError, match="proxy_url must be a valid proxy URL with scheme and hostname"
+            ),
+        ):
+            await Nip66RttMetadata.probe(relay, deps, timeout=10.0, proxy_url=value)  # type: ignore[arg-type]
+
+        mock_open.assert_not_awaited()
 
     async def test_cleanup_called_after_phases(
         self,
@@ -517,7 +672,7 @@ class TestNip66RttMetadataRtt:
             patch("bigbrotr.utils.protocol.connect_relay", side_effect=mock_connect),
             patch.object(Nip66RttMetadata, "_cleanup", new_callable=AsyncMock) as mock_cleanup,
         ):
-            await Nip66RttMetadata.execute(relay, deps, timeout=10.0)
+            await Nip66RttMetadata.probe(relay, deps, timeout=10.0)
 
         mock_cleanup.assert_called_once_with(mock_nostr_client)
 

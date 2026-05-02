@@ -6,10 +6,9 @@ Tests:
 - Brotr initialization with defaults and custom config
 - Factory methods (from_yaml, from_dict)
 - Helper methods (_validate_batch_size, _transpose_to_columns, _call_procedure)
-- Insert operations (insert_event, insert_event_relay, insert_relay, insert_metadata, insert_relay_metadata)
+- Insert operations (insert_event, insert_event_observation, insert_relay, insert_document, insert_relay_document)
 - Service state operations (upsert_service_state, get_service_state, delete_service_state)
-- Cleanup operations (delete_orphan_event, delete_orphan_metadata)
-- Materialized view refresh operations (refresh_materialized_view)
+- Refresh procedure operations (run_refresh_procedure / refresh_materialized_view alias)
 - Explicit lifecycle methods (connect, close)
 - Context manager support
 """
@@ -20,12 +19,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pydantic import ValidationError
 
-from bigbrotr.core.brotr import (
-    BatchConfig,
-    Brotr,
-    BrotrConfig,
-    TimeoutsConfig,
-)
+from bigbrotr.core.brotr import Brotr
+from bigbrotr.core.brotr_config import BatchConfig, BrotrConfig, TimeoutsConfig
 from bigbrotr.core.pool import Pool
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
@@ -64,6 +59,27 @@ class TestBatchConfig:
 
         with pytest.raises(ValidationError):
             BatchConfig(max_size=100001)
+
+    def test_rejects_boolean_alias(self) -> None:
+        """Test bool aliases do not coerce into a one-item batch size."""
+        with pytest.raises(ValidationError, match="max_size: expected integer, got bool"):
+            BatchConfig(max_size=True)
+
+    @pytest.mark.parametrize("value", ["1000", 1000.0])
+    def test_rejects_non_integer_aliases(self, value: object) -> None:
+        """Test non-integer aliases do not coerce into a valid batch size."""
+        with pytest.raises(ValidationError, match=r"max_size: expected integer, got"):
+            BatchConfig(max_size=value)
+
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        """Test raw field keys must already be canonical strings."""
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            BatchConfig.model_validate({b"max_size": 1000})
+
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        """Test stale batch field names are rejected explicitly."""
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            BatchConfig.model_validate({"batch_size": 1000})
 
 
 class TestTimeoutsConfig:
@@ -131,9 +147,39 @@ class TestTimeoutsConfig:
             TimeoutsConfig(cleanup=3601.0)
 
     def test_refresh_has_no_upper_bound(self) -> None:
-        """Test that refresh timeout has no upper bound (matview refreshes can be long)."""
+        """Test that refresh timeout has no upper bound for long-running procedures."""
         config = TimeoutsConfig(refresh=7200.0)
         assert config.refresh == 7200.0
+
+    @pytest.mark.parametrize("field_name", ["query", "batch", "cleanup", "refresh"])
+    def test_rejects_boolean_aliases(self, field_name: str) -> None:
+        """Test bool aliases do not coerce into one-second Brotr timeouts."""
+        with pytest.raises(ValidationError, match=rf"{field_name}: expected number, got bool"):
+            TimeoutsConfig(**{field_name: True})
+
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("query", "30"),
+            ("batch", "60"),
+            ("cleanup", "45.0"),
+            ("refresh", "300"),
+        ],
+    )
+    def test_rejects_non_numeric_aliases(self, field_name: str, value: object) -> None:
+        """Test non-numeric aliases do not coerce into valid Brotr timeouts."""
+        with pytest.raises(ValidationError, match=rf"{field_name}: expected number, got"):
+            TimeoutsConfig(**{field_name: value})
+
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        """Test raw timeout field keys must already be canonical strings."""
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            TimeoutsConfig.model_validate({b"query": 30.0})
+
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        """Test stale timeout field names are rejected explicitly."""
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            TimeoutsConfig.model_validate({"query_timeout": 30.0})
 
 
 class TestBrotrConfig:
@@ -157,6 +203,56 @@ class TestBrotrConfig:
         assert config.batch.max_size == 5000
         assert config.timeouts.query == 30.0
         assert config.timeouts.batch == 60.0
+
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("query", "30"),
+            ("batch", "60"),
+            ("cleanup", "45.0"),
+            ("refresh", "300"),
+        ],
+    )
+    def test_nested_timeout_aliases_rejected(self, field_name: str, value: object) -> None:
+        """Test nested timeout aliases fail fast through BrotrConfig."""
+        with pytest.raises(ValidationError, match=rf"{field_name}: expected number, got"):
+            BrotrConfig(timeouts={field_name: value})
+
+    @pytest.mark.parametrize("value", ["1000", 1000.0])
+    def test_nested_batch_aliases_rejected(self, value: object) -> None:
+        """Test nested batch size aliases fail fast through BrotrConfig."""
+        with pytest.raises(ValidationError, match=r"max_size: expected integer, got"):
+            BrotrConfig(batch={"max_size": value})
+
+    def test_nested_batch_rejects_non_string_field_keys(self) -> None:
+        """Test nested batch field keys fail fast through BrotrConfig."""
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            BrotrConfig.model_validate({"batch": {b"max_size": 1000}})
+
+    def test_nested_batch_rejects_unknown_field_names(self) -> None:
+        """Test nested batch payloads reject stale field names."""
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            BrotrConfig.model_validate({"batch": {"batch_size": 1000}})
+
+    def test_nested_timeouts_reject_non_string_field_keys(self) -> None:
+        """Test nested timeout field keys fail fast through BrotrConfig."""
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            BrotrConfig.model_validate({"timeouts": {b"query": 30.0}})
+
+    def test_nested_timeouts_reject_unknown_field_names(self) -> None:
+        """Test nested timeout payloads reject stale field names."""
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            BrotrConfig.model_validate({"timeouts": {"query_timeout": 30.0}})
+
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        """Test root field keys fail fast through BrotrConfig."""
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            BrotrConfig.model_validate({b"batch": {"max_size": 5000}})
+
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        """Test stale root field names fail fast through BrotrConfig."""
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            BrotrConfig.model_validate({"batch_config": {"max_size": 5000}})
 
 
 # ============================================================================
@@ -460,93 +556,101 @@ class TestInsertEvent:
         assert inserted == 1
 
 
-class TestInsertEventRelay:
-    """Tests for Brotr.insert_event_relay() method."""
+class TestInsertEventObservation:
+    """Tests for Brotr.insert_event_observation() method."""
 
     async def test_empty_list_returns_zero(self, mock_brotr: Brotr) -> None:
         """Test that empty list returns 0."""
-        inserted = await mock_brotr.insert_event_relay([])
+        inserted = await mock_brotr.insert_event_observation([])
         assert inserted == 0
 
-    async def test_single_event_relay(self, mock_brotr: Brotr, sample_event: Any) -> None:
-        """Test inserting single event-relay junction."""
-        inserted = await mock_brotr.insert_event_relay([sample_event])
+    async def test_single_event_observation(self, mock_brotr: Brotr, sample_event: Any) -> None:
+        """Test inserting single event-observation junction."""
+        inserted = await mock_brotr.insert_event_observation([sample_event])
         assert inserted == 1
 
-    async def test_multiple_event_relays(
+    async def test_multiple_event_observations(
         self, mock_brotr: Brotr, mock_pool: Pool, sample_events_batch: list[Any]
     ) -> None:
-        """Test inserting multiple event-relay junctions."""
+        """Test inserting multiple event-observation junctions."""
         mock_pool._mock_connection.fetchval = AsyncMock(  # type: ignore[attr-defined]
             return_value=len(sample_events_batch)
         )
-        inserted = await mock_brotr.insert_event_relay(sample_events_batch)
+        inserted = await mock_brotr.insert_event_observation(sample_events_batch)
         assert inserted == len(sample_events_batch)
 
     async def test_cascade_true_calls_cascade_procedure(
         self, mock_brotr: Brotr, mock_pool: Pool, sample_event: Any
     ) -> None:
-        """Test that cascade=True calls event_relay_insert_cascade."""
-        await mock_brotr.insert_event_relay([sample_event], cascade=True)
+        """Test that cascade=True calls event_observation_insert_cascade."""
+        await mock_brotr.insert_event_observation([sample_event], cascade=True)
         mock_conn = mock_pool._mock_connection  # type: ignore[attr-defined]
         query = mock_conn.fetchval.call_args[0][0]
-        assert "event_relay_insert_cascade" in query
+        assert "event_observation_insert_cascade" in query
 
     async def test_cascade_false_calls_junction_procedure(
         self, mock_brotr: Brotr, mock_pool: Pool, sample_event: Any
     ) -> None:
-        """Test that cascade=False calls event_relay_insert (junction-only)."""
-        await mock_brotr.insert_event_relay([sample_event], cascade=False)
+        """Test that cascade=False calls event_observation_insert (junction-only)."""
+        await mock_brotr.insert_event_observation([sample_event], cascade=False)
         mock_conn = mock_pool._mock_connection  # type: ignore[attr-defined]
         query = mock_conn.fetchval.call_args[0][0]
-        assert "event_relay_insert(" in query
+        assert "event_observation_insert(" in query
         assert "cascade" not in query
 
 
-class TestInsertMetadata:
-    """Tests for Brotr.insert_metadata() method."""
+class TestInsertDocument:
+    """Tests for Brotr.insert_document() method."""
 
     async def test_empty_list_returns_zero(self, mock_brotr: Brotr) -> None:
         """Test that empty list returns 0."""
-        inserted = await mock_brotr.insert_metadata([])
+        inserted = await mock_brotr.insert_document([])
         assert inserted == 0
 
-    async def test_single_metadata(self, mock_brotr: Brotr, sample_metadata: Any) -> None:
-        """Test inserting single metadata record."""
-        inserted = await mock_brotr.insert_metadata([sample_metadata.metadata])
+    async def test_single_document(
+        self,
+        mock_brotr: Brotr,
+        sample_relay_document: Any,
+    ) -> None:
+        """Test inserting single document record."""
+        inserted = await mock_brotr.insert_document([sample_relay_document.document])
         assert inserted == 1
 
 
-class TestInsertRelayMetadata:
-    """Tests for Brotr.insert_relay_metadata() method."""
+class TestInsertRelayDocument:
+    """Tests for Brotr.insert_relay_document() method."""
 
     async def test_empty_list_returns_zero(self, mock_brotr: Brotr) -> None:
         """Test that empty list returns 0."""
-        inserted = await mock_brotr.insert_relay_metadata([])
+        inserted = await mock_brotr.insert_relay_document([])
         assert inserted == 0
 
-    async def test_single_metadata(self, mock_brotr: Brotr, sample_metadata: Any) -> None:
-        """Test inserting single relay metadata."""
-        inserted = await mock_brotr.insert_relay_metadata([sample_metadata])
+    async def test_single_relay_document(
+        self,
+        mock_brotr: Brotr,
+        sample_relay_document: Any,
+    ) -> None:
+        """Test inserting single relay-document row."""
+        inserted = await mock_brotr.insert_relay_document([sample_relay_document])
         assert inserted == 1
 
     async def test_cascade_true_calls_cascade_procedure(
-        self, mock_brotr: Brotr, mock_pool: Pool, sample_metadata: Any
+        self, mock_brotr: Brotr, mock_pool: Pool, sample_relay_document: Any
     ) -> None:
-        """Test that cascade=True calls relay_metadata_insert_cascade."""
-        await mock_brotr.insert_relay_metadata([sample_metadata], cascade=True)
+        """Test that cascade=True calls relay_document_insert_cascade."""
+        await mock_brotr.insert_relay_document([sample_relay_document], cascade=True)
         mock_conn = mock_pool._mock_connection  # type: ignore[attr-defined]
         query = mock_conn.fetchval.call_args[0][0]
-        assert "relay_metadata_insert_cascade" in query
+        assert "relay_document_insert_cascade" in query
 
     async def test_cascade_false_calls_junction_procedure(
-        self, mock_brotr: Brotr, mock_pool: Pool, sample_metadata: Any
+        self, mock_brotr: Brotr, mock_pool: Pool, sample_relay_document: Any
     ) -> None:
-        """Test that cascade=False calls relay_metadata_insert (junction-only)."""
-        await mock_brotr.insert_relay_metadata([sample_metadata], cascade=False)
+        """Test that cascade=False calls relay_document_insert (junction-only)."""
+        await mock_brotr.insert_relay_document([sample_relay_document], cascade=False)
         mock_conn = mock_pool._mock_connection  # type: ignore[attr-defined]
         query = mock_conn.fetchval.call_args[0][0]
-        assert "relay_metadata_insert(" in query
+        assert "relay_document_insert(" in query
         assert "cascade" not in query
 
 
@@ -567,7 +671,7 @@ class TestUpsertServiceState:
         """Test upserting single record."""
         records = [
             ServiceState(
-                service_name=ServiceName.FINDER,
+                owner=ServiceName.FINDER,
                 state_type=ServiceStateType.CURSOR,
                 state_key="key1",
                 state_value={"count": 1},
@@ -581,19 +685,19 @@ class TestUpsertServiceState:
         mock_pool._mock_connection.fetchval = AsyncMock(return_value=3)
         records = [
             ServiceState(
-                service_name=ServiceName.FINDER,
+                owner=ServiceName.FINDER,
                 state_type=ServiceStateType.CURSOR,
                 state_key="key1",
                 state_value={"count": 1},
             ),
             ServiceState(
-                service_name=ServiceName.FINDER,
+                owner=ServiceName.FINDER,
                 state_type=ServiceStateType.CURSOR,
                 state_key="key2",
                 state_value={"count": 2},
             ),
             ServiceState(
-                service_name=ServiceName.MONITOR,
+                owner=ServiceName.MONITOR,
                 state_type=ServiceStateType.CHECKPOINT,
                 state_key="key3",
                 state_value={"status": "ok"},
@@ -606,7 +710,7 @@ class TestUpsertServiceState:
         """Test that batch exceeding max_size raises ValueError."""
         records = [
             ServiceState(
-                service_name=ServiceName.FINDER,
+                owner=ServiceName.FINDER,
                 state_type=ServiceStateType.CURSOR,
                 state_key=f"key{i}",
                 state_value={"i": i},
@@ -653,6 +757,51 @@ class TestGetServiceState:
         assert isinstance(result[0], ServiceState)
         assert result[0].state_key == "cursor_key"
 
+    async def test_skips_rows_with_non_mapping_state_value(
+        self, mock_brotr: Brotr, mock_pool: Pool
+    ) -> None:
+        """Test malformed persisted payloads are skipped instead of crashing hydration."""
+        bad_row = MagicMock()
+        bad_row.__getitem__ = lambda _, key: {
+            "state_key": "bad_key",
+            "state_value": ["not", "a", "mapping"],
+        }[key]
+        good_row = MagicMock()
+        good_row.__getitem__ = lambda _, key: {
+            "state_key": "good_key",
+            "state_value": {"offset": 100},
+        }[key]
+        mock_pool._mock_connection.fetch = AsyncMock(return_value=[bad_row, good_row])  # type: ignore[attr-defined]
+
+        result = await mock_brotr.get_service_state(ServiceName.FINDER, ServiceStateType.CURSOR)
+
+        assert result == [
+            ServiceState(
+                owner=ServiceName.FINDER,
+                state_type=ServiceStateType.CURSOR,
+                state_key="good_key",
+                state_value={"offset": 100},
+            )
+        ]
+
+    async def test_accepts_custom_string_identifiers(
+        self, mock_brotr: Brotr, mock_pool: Pool
+    ) -> None:
+        """Test that custom service/state identifiers round-trip through Brotr."""
+        mock_row = MagicMock()
+        mock_row.__getitem__ = lambda _, key: {
+            "state_key": "custom_key",
+            "state_value": {"offset": 100},
+        }[key]
+        mock_pool._mock_connection.fetch = AsyncMock(return_value=[mock_row])  # type: ignore[attr-defined]
+
+        result = await mock_brotr.get_service_state("custom_service", "custom_state")
+
+        assert len(result) == 1
+        assert result[0].owner == "custom_service"
+        assert result[0].state_type == "custom_state"
+        assert result[0].state_key == "custom_key"
+
 
 class TestDeleteServiceState:
     """Tests for Brotr.delete_service_state() method."""
@@ -679,6 +828,20 @@ class TestDeleteServiceState:
         )
         assert result == 3
 
+    async def test_accepts_custom_string_identifiers(
+        self, mock_brotr: Brotr, mock_pool: Pool
+    ) -> None:
+        """Test deleting custom service/state identifiers."""
+        mock_pool._mock_connection.fetchval = AsyncMock(return_value=1)  # type: ignore[attr-defined]
+
+        result = await mock_brotr.delete_service_state(
+            ["custom_service"],
+            ["custom_state"],
+            ["key1"],
+        )
+
+        assert result == 1
+
     async def test_mismatched_array_lengths_raises(self, mock_brotr: Brotr) -> None:
         """Test that mismatched parallel array lengths raise ValueError."""
         with pytest.raises(ValueError, match="equal length"):
@@ -687,29 +850,6 @@ class TestDeleteServiceState:
                 [ServiceStateType.CURSOR],
                 ["key1", "key2"],
             )
-
-
-# ============================================================================
-# Cleanup Operations Tests
-# ============================================================================
-
-
-class TestDeleteOrphanEvent:
-    """Tests for Brotr.delete_orphan_event() method."""
-
-    async def test_returns_deleted_count(self, mock_brotr: Brotr) -> None:
-        """Test that method returns count of deleted events."""
-        result = await mock_brotr.delete_orphan_event()
-        assert result == 1  # Mock returns 1 by default
-
-
-class TestDeleteOrphanMetadata:
-    """Tests for Brotr.delete_orphan_metadata() method."""
-
-    async def test_returns_deleted_count(self, mock_brotr: Brotr) -> None:
-        """Test that method returns count of deleted metadata."""
-        result = await mock_brotr.delete_orphan_metadata()
-        assert result == 1  # Mock returns 1 by default
 
 
 # ============================================================================
@@ -779,32 +919,32 @@ class TestBrotrQueryOperations:
 
 
 # ============================================================================
-# Refresh Operations Tests
+# Refresh Procedure Tests
 # ============================================================================
 
 
-class TestRefreshMatview:
-    """Tests for Brotr.refresh_materialized_view() method."""
+class TestRunRefreshProcedure:
+    """Tests for Brotr.run_refresh_procedure()."""
 
-    async def test_valid_view_names(self, mock_brotr: Brotr) -> None:
-        """Test refreshing valid materialized view names."""
+    async def test_valid_target_names(self, mock_brotr: Brotr) -> None:
+        """Test running refresh procedures for valid target names."""
         valid_names = [
-            "relay_metadata_latest",
+            "custom_reporting_view",
             "events_statistics",
             "relays_statistics",
         ]
 
         for name in valid_names:
-            await mock_brotr.refresh_materialized_view(name)
+            await mock_brotr.run_refresh_procedure(name)
 
     async def test_sql_injection_prevented(self, mock_brotr: Brotr) -> None:
         """Test that SQL injection attempts are prevented by procedure name regex."""
         with pytest.raises(ValueError, match="Invalid procedure name"):
-            await mock_brotr.refresh_materialized_view("events_statistics; DROP TABLE events;")
+            await mock_brotr.run_refresh_procedure("events_statistics; DROP TABLE events;")
 
     async def test_uses_refresh_timeout(self, mock_brotr: Brotr, mock_pool: Pool) -> None:
         """Test that refresh uses config.timeouts.refresh (None by default)."""
-        await mock_brotr.refresh_materialized_view("relay_stats")
+        await mock_brotr.run_refresh_procedure("relay_stats")
         mock_conn = mock_pool._mock_connection  # type: ignore[attr-defined]
         call_kwargs = mock_conn.execute.call_args
         assert call_kwargs[1]["timeout"] is None  # refresh default is None

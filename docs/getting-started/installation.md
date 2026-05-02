@@ -29,7 +29,11 @@ Choose the path that matches your use case:
 
     # Configure secrets
     cp .env.example .env
-    # Edit .env: set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_REFRESHER_PASSWORD, DB_READER_PASSWORD, NOSTR_PRIVATE_KEY, GRAFANA_PASSWORD
+    # Edit .env: set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD,
+    # DB_REFRESHER_PASSWORD, DB_READER_PASSWORD, DB_RANKER_PASSWORD,
+    # GRAFANA_PASSWORD, and optionally the per-service
+    # Nostr keys NOSTR_PRIVATE_KEY_MONITOR, NOSTR_PRIVATE_KEY_SYNCHRONIZER,
+    # NOSTR_PRIVATE_KEY_DVM, NOSTR_PRIVATE_KEY_ASSERTOR
 
     # Start the full stack
     docker compose up -d
@@ -49,7 +53,7 @@ Choose the path that matches your use case:
     git clone https://github.com/BigBrotr/bigbrotr.git
     cd bigbrotr
     curl -LsSf https://astral.sh/uv/install.sh | sh  # install uv (one-time)
-    uv sync --group dev
+    uv sync --group dev --group docs
 
     # Start infrastructure only
     docker compose -f deployments/bigbrotr/docker-compose.yaml up -d postgres pgbouncer
@@ -69,30 +73,35 @@ Choose the path that matches your use case:
     sudo apt update && sudo apt install postgresql-18 postgresql-contrib-18
     sudo systemctl start postgresql && sudo systemctl enable postgresql
 
-    # 2. Create database and user
+    # 2. Create database and admin user
     sudo -u postgres psql -c "CREATE USER admin WITH PASSWORD 'your_password';"
     sudo -u postgres psql -c "CREATE DATABASE bigbrotr OWNER admin;"
     sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE bigbrotr TO admin;"
 
-    # 3. Apply schema
+    # 3. Apply the generated SQL package
     cd deployments/bigbrotr
     for f in postgres/init/*.sql; do
         psql -U admin -d bigbrotr -f "$f"
     done
 
-    # 4. (Optional) Install PGBouncer for connection pooling
+    # 4. Create the application roles and grants
+    # See the Manual Deployment guide for the exact writer/reader/refresher/ranker bootstrap contract.
+
+    # 5. (Optional) Install PGBouncer for connection pooling
     sudo apt install pgbouncer
 
-    # 5. Install BigBrotr
+    # 6. Install BigBrotr
     cd ../..
     curl -LsSf https://astral.sh/uv/install.sh | sh  # install uv (one-time)
-    uv sync --group dev
+    uv sync --group dev --group docs
     ```
 
     !!! warning
-        Without PGBouncer, services connect directly to PostgreSQL. This works for
-        development but is not recommended for production workloads. See the
-        [Deployment Guide](../how-to/docker-deploy.md) for PGBouncer configuration details.
+        The manual path is only a bootstrap summary. Follow
+        [Manual Deployment](../how-to/manual-deploy.md) for the full role,
+        grant, service, and systemd setup. Without PGBouncer, services connect
+        directly to PostgreSQL, which is acceptable for experimentation but not
+        recommended for production workloads.
 
 ## Verify Installation
 
@@ -105,7 +114,7 @@ python -m bigbrotr --help
 Expected output:
 
 ```text
-usage: python -m bigbrotr [-h] {seeder,finder,validator,monitor,refresher,synchronizer,api,dvm} ...
+usage: python -m bigbrotr [-h] {seeder,finder,validator,monitor,refresher,ranker,synchronizer,api,dvm,assertor} ...
 
 BigBrotr - Nostr relay discovery, monitoring, and event archiving
 ```

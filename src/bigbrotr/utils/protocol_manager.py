@@ -1,0 +1,219 @@
+"""Shared Nostr client manager implementation behind the public protocol facade."""
+
+from __future__ import annotations
+
+import contextlib
+from typing import TYPE_CHECKING, NamedTuple, Protocol
+
+from nostr_sdk import NostrSdkError
+
+from .protocol_sessions import (
+    ClientSession,
+    _deduplicate_relays,
+    _normalize_allow_insecure,
+    _normalize_session_timeout,
+    _validate_session_relays,
+)
+from .transport import DEFAULT_TIMEOUT
+
+
+if TYPE_CHECKING:
+    import logging
+    from collections.abc import Awaitable, Callable
+
+    from nostr_sdk import Client, Keys
+
+    from bigbrotr.models.constants import NetworkType
+    from bigbrotr.models.relay import Relay
+    from bigbrotr.utils.protocol_sessions import ClientConnectResult
+
+
+class RelayNetworkConfig(Protocol):
+    """Minimal per-network contract required by the client manager."""
+
+    timeout: float
+
+
+class RelayNetworkPolicy(Protocol):
+    """Minimal network-policy contract required by relay-scoped clients.
+
+    This keeps the utils-layer manager generic: higher layers may pass
+    any object that can answer per-network timeout and proxy lookups through
+    this structural interface.
+    """
+
+    def get(self, network: NetworkType) -> RelayNetworkConfig: ...
+
+    def get_proxy_url(self, network: NetworkType) -> str | None: ...
+
+
+class ProtocolManagerDependencies(NamedTuple):
+    """Dependencies required by the shared Nostr client manager."""
+
+    connect_relay: Callable[..., Awaitable[Client]]
+    create_client: Callable[..., Awaitable[Client]]
+    connect_client_relays: Callable[..., Awaitable[ClientConnectResult]]
+    shutdown_client: Callable[[Client], Awaitable[None]]
+    logger: logging.Logger
+
+
+class NostrClientManager:
+    """Shared lifecycle manager for nostr-sdk clients.
+
+    Relay-scoped clients use a minimal injected network-policy contract rather
+    than a concrete service-layer config type.
+    """
+
+    __slots__ = (
+        "_allow_insecure",
+        "_dependencies",
+        "_failed_relays",
+        "_keys",
+        "_networks",
+        "_relay_clients",
+        "_sessions",
+    )
+
+    def __init__(
+        self,
+        *,
+        dependencies: ProtocolManagerDependencies,
+        keys: Keys | None = None,
+        networks: RelayNetworkPolicy | None = None,
+        allow_insecure: bool = False,
+    ) -> None:
+        self._dependencies = dependencies
+        self._keys = keys
+        self._networks = networks
+        self._allow_insecure = _normalize_allow_insecure(allow_insecure)
+        self._relay_clients: dict[str, Client] = {}
+        self._failed_relays: set[str] = set()
+        self._sessions: dict[str, ClientSession] = {}
+
+    async def _connect_relay_with_networks(self, relay: Relay) -> Client:
+        """Connect one relay using this manager's shared network policy."""
+        if self._networks is None:
+            raise RuntimeError("networks configuration required for relay-scoped clients")
+        proxy_url = self._networks.get_proxy_url(relay.network)
+        timeout = self._networks.get(relay.network).timeout
+        return await self._dependencies.connect_relay(
+            relay,
+            keys=self._keys,
+            proxy_url=proxy_url,
+            timeout=timeout,
+            allow_insecure=self._allow_insecure,
+        )
+
+    async def get_relay_client(self, relay: Relay) -> Client | None:
+        """Return one lazily connected cached client for a single relay."""
+        if relay.url in self._relay_clients:
+            return self._relay_clients[relay.url]
+        if relay.url in self._failed_relays:
+            return None
+
+        try:
+            client = await self._connect_relay_with_networks(relay)
+        except (OSError, TimeoutError, NostrSdkError) as e:
+            self._dependencies.logger.warning(
+                "connect_client_failed relay=%s error=%s",
+                relay.url,
+                e,
+            )
+            self._failed_relays.add(relay.url)
+            return None
+
+        self._relay_clients[relay.url] = client
+        return client
+
+    async def get_relay_clients(self, relays: list[Relay]) -> list[Client]:
+        """Return one connected client per distinct relay URL.
+
+        The returned list preserves the first-seen relay order from the caller
+        while treating duplicate relay URLs as a set-like input. This avoids
+        duplicate publish/subscribe attempts when higher layers pass repeated
+        relay objects for the same endpoint.
+        """
+        clients: list[Client] = []
+        seen_relays: set[str] = set()
+        for relay in relays:
+            if relay.url in seen_relays:
+                continue
+            seen_relays.add(relay.url)
+            client = await self.get_relay_client(relay)
+            if client is not None:
+                clients.append(client)
+        return clients
+
+    async def connect_session(
+        self,
+        session_id: str,
+        relays: list[Relay],
+        *,
+        timeout: float = DEFAULT_TIMEOUT,  # noqa: ASYNC109
+    ) -> ClientSession:
+        """Create or reuse a named direct multi-relay session.
+
+        Session helpers intentionally reject overlay relays because one shared
+        client cannot encode the per-network proxy policy they require.
+        Clearnet and local relays are allowed because they share the same
+        direct-connection contract. Named session identity is keyed by the
+        normalized relay set, not by caller input order.
+        """
+        normalized_timeout = _normalize_session_timeout(timeout)
+        relay_urls = tuple(sorted({relay.url for relay in relays}))
+        normalized_relays = _deduplicate_relays(relays)
+        existing = self._sessions.get(session_id)
+        if existing is not None:
+            if existing.relay_urls != relay_urls:
+                raise ValueError(f"session {session_id!r} already exists with different relays")
+            return existing
+
+        _validate_session_relays(relays)
+        client = await self._dependencies.create_client(
+            keys=self._keys,
+            allow_insecure=self._allow_insecure,
+        )
+        session_ready = False
+        try:
+            result = await self._dependencies.connect_client_relays(
+                client,
+                normalized_relays,
+                timeout=normalized_timeout,
+            )
+            session = ClientSession(
+                session_id=session_id,
+                client=client,
+                relay_urls=relay_urls,
+                connect_result=result,
+            )
+            self._sessions[session_id] = session
+            session_ready = True
+            return session
+        finally:
+            if not session_ready:
+                with contextlib.suppress(OSError, RuntimeError, TimeoutError, NostrSdkError):
+                    await self._dependencies.shutdown_client(client)
+
+    async def disconnect(self) -> None:
+        """Disconnect all managed clients and clear cached state."""
+        seen: set[int] = set()
+
+        for session in self._sessions.values():
+            client_id = id(session.client)
+            if client_id in seen:
+                continue
+            seen.add(client_id)
+            with contextlib.suppress(OSError, RuntimeError, TimeoutError, NostrSdkError):
+                await self._dependencies.shutdown_client(session.client)
+
+        for client in self._relay_clients.values():
+            client_id = id(client)
+            if client_id in seen:
+                continue
+            seen.add(client_id)
+            with contextlib.suppress(OSError, RuntimeError, TimeoutError, NostrSdkError):
+                await self._dependencies.shutdown_client(client)
+
+        self._sessions.clear()
+        self._relay_clients.clear()
+        self._failed_relays.clear()

@@ -1,8 +1,8 @@
-"""Unit tests for FieldSpec dataclass and parse_fields function."""
+"""Unit tests for FieldSpec plus the permissive NIP parse/report helpers."""
 
 import pytest
 
-from bigbrotr.nips.parsing import FieldSpec, parse_fields
+from bigbrotr.nips.parsing import FieldSpec, parse_fields, parse_fields_report
 
 
 # =============================================================================
@@ -72,6 +72,27 @@ class TestFieldSpecConstruction:
         assert spec.float_fields == frozenset({"lat"})
         assert spec.int_list_fields == frozenset({"ids"})
 
+    def test_duplicate_field_name_across_categories_is_rejected(self):
+        """The same field cannot be declared in multiple parser categories."""
+        with pytest.raises(
+            ValueError,
+            match="FieldSpec field names must belong to exactly one parser category",
+        ):
+            FieldSpec(
+                int_fields=frozenset({"count"}),
+                str_fields=frozenset({"count"}),
+            )
+
+    def test_non_frozenset_field_container_is_rejected(self):
+        """Malformed container types fail at FieldSpec construction instead of cache-time."""
+        with pytest.raises(TypeError, match=r"int_fields must be a frozenset\[str\]"):
+            FieldSpec(int_fields={"count"})  # type: ignore[arg-type]
+
+    def test_non_string_field_names_are_rejected(self):
+        """Field names must be strings in every parser category."""
+        with pytest.raises(TypeError, match="bool_fields must contain only str field names"):
+            FieldSpec(bool_fields=frozenset({"enabled", 1}))  # type: ignore[arg-type]
+
 
 class TestFieldSpecImmutability:
     """Test FieldSpec is immutable (frozen=True)."""
@@ -132,6 +153,17 @@ class TestParseFieldsEmpty:
         result = parse_fields({"count": 10, "unknown": "value"}, spec)
         assert result == {"count": 10}
         assert "unknown" not in result
+
+    def test_non_dict_input_returns_empty(self):
+        """Non-dict input degrades to an empty payload instead of raising."""
+        spec = FieldSpec(int_fields=frozenset({"count"}))
+        assert parse_fields("not a dict", spec) == {}
+
+    @pytest.mark.parametrize("value", [True, {"count": "int"}, object()])
+    def test_invalid_spec_raises_type_error(self, value: object):
+        """Malformed parser specs fail fast instead of breaking on attribute lookups."""
+        with pytest.raises(TypeError, match="spec must be a FieldSpec"):
+            parse_fields({"count": 10}, value)  # type: ignore[arg-type]
 
 
 # =============================================================================
@@ -404,6 +436,16 @@ class TestParseFieldsFloat:
         """Negative float values are preserved."""
         result = parse_fields({"lon": -122.084}, float_spec)
         assert result == {"lon": -122.084}
+
+    def test_nan_rejected(self, float_spec):
+        """Non-finite NaN is rejected for float fields."""
+        result = parse_fields({"lat": float("nan")}, float_spec)
+        assert result == {}
+
+    def test_infinity_rejected(self, float_spec):
+        """Non-finite infinity is rejected for float fields."""
+        result = parse_fields({"lat": float("inf")}, float_spec)
+        assert result == {}
 
     def test_bool_true_rejected(self, float_spec):
         """Boolean True is rejected for float fields."""
@@ -679,3 +721,104 @@ class TestParseFieldsRealWorld:
             "dns_ns": ["ns1.google.com", "ns2.google.com"],
             "dns_ttl": 300,
         }
+
+
+# =============================================================================
+# parse_fields_report Tests
+# =============================================================================
+
+
+class TestParseFieldsReport:
+    """Test parse_fields_report issue collection."""
+
+    @pytest.mark.parametrize("value", [True, {"count": "int"}, object()])
+    def test_invalid_spec_raises_type_error(self, value: object) -> None:
+        """Report entrypoint rejects malformed specs before payload handling starts."""
+        with pytest.raises(TypeError, match="spec must be a FieldSpec"):
+            parse_fields_report({"count": 10}, value)  # type: ignore[arg-type]
+
+    def test_report_marks_non_dict_input_as_invalid(self):
+        """Report-oriented parsing records invalid top-level input explicitly."""
+        spec = FieldSpec(int_fields=frozenset({"count"}))
+
+        report = parse_fields_report("not a dict", spec)
+
+        assert report.parsed == {}
+        assert report.has_issues is True
+        assert [issue.kind for issue in report.issues] == ["invalid_input"]
+        assert [issue.path for issue in report.issues] == ["payload"]
+        assert [issue.detail for issue in report.issues] == ["expected dict"]
+
+    def test_report_collects_unknown_and_invalid_fields(self):
+        """Report records unknown keys and invalid field values."""
+        spec = FieldSpec(int_fields=frozenset({"count"}))
+
+        report = parse_fields_report(
+            {"count": "bad", "name": "relay"},
+            spec,
+            path="nip11",
+        )
+
+        assert report.parsed == {}
+        assert report.has_issues is True
+        assert [issue.kind for issue in report.issues] == ["invalid_value", "unknown_field"]
+        assert [issue.path for issue in report.issues] == ["nip11.count", "nip11.name"]
+
+    def test_report_collects_filtered_list_items(self):
+        """Report records partial list filtering instead of dropping silently."""
+        spec = FieldSpec(str_list_fields=frozenset({"tags"}))
+
+        report = parse_fields_report({"tags": ["ok", 1, None]}, spec)
+
+        assert report.parsed == {"tags": ["ok"]}
+        assert len(report.issues) == 1
+        assert report.issues[0].kind == "filtered_items"
+        assert report.issues[0].path == "tags"
+
+    def test_report_marks_all_invalid_list_items_as_filtered(self):
+        """Report keeps list-filter semantics when no valid elements survive."""
+        spec = FieldSpec(str_list_fields=frozenset({"tags"}))
+
+        report = parse_fields_report({"tags": [1, None, True]}, spec)
+
+        assert report.parsed == {}
+        assert len(report.issues) == 1
+        assert report.issues[0].kind == "filtered_items"
+        assert report.issues[0].path == "tags"
+        assert report.issues[0].detail == "filtered 3 invalid item(s); no valid items remain"
+
+    def test_report_marks_empty_list_as_non_empty_expectation(self):
+        """Report distinguishes empty typed lists from non-list invalid values."""
+        spec = FieldSpec(int_list_fields=frozenset({"ids"}))
+
+        report = parse_fields_report({"ids": []}, spec)
+
+        assert report.parsed == {}
+        assert len(report.issues) == 1
+        assert report.issues[0].kind == "invalid_value"
+        assert report.issues[0].path == "ids"
+        assert report.issues[0].detail == "expected non-empty list[int]"
+
+    def test_report_marks_non_finite_float_as_invalid(self):
+        """Report treats NaN and infinity like invalid float payloads."""
+        spec = FieldSpec(float_fields=frozenset({"lat", "lon"}))
+
+        report = parse_fields_report({"lat": float("nan"), "lon": float("inf")}, spec)
+
+        assert report.parsed == {}
+        assert [issue.kind for issue in report.issues] == ["invalid_value", "invalid_value"]
+        assert [issue.path for issue in report.issues] == ["lat", "lon"]
+        assert [issue.detail for issue in report.issues] == ["expected float", "expected float"]
+
+    def test_report_honors_extra_known_fields(self):
+        """Custom parsers can suppress unknown reports for nested fields they handle."""
+        spec = FieldSpec(str_fields=frozenset({"name"}))
+
+        report = parse_fields_report(
+            {"name": "relay", "retention": []},
+            spec,
+            extra_known_fields=frozenset({"retention"}),
+        )
+
+        assert report.parsed == {"name": "relay"}
+        assert report.issues == ()

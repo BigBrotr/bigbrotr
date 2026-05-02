@@ -1,5 +1,5 @@
 """
-Unit tests for models.nips.nip66.logs module.
+Unit tests for the ``bigbrotr.nips.nip66.logs`` module.
 
 Tests:
 - Nip66RttMultiPhaseLogs semantic validation rules
@@ -105,6 +105,17 @@ class TestNip66RttMultiPhaseLogsSuccessReasonConstraints:
                 open_reason=None,
             )
 
+    @pytest.mark.parametrize("reason", ["", "   "])
+    def test_open_failure_with_blank_reason_raises(self, reason: str) -> None:
+        """Open failure with blank reason is invalid."""
+        with pytest.raises(
+            ValueError, match="open_reason must be non-empty when open_success is False"
+        ):
+            Nip66RttMultiPhaseLogs(
+                open_success=False,
+                open_reason=reason,
+            )
+
     def test_read_success_with_reason_raises(self) -> None:
         """Read success with reason is invalid."""
         with pytest.raises(ValueError, match="read_reason must be None when read_success is True"):
@@ -121,6 +132,26 @@ class TestNip66RttMultiPhaseLogsSuccessReasonConstraints:
                 open_success=True,
                 read_success=False,
                 read_reason=None,
+            )
+
+    @pytest.mark.parametrize("reason", ["", "   "])
+    def test_read_failure_with_blank_reason_raises(self, reason: str) -> None:
+        """Read failure with blank reason is invalid."""
+        with pytest.raises(
+            ValueError, match="read_reason must be non-empty when read_success is False"
+        ):
+            Nip66RttMultiPhaseLogs(
+                open_success=True,
+                read_success=False,
+                read_reason=reason,
+            )
+
+    def test_read_reason_without_phase_outcome_raises(self) -> None:
+        """Read reason without a read phase result is invalid."""
+        with pytest.raises(ValueError, match="read_reason must be None when read_success is None"):
+            Nip66RttMultiPhaseLogs(
+                open_success=True,
+                read_reason="orphan-read",
             )
 
     def test_write_success_with_reason_raises(self) -> None:
@@ -143,6 +174,28 @@ class TestNip66RttMultiPhaseLogsSuccessReasonConstraints:
                 open_success=True,
                 write_success=False,
                 write_reason=None,
+            )
+
+    @pytest.mark.parametrize("reason", ["", "   "])
+    def test_write_failure_with_blank_reason_raises(self, reason: str) -> None:
+        """Write failure with blank reason is invalid."""
+        with pytest.raises(
+            ValueError, match="write_reason must be non-empty when write_success is False"
+        ):
+            Nip66RttMultiPhaseLogs(
+                open_success=True,
+                write_success=False,
+                write_reason=reason,
+            )
+
+    def test_write_reason_without_phase_outcome_raises(self) -> None:
+        """Write reason without a write phase result is invalid."""
+        with pytest.raises(
+            ValueError, match="write_reason must be None when write_success is None"
+        ):
+            Nip66RttMultiPhaseLogs(
+                open_success=True,
+                write_reason="orphan-write",
             )
 
 
@@ -303,6 +356,12 @@ class TestNip66BaseLogsAndDerived:
         """Nip66SslLogs failure without reason raises."""
         with pytest.raises(ValueError, match="reason is required when success is False"):
             Nip66SslLogs(success=False, reason=None)
+
+    @pytest.mark.parametrize("reason", ["", "   "])
+    def test_ssl_logs_failure_with_blank_reason_raises(self, reason: str) -> None:
+        """Nip66SslLogs failure with blank reason raises."""
+        with pytest.raises(ValueError, match="reason must be non-empty when success is False"):
+            Nip66SslLogs(success=False, reason=reason)
 
     def test_geo_logs_success(self) -> None:
         """Nip66GeoLogs success case."""

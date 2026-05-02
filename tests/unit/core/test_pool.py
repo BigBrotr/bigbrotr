@@ -22,16 +22,14 @@ import asyncpg
 import pytest
 from pydantic import SecretStr, ValidationError
 
-from bigbrotr.core.pool import (
+from bigbrotr.core.pool import Pool, _init_connection, _json_encode
+from bigbrotr.core.pool_config import (
     DatabaseConfig,
     LimitsConfig,
-    Pool,
     PoolConfig,
     RetryConfig,
     ServerSettingsConfig,
     TimeoutsConfig,
-    _init_connection,
-    _json_encode,
 )
 
 
@@ -142,6 +140,27 @@ class TestDatabaseConfig:
         assert config.user == "myuser"
         assert config.password.get_secret_value() == "mypassword"
 
+    def test_string_fields_trim_whitespace(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test host, database, and user canonicalize padded strings."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        config = DatabaseConfig(
+            host=" custom.host.com ",
+            database=" mydb ",
+            user=" myuser ",
+        )
+
+        assert config.host == "custom.host.com"
+        assert config.database == "mydb"
+        assert config.user == "myuser"
+
+    def test_password_env_trims_whitespace(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test password_env canonicalizes padded env-var names before lookup."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD_ALT", "test_pass")  # pragma: allowlist secret
+        config = DatabaseConfig(password_env=" DB_ADMIN_PASSWORD_ALT ")  # pragma: allowlist secret
+
+        assert config.password_env == "DB_ADMIN_PASSWORD_ALT"  # pragma: allowlist secret
+        assert config.password.get_secret_value() == "test_pass"
+
     def test_password_from_environment(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test password resolution from DB_ADMIN_PASSWORD environment variable."""
         monkeypatch.setenv("DB_ADMIN_PASSWORD", "env_secret_password")
@@ -150,11 +169,26 @@ class TestDatabaseConfig:
         assert isinstance(config.password, SecretStr)
         assert config.password.get_secret_value() == "env_secret_password"
 
+    def test_password_preserves_meaningful_surrounding_spaces(self) -> None:
+        """Test explicit passwords preserve intentional surrounding spaces."""
+        config = DatabaseConfig(password="  padded secret  ")  # pragma: allowlist secret
+
+        assert config.password.get_secret_value() == "  padded secret  "  # pragma: allowlist secret
+
     def test_password_missing_raises_value_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that missing DB_ADMIN_PASSWORD raises ValueError."""
         monkeypatch.delenv("DB_ADMIN_PASSWORD", raising=False)
 
         with pytest.raises(ValueError, match="DB_ADMIN_PASSWORD"):
+            DatabaseConfig()
+
+    def test_blank_environment_password_raises_value_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that whitespace-only passwords loaded from env are rejected."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "   ")  # pragma: allowlist secret
+
+        with pytest.raises(ValueError, match="password must not be blank"):
             DatabaseConfig()
 
     def test_explicit_password_overrides_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -163,6 +197,29 @@ class TestDatabaseConfig:
         config = DatabaseConfig(password="explicit_password")
 
         assert config.password.get_secret_value() == "explicit_password"
+
+    @pytest.mark.parametrize("password", ["", "   "])
+    def test_blank_password_raises_validation_error(self, password: str) -> None:
+        """Test that blank explicit passwords are rejected."""
+        with pytest.raises(ValidationError, match="password must not be blank"):
+            DatabaseConfig(password=password)
+
+    def test_non_string_password_alias_rejected(self) -> None:
+        """Test byte payloads do not coerce into database passwords."""
+        with pytest.raises(ValidationError, match="password: expected string, got bytes"):
+            DatabaseConfig(password=b"abc")
+
+    def test_extra_fields_forbidden(self) -> None:
+        """Test unexpected database fields are rejected."""
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            DatabaseConfig(password="test_pass", extra_field="value")  # pragma: allowlist secret
+
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        """Test raw database field keys must already be canonical strings."""
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            DatabaseConfig.model_validate(
+                {b"host": "db.example.com", "password": "test_pass"}  # pragma: allowlist secret
+            )
 
     @pytest.mark.parametrize(
         ("port", "expected_error"),
@@ -192,12 +249,37 @@ class TestDatabaseConfig:
         config_max = DatabaseConfig(port=65535)
         assert config_max.port == 65535
 
+    def test_rejects_boolean_port_alias(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test bool aliases do not coerce into port 1."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+
+        with pytest.raises(ValidationError, match="port: expected integer, got bool"):
+            DatabaseConfig(port=True)
+
+    @pytest.mark.parametrize("port", ["5432", 5432.0])
+    def test_rejects_non_integer_port_aliases(
+        self, port: object, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test string and float aliases do not coerce into valid database ports."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+
+        expected_type = type(port).__name__
+        with pytest.raises(ValidationError, match=rf"port: expected integer, got {expected_type}"):
+            DatabaseConfig(port=port)
+
     def test_empty_host_raises_validation_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that empty host raises ValidationError."""
         monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
 
         with pytest.raises(ValidationError):
             DatabaseConfig(host="")
+
+    def test_blank_host_raises_validation_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that whitespace-only host is rejected."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+
+        with pytest.raises(ValidationError, match="host must not be blank"):
+            DatabaseConfig(host="   ")
 
     def test_empty_database_raises_validation_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that empty database name raises ValidationError."""
@@ -206,12 +288,31 @@ class TestDatabaseConfig:
         with pytest.raises(ValidationError):
             DatabaseConfig(database="")
 
+    def test_blank_database_raises_validation_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that whitespace-only database name is rejected."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+
+        with pytest.raises(ValidationError, match="database must not be blank"):
+            DatabaseConfig(database="   ")
+
     def test_empty_user_raises_validation_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that empty user raises ValidationError."""
         monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
 
         with pytest.raises(ValidationError):
             DatabaseConfig(user="")
+
+    def test_blank_user_raises_validation_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that whitespace-only user is rejected."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+
+        with pytest.raises(ValidationError, match="user must not be blank"):
+            DatabaseConfig(user="   ")
+
+    def test_blank_password_env_raises_validation_error(self) -> None:
+        """Test that whitespace-only password_env is rejected."""
+        with pytest.raises(ValidationError, match="password_env must not be blank"):
+            DatabaseConfig(password_env="   ", password="test_pass")  # pragma: allowlist secret
 
 
 class TestLimitsConfig:
@@ -285,6 +386,59 @@ class TestLimitsConfig:
         with pytest.raises(ValidationError):
             LimitsConfig(max_queries=99)
 
+    @pytest.mark.parametrize(
+        ("field_name", "expected"),
+        [
+            ("min_size", "integer"),
+            ("max_size", "integer"),
+            ("max_queries", "integer"),
+            ("max_inactive_connection_lifetime", "number"),
+        ],
+    )
+    def test_rejects_boolean_aliases(self, field_name: str, expected: str) -> None:
+        """Test bool aliases do not coerce into pool size or idle lifetime numerics."""
+        with pytest.raises(ValidationError, match=rf"{field_name}: expected {expected}, got bool"):
+            LimitsConfig(**{field_name: True})
+
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("min_size", "5"),
+            ("min_size", 5.0),
+            ("max_size", "10"),
+            ("max_size", 10.0),
+            ("max_queries", "100"),
+            ("max_queries", 100.0),
+        ],
+    )
+    def test_rejects_non_integer_aliases(self, field_name: str, value: object) -> None:
+        """Test string and float aliases do not coerce into integer pool limits."""
+        expected_type = type(value).__name__
+        with pytest.raises(
+            ValidationError, match=rf"{field_name}: expected integer, got {expected_type}"
+        ):
+            LimitsConfig(**{field_name: value})
+
+    @pytest.mark.parametrize("value", ["300.0", "300"])
+    def test_rejects_non_numeric_idle_lifetime_aliases(self, value: object) -> None:
+        """Test string aliases do not coerce into idle lifetime budgets."""
+        expected_type = type(value).__name__
+        with pytest.raises(
+            ValidationError,
+            match=rf"max_inactive_connection_lifetime: expected number, got {expected_type}",
+        ):
+            LimitsConfig(max_inactive_connection_lifetime=value)
+
+    def test_extra_fields_forbidden(self) -> None:
+        """Test unexpected limits fields are rejected."""
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            LimitsConfig(extra_field="value")
+
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        """Test raw limit field keys must already be canonical strings."""
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            LimitsConfig.model_validate({b"max_size": 50})
+
 
 class TestTimeoutsConfig:
     """Tests for TimeoutsConfig Pydantic model."""
@@ -310,6 +464,30 @@ class TestTimeoutsConfig:
         # Invalid: below minimum
         with pytest.raises(ValidationError):
             TimeoutsConfig(acquisition=0.05)
+
+    def test_rejects_boolean_acquisition_alias(self) -> None:
+        """Test bool aliases do not coerce into a one-second acquisition timeout."""
+        with pytest.raises(ValidationError, match="acquisition: expected number, got bool"):
+            TimeoutsConfig(acquisition=True)
+
+    @pytest.mark.parametrize("value", ["30", "30.0"])
+    def test_rejects_non_numeric_acquisition_aliases(self, value: object) -> None:
+        """Test string aliases do not coerce into acquisition timeout budgets."""
+        expected_type = type(value).__name__
+        with pytest.raises(
+            ValidationError, match=rf"acquisition: expected number, got {expected_type}"
+        ):
+            TimeoutsConfig(acquisition=value)
+
+    def test_extra_fields_forbidden(self) -> None:
+        """Test unexpected timeout fields are rejected."""
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            TimeoutsConfig(extra_field="value")
+
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        """Test raw timeout field keys must already be canonical strings."""
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            TimeoutsConfig.model_validate({b"acquisition": 30.0})
 
 
 class TestRetryConfig:
@@ -372,6 +550,62 @@ class TestRetryConfig:
         with pytest.raises(ValidationError):
             RetryConfig(initial_delay=0.05)
 
+    @pytest.mark.parametrize(
+        ("field_name", "expected"),
+        [
+            ("max_attempts", "integer"),
+            ("initial_delay", "number"),
+            ("max_delay", "number"),
+        ],
+    )
+    def test_rejects_boolean_aliases(self, field_name: str, expected: str) -> None:
+        """Test bool aliases do not coerce into retry numerics."""
+        with pytest.raises(ValidationError, match=rf"{field_name}: expected {expected}, got bool"):
+            RetryConfig(**{field_name: True})
+
+    @pytest.mark.parametrize("value", ["5", 5.0])
+    def test_rejects_non_integer_max_attempts_aliases(self, value: object) -> None:
+        """Test string and float aliases do not coerce into retry attempt counts."""
+        expected_type = type(value).__name__
+        with pytest.raises(
+            ValidationError, match=rf"max_attempts: expected integer, got {expected_type}"
+        ):
+            RetryConfig(max_attempts=value)
+
+    @pytest.mark.parametrize("value", ["false", 0, 1])
+    def test_rejects_non_boolean_exponential_backoff_aliases(self, value: object) -> None:
+        """Test non-bool aliases do not coerce into retry backoff toggles."""
+        expected_type = type(value).__name__
+        with pytest.raises(
+            ValidationError, match=rf"exponential_backoff: expected bool, got {expected_type}"
+        ):
+            RetryConfig(exponential_backoff=value)
+
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("initial_delay", "0.5"),
+            ("max_delay", "10.0"),
+        ],
+    )
+    def test_rejects_non_numeric_delay_aliases(self, field_name: str, value: object) -> None:
+        """Test string aliases do not coerce into retry delay budgets."""
+        expected_type = type(value).__name__
+        with pytest.raises(
+            ValidationError, match=rf"{field_name}: expected number, got {expected_type}"
+        ):
+            RetryConfig(**{field_name: value})
+
+    def test_extra_fields_forbidden(self) -> None:
+        """Test unexpected retry fields are rejected."""
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            RetryConfig(extra_field="value")
+
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        """Test raw retry field keys must already be canonical strings."""
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            RetryConfig.model_validate({b"max_attempts": 5})
+
 
 class TestServerSettingsConfig:
     """Tests for ServerSettingsConfig Pydantic model."""
@@ -396,20 +630,64 @@ class TestServerSettingsConfig:
         assert config.timezone == "America/New_York"
         assert config.statement_timeout == 600000
 
+    def test_string_fields_trim_whitespace(self) -> None:
+        """Test application_name and timezone canonicalize padded strings."""
+        config = ServerSettingsConfig(
+            application_name=" custom_app ",
+            timezone=" America/New_York ",
+        )
+
+        assert config.application_name == "custom_app"
+        assert config.timezone == "America/New_York"
+
     def test_statement_timeout_zero_allowed(self) -> None:
         """Test that statement_timeout of 0 (unlimited) is allowed."""
         config = ServerSettingsConfig(statement_timeout=0)
         assert config.statement_timeout == 0
+
+    def test_rejects_boolean_statement_timeout_alias(self) -> None:
+        """Test bool aliases do not coerce into a one-millisecond statement timeout."""
+        with pytest.raises(ValidationError, match="statement_timeout: expected integer, got bool"):
+            ServerSettingsConfig(statement_timeout=True)
+
+    @pytest.mark.parametrize("value", ["600000", 600000.0])
+    def test_rejects_non_integer_statement_timeout_aliases(self, value: object) -> None:
+        """Test string and float aliases do not coerce into statement timeout budgets."""
+        expected_type = type(value).__name__
+        with pytest.raises(
+            ValidationError, match=rf"statement_timeout: expected integer, got {expected_type}"
+        ):
+            ServerSettingsConfig(statement_timeout=value)
+
+    def test_extra_fields_forbidden(self) -> None:
+        """Test unexpected server-setting fields are rejected."""
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            ServerSettingsConfig(extra_field="value")
 
     def test_empty_application_name_rejected(self) -> None:
         """Test that empty application_name is rejected."""
         with pytest.raises(ValidationError):
             ServerSettingsConfig(application_name="")
 
+    def test_blank_application_name_rejected(self) -> None:
+        """Test that whitespace-only application_name is rejected."""
+        with pytest.raises(ValidationError, match="application_name must not be blank"):
+            ServerSettingsConfig(application_name="   ")
+
     def test_empty_timezone_rejected(self) -> None:
         """Test that empty timezone is rejected."""
         with pytest.raises(ValidationError):
             ServerSettingsConfig(timezone="")
+
+    def test_blank_timezone_rejected(self) -> None:
+        """Test that whitespace-only timezone is rejected."""
+        with pytest.raises(ValidationError, match="timezone must not be blank"):
+            ServerSettingsConfig(timezone="   ")
+
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        """Test raw server-setting field keys must already be canonical strings."""
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            ServerSettingsConfig.model_validate({b"application_name": "custom_app"})
 
 
 class TestPoolConfig:
@@ -467,6 +745,274 @@ class TestPoolConfig:
         assert dump["database"]["host"] == "db.host"
         assert dump["database"]["password_env"] == "DB_ADMIN_PASSWORD"  # pragma: allowlist secret
 
+    def test_nested_database_trim_string_fields(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test nested database config canonicalizes padded strings."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        config = PoolConfig(
+            database={
+                "host": " custom.host ",
+                "database": " mydb ",
+                "user": " myuser ",
+            }
+        )
+
+        assert config.database.host == "custom.host"
+        assert config.database.database == "mydb"
+        assert config.database.user == "myuser"
+
+    def test_nested_database_trims_password_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test nested database config canonicalizes padded password_env values."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD_ALT", "test_pass")  # pragma: allowlist secret
+        config = PoolConfig(
+            database={"password_env": " DB_ADMIN_PASSWORD_ALT "}
+        )  # pragma: allowlist secret
+
+        assert config.database.password_env == "DB_ADMIN_PASSWORD_ALT"  # pragma: allowlist secret
+        assert config.database.password.get_secret_value() == "test_pass"
+
+    def test_nested_database_rejects_blank_user(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test nested database config rejects whitespace-only user values."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        with pytest.raises(ValidationError, match="user must not be blank"):
+            PoolConfig(database={"user": "   "})
+
+    def test_nested_database_rejects_blank_password_env(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test nested database config rejects whitespace-only password_env values."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        with pytest.raises(ValidationError, match="password_env must not be blank"):
+            PoolConfig(database={"password_env": "   "})
+
+    @pytest.mark.parametrize("password", ["", "   "])
+    def test_nested_database_rejects_blank_password(self, password: str) -> None:
+        """Test nested database config rejects blank explicit passwords."""
+        with pytest.raises(ValidationError, match="password must not be blank"):
+            PoolConfig(database={"password": password})
+
+    def test_nested_database_rejects_non_string_password_alias(self) -> None:
+        """Test nested database config rejects byte password aliases."""
+        with pytest.raises(ValidationError, match="password: expected string, got bytes"):
+            PoolConfig(database={"password": b"abc"})
+
+    def test_nested_database_extra_fields_forbidden(self) -> None:
+        """Test nested database config rejects unexpected fields."""
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            PoolConfig(
+                database={
+                    "password": "test_pass",  # pragma: allowlist secret
+                    "extra_field": "value",
+                }
+            )
+
+    def test_nested_database_rejects_non_string_field_keys(self) -> None:
+        """Test nested database field keys fail fast through PoolConfig."""
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            PoolConfig.model_validate(
+                {
+                    "database": {
+                        b"host": "db.example.com",
+                        "password": "test_pass",  # pragma: allowlist secret
+                    }
+                }
+            )
+
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("min_size", "5"),
+            ("max_size", 10.0),
+            ("max_queries", "100"),
+        ],
+    )
+    def test_nested_limits_require_canonical_ints(
+        self, field_name: str, value: object, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test nested limits config rejects non-integer aliases."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        expected_type = type(value).__name__
+        with pytest.raises(
+            ValidationError, match=rf"{field_name}: expected integer, got {expected_type}"
+        ):
+            PoolConfig(limits={field_name: value})
+
+    def test_nested_limits_require_canonical_idle_lifetime(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test nested limits config rejects string idle lifetime aliases."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        with pytest.raises(
+            ValidationError, match="max_inactive_connection_lifetime: expected number, got str"
+        ):
+            PoolConfig(limits={"max_inactive_connection_lifetime": "300.0"})
+
+    def test_nested_timeouts_require_canonical_acquisition(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test nested timeouts config rejects string acquisition aliases."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        with pytest.raises(ValidationError, match="acquisition: expected number, got str"):
+            PoolConfig(timeouts={"acquisition": "30.0"})
+
+    def test_nested_timeouts_reject_non_string_field_keys(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test nested timeout field keys fail fast through PoolConfig."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            PoolConfig.model_validate({"timeouts": {b"acquisition": 30.0}})
+
+    def test_nested_timeouts_extra_fields_forbidden(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test nested timeouts config rejects unexpected fields."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            PoolConfig(timeouts={"extra_field": "value"})
+
+    def test_nested_limits_reject_non_string_field_keys(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test nested limits field keys fail fast through PoolConfig."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            PoolConfig.model_validate({"limits": {b"max_size": 50}})
+
+    def test_nested_limits_extra_fields_forbidden(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test nested limits config rejects unexpected fields."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            PoolConfig(limits={"extra_field": "value"})
+
+    @pytest.mark.parametrize("value", ["5", 5.0])
+    def test_nested_retry_requires_canonical_max_attempts(
+        self, value: object, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test nested retry config rejects non-integer max_attempts aliases."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        expected_type = type(value).__name__
+        with pytest.raises(
+            ValidationError, match=rf"max_attempts: expected integer, got {expected_type}"
+        ):
+            PoolConfig(retry={"max_attempts": value})
+
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("initial_delay", "0.5"),
+            ("max_delay", "10.0"),
+        ],
+    )
+    def test_nested_retry_requires_canonical_delays(
+        self, field_name: str, value: object, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test nested retry config rejects string delay aliases."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        expected_type = type(value).__name__
+        with pytest.raises(
+            ValidationError, match=rf"{field_name}: expected number, got {expected_type}"
+        ):
+            PoolConfig(retry={field_name: value})
+
+    @pytest.mark.parametrize("value", ["false", 0, 1])
+    def test_nested_retry_requires_boolean_exponential_backoff(
+        self, value: object, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test nested retry config rejects non-bool exponential_backoff aliases."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        expected_type = type(value).__name__
+        with pytest.raises(
+            ValidationError,
+            match=rf"exponential_backoff: expected bool, got {expected_type}",
+        ):
+            PoolConfig(retry={"exponential_backoff": value})
+
+    def test_nested_retry_rejects_non_string_field_keys(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test nested retry field keys fail fast through PoolConfig."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            PoolConfig.model_validate({"retry": {b"max_attempts": 5}})
+
+    def test_nested_retry_extra_fields_forbidden(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test nested retry config rejects unexpected fields."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            PoolConfig(retry={"extra_field": "value"})
+
+    @pytest.mark.parametrize("value", ["600000", 600000.0])
+    def test_nested_server_settings_require_canonical_statement_timeout(
+        self, value: object, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test nested server settings reject non-integer statement timeout aliases."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        expected_type = type(value).__name__
+        with pytest.raises(
+            ValidationError, match=rf"statement_timeout: expected integer, got {expected_type}"
+        ):
+            PoolConfig(server_settings={"statement_timeout": value})
+
+    def test_nested_server_settings_trim_string_fields(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test nested server settings canonicalize padded string fields."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        config = PoolConfig(
+            server_settings={
+                "application_name": " custom_app ",
+                "timezone": " America/New_York ",
+            }
+        )
+
+        assert config.server_settings.application_name == "custom_app"
+        assert config.server_settings.timezone == "America/New_York"
+
+    def test_nested_server_settings_reject_blank_timezone(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test nested server settings reject whitespace-only timezone values."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        with pytest.raises(ValidationError, match="timezone must not be blank"):
+            PoolConfig(server_settings={"timezone": "   "})
+
+    def test_nested_server_settings_reject_non_string_field_keys(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test nested server-setting field keys fail fast through PoolConfig."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            PoolConfig.model_validate({"server_settings": {b"application_name": "custom_app"}})
+
+    def test_nested_server_settings_extra_fields_forbidden(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test nested server settings reject unexpected fields."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            PoolConfig(server_settings={"extra_field": "value"})
+
+    @pytest.mark.parametrize("port", ["5432", 5432.0])
+    def test_nested_database_port_requires_canonical_int(self, port: object) -> None:
+        """Test nested database config rejects non-integer port aliases."""
+        expected_type = type(port).__name__
+        with pytest.raises(ValidationError, match=rf"port: expected integer, got {expected_type}"):
+            PoolConfig(
+                database={"port": port, "password": "test_pass"}  # pragma: allowlist secret
+            )
+
+    def test_model_validate_rejects_non_string_field_keys(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test root field keys fail fast through PoolConfig."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            PoolConfig.model_validate({b"limits": {"max_size": 50}})
+
+    def test_extra_fields_forbidden(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test unexpected root pool fields are rejected."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            PoolConfig(extra_field="value")
+
 
 # ============================================================================
 # Pool Initialization Tests
@@ -523,6 +1069,17 @@ class TestPoolFactoryMethods:
         assert pool.config.limits.min_size == 2
         assert pool.config.limits.max_size == 10
         assert pool.config.timeouts.acquisition == 5.0
+
+    def test_from_dict_rejects_extra_root_fields(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test Pool.from_dict rejects unexpected root config fields."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            Pool.from_dict(
+                {
+                    "database": {"password": "test_pass"},  # pragma: allowlist secret
+                    "extra_field": "value",
+                }
+            )
 
     def test_from_yaml(
         self, pool_config_dict: dict[str, Any], tmp_path: Any, monkeypatch: pytest.MonkeyPatch
@@ -937,7 +1494,6 @@ class TestPoolQueryRetry:
         # Use the function directly so each call creates a new context manager
         mock_asyncpg_pool.acquire = mock_acquire
         pool._pool = mock_asyncpg_pool
-        pool._is_connected = True
 
         with patch("bigbrotr.core.pool.asyncio.sleep", AsyncMock()):
             result = await pool.fetch("SELECT 1")
@@ -972,7 +1528,6 @@ class TestPoolQueryRetry:
         # Use the function directly so each call creates a new context manager
         mock_asyncpg_pool.acquire = mock_acquire
         pool._pool = mock_asyncpg_pool
-        pool._is_connected = True
 
         with patch("bigbrotr.core.pool.asyncio.sleep", AsyncMock()):
             result = await pool.execute("INSERT INTO test VALUES (1)")

@@ -1,6 +1,7 @@
 """Monitor service utility functions.
 
-Pure helpers for health check result inspection and retry logic.
+Pure helpers for health check result inspection, chunk classification,
+and retry logic.
 """
 
 from __future__ import annotations
@@ -8,17 +9,17 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple, TypeVar
 
-from bigbrotr.models import Metadata, MetadataType, RelayMetadata
-from bigbrotr.nips.base import BaseLogs
-from bigbrotr.nips.nip66.logs import Nip66RttMultiPhaseLogs
+from bigbrotr.models import Document, DocumentType, RelayDocument
 
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine
 
     from bigbrotr.models import Relay
+    from bigbrotr.models.constants import NetworkType
     from bigbrotr.nips.base import BaseNipMetadata
     from bigbrotr.nips.nip11.info import Nip11InfoMetadata
     from bigbrotr.nips.nip66 import (
@@ -32,9 +33,8 @@ if TYPE_CHECKING:
     from bigbrotr.services.monitor.configs import MetadataFlags, RetryConfig
 
 
-logger = logging.getLogger(__name__)
-
 _T = TypeVar("_T")
+logger = logging.getLogger(__name__)
 
 
 class CheckResult(NamedTuple):
@@ -85,24 +85,83 @@ class CheckResult(NamedTuple):
         )
 
 
+@dataclass(frozen=True, slots=True)
+class MonitorChunkOutcome:
+    """Classification result for one processed monitor chunk."""
+
+    successful: tuple[tuple[Relay, CheckResult], ...] = ()
+    failed: tuple[Relay, ...] = ()
+
+    @property
+    def succeeded_count(self) -> int:
+        """Number of relays that produced at least one stored document."""
+        return len(self.successful)
+
+    @property
+    def failed_count(self) -> int:
+        """Number of relays that produced no usable monitoring data."""
+        return len(self.failed)
+
+    @property
+    def checked_relays(self) -> tuple[Relay, ...]:
+        """All relays classified in this chunk, successful first then failed."""
+        return tuple(relay for relay, _ in self.successful) + self.failed
+
+
+@dataclass(frozen=True, slots=True)
+class MonitorCyclePlan:
+    """Execution plan for one monitor cycle."""
+
+    networks: tuple[NetworkType, ...]
+    monitored_before: int
+    max_relays: int | None
+    total: int
+    max_concurrency: int
+    chunk_size: int
+
+
+@dataclass(frozen=True, slots=True)
+class MonitorProgress:
+    """Running totals for one monitor cycle."""
+
+    total: int
+    succeeded: int = 0
+    failed: int = 0
+
+    def advance(self, outcome: MonitorChunkOutcome) -> MonitorProgress:
+        """Return updated totals after one processed chunk."""
+        return MonitorProgress(
+            total=self.total,
+            succeeded=self.succeeded + outcome.succeeded_count,
+            failed=self.failed + outcome.failed_count,
+        )
+
+    @property
+    def processed(self) -> int:
+        """Total number of relays processed so far."""
+        return self.succeeded + self.failed
+
+
 def log_success(result: Any) -> bool:
-    """Extract success status from a metadata result's logs object."""
-    logs = result.logs
-    if isinstance(logs, BaseLogs):
-        return bool(logs.success)
-    if isinstance(logs, Nip66RttMultiPhaseLogs):
-        return bool(logs.open_success)
-    return False
+    """Extract semantic success status from a metadata result."""
+    success = getattr(result, "succeeded", None)
+    if isinstance(success, bool):
+        return success
+
+    logs = getattr(result, "logs", None)
+    success = getattr(logs, "succeeded", None)
+    return success if isinstance(success, bool) else False
 
 
 def log_reason(result: Any) -> str | None:
-    """Extract failure reason from a metadata result's logs object."""
-    logs = result.logs
-    if isinstance(logs, BaseLogs):
-        return str(logs.reason) if logs.reason else None
-    if isinstance(logs, Nip66RttMultiPhaseLogs):
-        return str(logs.open_reason) if logs.open_reason else None
-    return None
+    """Extract a semantic failure reason from a metadata result."""
+    reason = getattr(result, "failure_reason", None)
+    if isinstance(reason, str):
+        return reason
+
+    logs = getattr(result, "logs", None)
+    reason = getattr(logs, "failure_reason", None)
+    return reason if isinstance(reason, str) else None
 
 
 def extract_result(results: dict[str, Any], key: str) -> Any:
@@ -116,39 +175,39 @@ def extract_result(results: dict[str, Any], key: str) -> Any:
     return value
 
 
-def collect_metadata(
+def collect_documents(
     successful: list[tuple[Relay, CheckResult]],
     store: MetadataFlags,
-) -> list[RelayMetadata]:
-    """Build storable metadata records from successful health check results.
+) -> list[RelayDocument]:
+    """Build storable relay-document records from successful health check results.
 
-    Iterates over successful relay/result pairs and collects metadata for
+    Iterates over successful relay/result pairs and collects documents for
     each check type enabled in ``store``. Field names in ``CheckResult``,
-    ``MetadataFlags``, and ``MetadataType`` are aligned by convention
+    ``MetadataFlags``, and ``DocumentType`` are aligned by convention
     (e.g. ``nip11_info``, ``nip66_rtt``).
 
     Args:
         successful: Relays with their health check results.
-        store: Flags controlling which metadata types to include.
+        store: Flags controlling which document types to include.
 
     Returns:
-        List of [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]
+        List of [RelayDocument][bigbrotr.models.relay_document.RelayDocument]
         ready for batch insertion.
     """
-    metadata: list[RelayMetadata] = []
+    documents: list[RelayDocument] = []
     for relay, result in successful:
-        for meta_type in MetadataType:
+        for meta_type in DocumentType:
             field = meta_type.value
             nip_meta: BaseNipMetadata | None = getattr(result, field)
             if nip_meta and getattr(store, field):
-                metadata.append(
-                    RelayMetadata(
+                documents.append(
+                    RelayDocument(
                         relay=relay,
-                        metadata=Metadata(type=meta_type, data=nip_meta.to_dict()),
-                        generated_at=result.generated_at,
+                        document=Document(type=meta_type, data=nip_meta.to_dict()),
+                        associated_at=result.generated_at,
                     )
                 )
-    return metadata
+    return documents
 
 
 async def retry_fetch(

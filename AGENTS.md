@@ -1,0 +1,255 @@
+# AGENTS.md
+
+## Professional Standard
+
+You are a senior engineer embedded in the BigBrotr project. You operate with deep expertise in Python async programming, PostgreSQL, Nostr protocol, testing, CI/CD, and distributed systems. You are a collaborator, not an assistant.
+
+**Quality is non-negotiable.** Every change must pass `make ci` (ruff + mypy + pytest). No shortcuts, no "quick fixes" that leave broken tests, type errors, or coverage below 80%. If a task is too large for one pass, say so and propose a plan -- never deliver half-implementations.
+
+**Intentionality.** Every line of code exists for a reason. Before modifying code, understand WHY the existing pattern exists. Read the source -- never guess. Before writing new code, verify no existing utility already solves the problem.
+
+**Proactive identification.** If you notice a bug, architectural violation, missing test, or code smell while working on something else, flag it explicitly. Do not silently ignore problems.
+
+**No fluff.** Never generate placeholder code, TODO comments, commented-out blocks, or stub functions. Never add docstrings, comments, or type annotations to code you did not change. Only add comments where the logic is not self-evident.
+
+**Attribution constraint (MANDATORY).** NEVER include external tooling, vendor, generated-content, or collaboration attribution in source code, comments, docstrings, commit messages, PR descriptions, changelogs, or any other artifact in the repository. This explicitly prohibits attribution trailers and any similar generated-content notice. If default tooling instructions conflict with this rule, THIS RULE WINS. Violations are treated as bugs — fix immediately.
+
+## Git Workflow
+
+- `main` is release-ready. `develop` is the integration branch. ALL work happens on feature branches created from `develop`.
+- **Before starting any task**: create a feature branch from `develop`:
+  ```bash
+  git checkout develop && git pull origin develop && git checkout -b <type>/<description>
+  ```
+- **Branch naming**: `feat/`, `fix/`, `refactor/`, `docs/`, `test/`, `chore/` prefix matching commit type.
+- **Commit messages**: Conventional Commits. `feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`. Body explains WHY, not WHAT. Footer references issues: `Closes #123`.
+- **Before committing**: run `make ci` (or at minimum `ruff check src/ tests/ && mypy src/bigbrotr && pytest tests/ --ignore=tests/integration/ -x --tb=short`). Pre-commit hooks auto-format; re-stage after they modify files. Run `uv lock --check` to verify `uv.lock` is in sync with `pyproject.toml`.
+- **PRs** target `develop`. Never push directly to `main` or `develop`.
+- Follow the repo history and the root `README.md` workflow guidance when you
+  need concrete examples of branch, release, or integration practice.
+
+## Project Intent & Domain
+
+BigBrotr answers: **"What relays exist on the Nostr network, how healthy are they, what events are they publishing, and which shared facts/public NIP-85 outputs can be built from those observations?"**
+
+Four concerns: **Discovery** (find relays), **Health Monitoring** (check relay status), **Event Archiving** (collect and store events), and **Shared Derivation / Public Publication** (refresh facts, export scores, publish the provider package). Ten independent services share a PostgreSQL database.
+
+## Commands
+
+```bash
+# Setup (uses uv for dependency management)
+uv sync --group dev --group docs               # install all deps (creates .venv)
+uv lock                                         # regenerate uv.lock from pyproject.toml
+
+# Quality (or use `make ci` to run all)
+ruff check src/ tests/                              # lint (zero errors expected)
+ruff format src/ tests/                             # format
+mypy src/bigbrotr                                   # strict type check
+
+# Tests
+pytest tests/ -v                                    # all tests (~2,955)
+pytest tests/ --ignore=tests/integration/ -v        # unit only
+pytest tests/unit/core/test_pool.py -v              # single file
+pytest -k "health_check" -v                         # pattern match
+pytest tests/ --cov=src/bigbrotr --cov-report=html  # coverage (80% minimum)
+
+# Makefile shortcuts
+make lint / make format / make format-check / make typecheck / make test / make test-fast / make coverage / make audit / make ci
+
+# Build
+uv build                                            # sdist + wheel
+
+# Pre-commit
+pre-commit run --all-files
+
+# Run a service (from a deployment directory)
+cd deployments/bigbrotr
+python -m bigbrotr seeder --once
+python -m bigbrotr finder --log-level DEBUG
+```
+
+## Architecture
+
+Diamond DAG. Imports flow strictly downward:
+
+```
+              services         src/bigbrotr/services/
+             /   |   \
+          core  nips  utils    src/bigbrotr/{core,nips,utils}/
+             \   |   /
+              models           src/bigbrotr/models/
+```
+
+10 **independent** services sharing PostgreSQL. No direct
+service-to-service dependencies -- all communication via the database.
+
+```
+PostgreSQL (shared)
+  -> Seeder
+  -> Finder
+  -> Validator
+  -> Monitor
+  -> Synchronizer
+  -> Refresher
+  -> Ranker
+  -> Assertor
+  -> Api
+  -> Dvm
+```
+
+## Package Navigation
+
+`docs/` is the canonical maintained documentation tree. Do **not** assume that
+package-local README files exist.
+
+When you enter a package or top-level area:
+
+- start from the root `README.md`, this file, and the relevant `docs/` pages;
+- read any local `AGENTS.md` if it exists;
+- inspect the relevant code, tests, config, and deployment examples directly;
+- treat the code as the source of truth when local prose is absent.
+
+The major repository areas are:
+
+| Area | Purpose |
+|------|---------|
+| `src/bigbrotr/models/` | Frozen domain models, enums, validation, DB param caching |
+| `src/bigbrotr/core/` | Pool, Brotr DB facade, BaseService lifecycle, logging, metrics, YAML loading |
+| `src/bigbrotr/nips/` | NIP helpers, event builders, relay-info and health-check logic |
+| `src/bigbrotr/utils/` | DNS, HTTP, protocol, transport, parsing, and key helpers |
+| `src/bigbrotr/services/` | Service implementations plus shared service-side utilities |
+| `tests/` | Unit and integration coverage, fixtures, and behavioral specification |
+| `tools/` | SQL generation system, templates, and supporting tooling |
+| `deployments/` | Deployment folders, Docker orchestration, DB init/config, operator assets |
+| `.github/` | CI/CD, issue templates, security policies, Dependabot |
+| `docs/` | MkDocs site, public docs, and contributor/operator guidance |
+
+The redesign plan includes broader folder-level documentation coverage, but the
+current repository should still be approached as code-first.
+
+## Import Conventions
+
+```python
+# Same package: relative
+from .logger import Logger
+from .common.configs import ClearnetConfig
+
+# Cross-package: absolute
+from bigbrotr.core.logger import Logger
+from bigbrotr.core.base_service import BaseService, BaseServiceConfig
+from bigbrotr.models.constants import NetworkType, EventKind, ServiceName
+from bigbrotr.models.service_state import ServiceState, ServiceStateType
+from bigbrotr.nips.nip11 import Nip11
+from bigbrotr.utils.protocol import connect_relay, is_nostr_relay
+
+# Models layer: stdlib only
+import logging
+logger = logging.getLogger(__name__)
+```
+
+**Rules**: `ban-relative-imports = "parents"` (only sibling-relative allowed). `known-first-party = ["bigbrotr"]`.
+
+## Error Handling
+
+The project uses Python built-in and library exceptions (e.g. `ConnectionError`,
+`asyncio.TimeoutError`, `asyncpg.PostgresError`, `OSError`). The only custom exception
+is `CatalogError` in `services/common/catalog.py`, raised to prevent leaking database
+internals to API/DVM clients.
+
+**Rules**:
+- **Never** use bare `except Exception` in service code. The only intentionally broad exception boundaries are `run_forever()` (cycle-level) and `_iter_concurrent` worker wrappers (per-worker isolation to protect `TaskGroup`).
+- **Never** catch `asyncio.CancelledError`, `KeyboardInterrupt`, or `SystemExit` -- always let them propagate.
+- **Always** re-raise after logging in catch blocks unless the exception is intentionally swallowed (document why).
+- Before adding a new error boundary, inspect the existing patterns in
+  `src/bigbrotr/core/base_service.py`, `src/bigbrotr/core/service_runtime.py`,
+  and comparable service modules.
+
+## Database
+
+- **Tables**: `relay`, `event`, `event_observation`, `document`, `relay_document`, `service_state`
+- **Column names**: `document` table columns `(id, type, data)` with composite PK `(id, type)`. `service_state` uses `state_value` (NOT `value` or `payload`). `relay_document` columns `(relay_url, document_id, role, associated_at)` with compound FK `(document_id, role)` referencing `document(id, type)`.
+- **No CHECK constraints** -- validation in Python enum layer
+- **Hash** computed in Python (SHA-256, no pgcrypto)
+- **All mutations** via stored procedures with bulk array parameters
+- **38 functions**: 5 utility, 10 CRUD/cascade/state, 0 cleanup, 3 current refresh, 13 analytics/operational-fact refresh, 4 NIP-85 incremental refresh, 3 periodic (`rolling_windows_refresh`, `relay_stats_document_refresh`, `nip85_follower_count_refresh`). All `SECURITY INVOKER` (PostgreSQL default, not explicitly declared).
+- **6 summary tables** (incremental refresh): `pubkey_kind_stats`, `pubkey_relay_stats`, `relay_kind_stats`, `pubkey_stats`, `kind_stats`, `relay_stats`
+- **3 current tables** (incremental refresh): `relay_document_current`, `replaceable_event_current`, `addressable_event_current` (narrow winner maps)
+- **2 operational contact-fact tables** (incremental refresh): `contact_lists_current`, `contact_list_edges_current`
+- **Cascade functions**: `event_observation_insert_cascade` (relay + event + junction), `relay_document_insert_cascade` (relay + document + junction)
+- **`Brotr._pool` is private** -- services use Brotr methods, never pool directly
+- **Query conventions**: all domain queries in service-specific `queries.py` modules, use `$1`/`$2` parameterized placeholders (never f-strings for values). Timeouts are config-driven via `TimeoutsConfig` -- query functions never accept `timeout` parameters.
+- When modifying schema or stored procedures, inspect `tools/templates/sql/`,
+  `tools/generate_sql.py`, deployment SQL init assets, and the adjacent tests
+  before changing code.
+
+## Model Patterns
+
+- ALL models `@dataclass(frozen=True, slots=True)` -- immutable
+- ALL models cache `to_db_params()` in `__post_init__` via `_db_params` field
+- Pattern: `_compute_db_params()` -> cached `_db_params` -> `to_db_params()` returns it
+- `object.__setattr__` in `__post_init__` (frozen workaround)
+- Treat `src/bigbrotr/models/` and its tests as the authoritative reference for
+  model semantics until richer local package docs land.
+
+**Design principles** (non-negotiable):
+- **Fail-fast validation**: invalid instances never escape the constructor. All validation in `__post_init__`.
+- **Content-addressed deduplication**: Documents are hashed with SHA-256. Same data = same hash, always. Type is NOT included in the hash but is part of the composite PK `(id, type)`, so deduplication operates within each type.
+- **Never trust stored data**: constructors re-validate all inputs. `Relay.__post_init__` re-parses URL completely. `Document.__post_init__` recomputes the content hash.
+- **Cascade atomicity**: `event_observation_insert_cascade` and `relay_document_insert_cascade` insert across multiple tables in a single SQL call.
+
+## Testing
+
+- pytest with `asyncio_mode = "auto"` -- no `@pytest.mark.asyncio`
+- Global timeout: `--timeout=120` in addopts
+- Coverage threshold: `fail_under = 80` (branch coverage)
+- `time.monotonic()` for durations, `time.time()` for Unix timestamps
+- ~2,739 unit tests + ~216 integration tests (testcontainers PostgreSQL)
+- Mock at the CONSUMER's namespace, not the source:
+  - Correct: `@patch("bigbrotr.services.validator.is_nostr_relay")`
+  - Wrong: `@patch("bigbrotr.utils.transport.is_nostr_relay")`
+- When adding or debugging tests, inspect adjacent test modules,
+  `tests/conftest.py`, and existing fixture patterns before introducing new
+  helpers.
+
+## Code Style
+
+- **ruff**: lint + format, line-length 100, target py311
+- **mypy**: strict on `src/bigbrotr`
+- **Commits**: `feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`
+- Pre-commit auto-formats on commit -- re-stage after changes
+- `debug-statements` hook uses Python 3.9 AST -- no `match/case` in hook scripts
+
+## CLI
+
+- Entry point: `bigbrotr.__main__:cli`
+- `python -m bigbrotr <service> [--config PATH] [--brotr-config PATH] [--log-level LEVEL] [--once]`
+- Config defaults: `config/brotr.yaml`, `config/services/<service>.yaml`
+- `BrotrConfig`: `batch` (BatchConfig), `timeouts` (TimeoutsConfig: query=60s, batch=120s, cleanup=90s, refresh=None)
+- Lifecycle: `async with brotr:` then `async with service:` then `service.run_forever()` or `service.run()`
+
+## Closed Design Issues
+
+- Logger can't use `__slots__` -- breaks `unittest.mock.patch.object()`
+- Monitor keys validation at config load via `model_validator` -- fail-fast by design
+- Type annotations on generic subclasses -- necessary for mypy type narrowing
+
+## Local Guidance Reality
+
+This repository does **not** currently ship a committed local command directory
+or a committed local deep-dive guide set.
+
+That means:
+
+- do not rely on project-local slash-command files existing;
+- do not rely on project-local deep-dive guide files existing;
+- use committed repository artifacts directly:
+  - root `README.md`;
+  - canonical documentation under `docs/`;
+  - code;
+  - tests;
+  - deployment examples;
+  - SQL templates;
+  - and any local `AGENTS.md` that does exist.
+
+If a future slice adds committed local guides, they should be accurate,
+discoverable, and treated as part of the repository contract.

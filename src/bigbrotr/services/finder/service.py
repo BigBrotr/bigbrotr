@@ -7,14 +7,14 @@ Discovers Nostr relay URLs from two sources:
    response (flat array, nested path, object keys, etc.) via
    [ApiSourceConfig][bigbrotr.services.finder.ApiSourceConfig].
 2. **Database events** -- Tag values from all stored events are parsed via
-   [parse_relay][bigbrotr.services.common.utils.parse_relay]; only
+   [try_parse_relay][bigbrotr.services.common.utils.try_parse_relay]; only
    valid ``wss://`` / ``ws://`` URLs pass validation. This is kind-agnostic:
    any event whose ``tagvalues`` column contains relay-like strings will
    contribute discovered URLs.
 
 Discovered URLs are inserted as validation candidates for the
 [Validator][bigbrotr.services.validator.Validator] service via
-[insert_relays_as_candidates][bigbrotr.services.common.queries.insert_relays_as_candidates].
+[insert_relays_as_candidates][bigbrotr.services.common.discovery_queries.insert_relays_as_candidates].
 
 Note:
     Event scanning uses per-relay cursor-based pagination so that
@@ -42,8 +42,8 @@ Examples:
     from bigbrotr.core import Brotr
     from bigbrotr.services import Finder
 
-    brotr = Brotr.from_yaml("config/brotr.yaml")
-    finder = Finder.from_yaml("config/services/finder.yaml", brotr=brotr)
+    brotr = Brotr.from_yaml("deployments/bigbrotr/config/brotr.yaml")
+    finder = Finder.from_yaml("deployments/bigbrotr/config/services/finder.yaml", brotr=brotr)
 
     async with brotr:
         async with finder:
@@ -54,6 +54,7 @@ Examples:
 from __future__ import annotations
 
 import asyncio
+import math
 import time
 from typing import TYPE_CHECKING, ClassVar
 
@@ -61,20 +62,40 @@ import aiohttp
 
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
+from bigbrotr.services.common.discovery_queries import insert_relays_as_candidates
 from bigbrotr.services.common.mixins import ConcurrentStreamMixin
-from bigbrotr.services.common.queries import insert_relays_as_candidates
-from bigbrotr.services.common.types import ApiCheckpoint, FinderCursor
 
+from .api_runtime import (
+    ApiDiscoveryPersistenceContext,
+    ApiDiscoveryWorkerContext,
+    ApiSourceAttempt,
+    build_api_source_attempts,
+    find_from_api_worker,
+    persist_api_discovery_results,
+)
 from .configs import ApiSourceConfig, FinderConfig
+from .event_runtime import (
+    EventScanPageContext,
+    EventScanPersistenceContext,
+    EventWorkerContext,
+    build_event_scan_plan,
+    flush_event_scan_batch,
+    scan_event_cursor_page,
+    stream_event_discovery_worker,
+)
+from .event_runtime import (
+    EventScanPlan as FinderEventScanPlan,
+)
 from .queries import (
+    count_relays_to_find,
     delete_stale_api_checkpoints,
     delete_stale_cursors,
     fetch_api_checkpoints,
-    fetch_cursors_to_find,
+    iter_cursors_to_find_pages,
     upsert_api_checkpoints,
     upsert_finder_cursors,
 )
-from .utils import extract_relays_from_tagvalues, fetch_api, stream_event_relays
+from .utils import extract_relays_from_tagvalues, fetch_api, stream_event_observations
 
 
 if TYPE_CHECKING:
@@ -82,6 +103,7 @@ if TYPE_CHECKING:
 
     from bigbrotr.core.brotr import Brotr
     from bigbrotr.models import Relay
+    from bigbrotr.services.common.types import ApiCheckpoint, FinderCursor
 
 
 class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
@@ -89,8 +111,8 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
 
     Discovers Nostr relay URLs from external APIs and stored database events,
     then inserts them as validation candidates for the
-    [Validator][bigbrotr.services.validator.Validator] service via
-    [insert_relays_as_candidates][bigbrotr.services.common.queries.insert_relays_as_candidates].
+        [Validator][bigbrotr.services.validator.Validator] service via
+        [insert_relays_as_candidates][bigbrotr.services.common.discovery_queries.insert_relays_as_candidates].
 
     See Also:
         [FinderConfig][bigbrotr.services.finder.FinderConfig]: Configuration
@@ -103,6 +125,7 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
 
     SERVICE_NAME: ClassVar[ServiceName] = ServiceName.FINDER
     CONFIG_CLASS: ClassVar[type[FinderConfig]] = FinderConfig
+    EventScanPlan = FinderEventScanPlan
 
     def __init__(
         self,
@@ -153,31 +176,43 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         """
         if not self._config.api.enabled:
             return 0
-
-        enabled = [s for s in self._config.api.sources if s.enabled]
+        sources = tuple(source for source in self._config.api.sources if source.enabled)
 
         buffer: list[Relay] = []
         pending_checkpoints: list[ApiCheckpoint] = []
 
-        self.set_gauge("total_sources", len(enabled))
+        self.set_gauge("total_sources", len(sources))
         self.set_gauge("sources_fetched", 0)
         self.set_gauge("candidates_found_from_api", 0)
 
-        self._logger.info("api_started", source_count=len(enabled))
+        self._logger.info("api_started", source_count=len(sources))
 
-        async for relays, checkpoint in self._find_from_api_worker(enabled):
+        async for relays, checkpoint in self._find_from_api_worker(list(sources)):
             buffer.extend(relays)
             pending_checkpoints.append(checkpoint)
             self.inc_gauge("sources_fetched")
 
-        if pending_checkpoints:
-            await upsert_api_checkpoints(self._brotr, pending_checkpoints)
-
-        found = await insert_relays_as_candidates(self._brotr, buffer)
-        self.set_gauge("candidates_found_from_api", found)
+        found = await self._persist_api_discovery_results(buffer, pending_checkpoints)
 
         self._logger.info("api_completed", found=found, collected=len(buffer))
         return found
+
+    async def _persist_api_discovery_results(
+        self,
+        buffer: list[Relay],
+        pending_checkpoints: list[ApiCheckpoint],
+    ) -> int:
+        """Persist one API discovery cycle and clear its in-memory state."""
+        return await persist_api_discovery_results(
+            buffer=buffer,
+            pending_checkpoints=pending_checkpoints,
+            context=ApiDiscoveryPersistenceContext(
+                brotr=self._brotr,
+                upsert_api_checkpoints_fn=upsert_api_checkpoints,
+                insert_relays_fn=insert_relays_as_candidates,
+                set_gauge=self.set_gauge,
+            ),
+        )
 
     async def _find_from_api_worker(
         self,
@@ -191,44 +226,40 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         Respects ``request_delay`` between sources and ``is_running`` for
         graceful shutdown.
         """
-        source_urls = [s.url for s in sources]
-        checkpoints = await fetch_api_checkpoints(self._brotr, source_urls)
-        checkpoint_map = {cp.key: cp for cp in checkpoints}
-        now = int(time.time())
+        async for relays, checkpoint in find_from_api_worker(
+            sources=sources,
+            context=ApiDiscoveryWorkerContext(
+                brotr=self._brotr,
+                cooldown=self._config.api.cooldown,
+                current_time=time.time,
+                max_response_size=self._config.api.max_response_size,
+                request_delay=self._config.api.request_delay,
+                is_running=lambda: self.is_running,
+                wait=self.wait,
+                fetch_api_fn=fetch_api,
+                client_session_factory=aiohttp.ClientSession,
+                recoverable_errors=(TimeoutError, OSError, aiohttp.ClientError, ValueError),
+                checkpoint_timestamp=lambda: math.ceil(time.time()),
+                logger=self._logger,
+                fetch_api_checkpoints_fn=fetch_api_checkpoints,
+            ),
+        ):
+            yield relays, checkpoint
 
-        async with aiohttp.ClientSession() as session:
-            for i, source in enumerate(sources):
-                if not self.is_running:
-                    return
-
-                cooldown = self._config.api.cooldown
-                last_checked = checkpoint_map[source.url].timestamp
-                if now - last_checked < cooldown:
-                    self._logger.debug(
-                        "api_skipped",
-                        url=source.url,
-                        seconds_left=cooldown - (now - last_checked),
-                    )
-                    continue
-
-                try:
-                    relays = await fetch_api(session, source, self._config.api.max_response_size)
-                    self._logger.debug("api_fetched", url=source.url, count=len(relays))
-                    yield relays, ApiCheckpoint(key=source.url, timestamp=int(time.time()))
-                except (TimeoutError, OSError, aiohttp.ClientError, ValueError) as e:
-                    self._logger.warning(
-                        "api_fetch_failed",
-                        error=str(e),
-                        error_type=type(e).__name__,
-                        url=source.url,
-                    )
-
-                if (
-                    self._config.api.request_delay > 0
-                    and i < len(sources) - 1
-                    and await self.wait(self._config.api.request_delay)
-                ):
-                    return
+    def _build_api_source_attempts(
+        self,
+        sources: list[ApiSourceConfig],
+        checkpoint_map: dict[str, ApiCheckpoint],
+        now: float,
+    ) -> tuple[ApiSourceAttempt, ...]:
+        """Return the enabled API sources whose cooldown has elapsed for this cycle."""
+        return build_api_source_attempts(
+            sources,
+            checkpoint_map,
+            cooldown=self._config.api.cooldown,
+            now=now,
+            logger=self._logger,
+        )
 
     # ── Event discovery ────────────────────────────────────────────
 
@@ -237,7 +268,7 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
 
         Fetches current cursor positions, scans all relays concurrently
         (bounded by ``events.parallel_relays``) via ``_iter_concurrent()``.
-        Workers stream event-relay rows. The parent extracts relay URLs,
+        Workers stream event-observation rows. The parent extracts relay URLs,
         accumulates them in a global buffer flushed at
         ``brotr.config.batch.max_size``, and saves cursors in batch after
         each flush.
@@ -248,46 +279,84 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         if not self._config.events.enabled:
             return 0
 
-        cursors = await fetch_cursors_to_find(self._brotr)
-        if not cursors:
+        plan = await self._build_event_scan_plan()
+        if plan is None:
             self._logger.debug("no_relays_to_scan")
             return 0
 
         self._event_semaphore = asyncio.Semaphore(self._config.events.parallel_relays)
-        self._phase_start = time.monotonic()
+        self._phase_start = plan.phase_start
 
         total_found = 0
         buffer: list[Relay] = []
         pending_cursors: dict[str, FinderCursor] = {}
-        batch_size = self._config.events.batch_size
 
         self.set_gauge("relays_seen", 0)
         self.set_gauge("rows_seen", 0)
         self.set_gauge("candidates_found_from_events", 0)
 
-        self._logger.info("scan_started", relay_count=len(cursors))
+        self._logger.info("scan_started", relay_count=plan.relay_count)
 
-        async for relays, cursor in self._iter_concurrent(cursors, self._find_from_events_worker):
-            buffer.extend(relays)
-            pending_cursors[cursor.key] = cursor
-            self.inc_gauge("rows_seen")
-            if len(buffer) >= batch_size:
-                found = await insert_relays_as_candidates(self._brotr, buffer)
-                total_found += found
-                self.inc_gauge("candidates_found_from_events", found)
-                buffer = []
-                await upsert_finder_cursors(self._brotr, pending_cursors.values())
-                pending_cursors = {}
+        async for cursors in iter_cursors_to_find_pages(self._brotr, page_size=plan.page_size):
+            total_found += await self._scan_event_cursor_page(
+                cursors,
+                buffer,
+                pending_cursors,
+                plan=plan,
+            )
 
-        if buffer:
-            found = await insert_relays_as_candidates(self._brotr, buffer)
-            total_found += found
-            self.inc_gauge("candidates_found_from_events", found)
-        if pending_cursors:
-            await upsert_finder_cursors(self._brotr, pending_cursors.values())
+        total_found += await self._flush_event_scan_batch(buffer, pending_cursors)
 
         self._logger.info("scan_completed", found=total_found)
         return total_found
+
+    async def _build_event_scan_plan(self) -> FinderEventScanPlan | None:
+        """Compute the batching budget and progress totals for one event scan cycle."""
+        return await build_event_scan_plan(
+            brotr=self._brotr,
+            config=self._config,
+            count_relays_fn=count_relays_to_find,
+            monotonic=time.monotonic,
+        )
+
+    async def _scan_event_cursor_page(
+        self,
+        cursors: list[FinderCursor],
+        buffer: list[Relay],
+        pending_cursors: dict[str, FinderCursor],
+        *,
+        plan: FinderEventScanPlan,
+    ) -> int:
+        """Scan one page of source relays and flush when the batch budget is reached."""
+        return await scan_event_cursor_page(
+            cursors=cursors,
+            buffer=buffer,
+            pending_cursors=pending_cursors,
+            plan=plan,
+            context=EventScanPageContext(
+                iter_concurrent=self._iter_concurrent,
+                worker=self._find_from_events_worker,
+                flush_batch=self._flush_event_scan_batch,
+                inc_gauge=self.inc_gauge,
+            ),
+        )
+
+    async def _flush_event_scan_batch(
+        self,
+        buffer: list[Relay],
+        pending_cursors: dict[str, FinderCursor],
+    ) -> int:
+        """Persist one accumulated event-scan batch and clear in-memory state."""
+        return await flush_event_scan_batch(
+            buffer=buffer,
+            pending_cursors=pending_cursors,
+            context=EventScanPersistenceContext(
+                brotr=self._brotr,
+                insert_relays_fn=insert_relays_as_candidates,
+                upsert_cursors_fn=upsert_finder_cursors,
+                inc_gauge=self.inc_gauge,
+            ),
+        )
 
     async def _find_from_events_worker(
         self, cursor: FinderCursor
@@ -295,36 +364,26 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         """Stream discovered relays from a single source relay for ``_iter_concurrent``.
 
         Acquires the per-phase semaphore, streams rows via
-        [stream_event_relays][bigbrotr.services.finder.utils.stream_event_relays],
+        [stream_event_observations][bigbrotr.services.finder.utils.stream_event_observations],
         extracts relay URLs from tagvalues, and yields ``(relays, cursor)``
         pairs. On unexpected exception, logs and returns (the relay is silently
         skipped).
         """
-        async with self._event_semaphore:
-            if not self.is_running or (
-                time.monotonic() - self._phase_start > self._config.events.max_duration
-            ):
-                return
-            try:
-                deadline = time.monotonic() + self._config.events.max_relay_time
-                async for row in stream_event_relays(
-                    self._brotr, cursor, self._config.events.scan_size
-                ):
-                    relays = extract_relays_from_tagvalues([row])
-                    updated = FinderCursor(
-                        key=cursor.key,
-                        timestamp=row["seen_at"],
-                        id=row["event_id"].hex(),
-                    )
-                    yield relays, updated
-                    if time.monotonic() > deadline:
-                        return
-            except Exception as e:  # Worker exception boundary — protects TaskGroup
-                self._logger.error(
-                    "event_scan_worker_failed",
-                    error=str(e),
-                    error_type=type(e).__name__,
-                    relay=cursor.key,
-                )
-            finally:
-                self.inc_gauge("relays_seen")
+        async for item in stream_event_discovery_worker(
+            context=EventWorkerContext(
+                event_semaphore=self._event_semaphore,
+                is_running=lambda: self.is_running,
+                phase_start=self._phase_start,
+                max_duration=self._config.events.max_duration,
+                max_relay_time=self._config.events.max_relay_time,
+                scan_size=self._config.events.scan_size,
+                brotr=self._brotr,
+                logger=self._logger,
+                stream_event_observations=stream_event_observations,
+                extract_relays_from_tagvalues=extract_relays_from_tagvalues,
+                monotonic=time.monotonic,
+                inc_gauge=self.inc_gauge,
+            ),
+            cursor=cursor,
+        ):
+            yield item

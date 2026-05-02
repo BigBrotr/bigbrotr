@@ -10,14 +10,13 @@
 
 site_name: BigBrotr
 site_url: https://bigbrotr.github.io/bigbrotr/
-site_description: Modular Nostr network observatory — relay discovery, health monitoring, event archiving, analytics, and data access
+site_description: Storage-first Nostr relay observatory with independent services, a shared read core, and deployment profiles
 repo_url: https://github.com/BigBrotr/bigbrotr
 repo_name: BigBrotr/bigbrotr
 copyright: Copyright &copy; BigBrotr Contributors
 
 theme:
   name: material
-  custom_dir: docs/overrides
   logo: assets/images/logo.webp
   favicon: assets/images/favicon.png
   font:
@@ -60,6 +59,13 @@ theme:
 
 nav:
   - Home: index.md
+  - Project:
+      - project/index.md
+      - Repository Map: project/repository-map.md
+      - Data Flow: project/data-flow.md
+      - Glossary: project/glossary.md
+      - Current-State Guide: project/current-state-guide.md
+      - Repository Bible: project/repository-bible.md
   - Getting Started:
       - getting-started/index.md
       - Installation: getting-started/installation.md
@@ -69,8 +75,11 @@ nav:
       - user-guide/index.md
       - Architecture: user-guide/architecture.md
       - Services: user-guide/services.md
-      - Configuration: user-guide/configuration.md
       - Database: user-guide/database.md
+      - NIP-85 Pipeline: user-guide/nip85-pipeline.md
+      - Read Side: user-guide/read-side.md
+      - Deployments: user-guide/deployments.md
+      - Configuration: user-guide/configuration.md
       - Monitoring: user-guide/monitoring.md
   - How-to Guides:
       - how-to/index.md
@@ -82,15 +91,24 @@ nav:
       - Monitoring Setup: how-to/monitoring-setup.md
       - Backup & Restore: how-to/backup-restore.md
       - Troubleshooting: how-to/troubleshooting.md
+      - Self-Hosting Guide: guides/self-hosting.md
   - Development:
       - development/index.md
       - Setup: development/setup.md
       - Testing: development/testing.md
       - Coding Standards: development/coding-standards.md
       - SQL Templates: development/sql-templates.md
+      - Documentation: development/documentation.md
       - Contributing: development/contributing.md
-  - API Reference: reference/
+  - Python API Reference: reference/
+  - Appendices:
+      - Decision Record: appendices/decision-record.md
+      - Evidence Map: appendices/evidence-map.md
+      - Nostr NIPs Analysis: appendices/nostr-nips-analysis.md
   - Changelog: changelog.md
+
+exclude_docs: |
+  _snippets/**
 
 plugins:
   - search

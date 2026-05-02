@@ -1,8 +1,9 @@
 """Data-driven event streaming algorithm with binary-split fallback.
 
 Provides ``stream_events`` — the core windowing algorithm that streams
-Nostr events in ascending ``(created_at, id)`` order, ensuring
-completeness even when a relay truncates responses.
+Nostr events in ascending ``(created_at, id)`` order, using a
+data-driven verification pass plus binary-split fallback to recover from
+relay-side truncation.
 
 ``_fetch_validated`` is the single source of truth for event validation.
 ``stream_events`` orchestrates windowing, sorting, and domain conversion.
@@ -15,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import time
 from dataclasses import dataclass
 from datetime import timedelta
@@ -35,6 +37,43 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _normalize_timestamp(value: object, field_name: str) -> int:
+    """Return one canonical non-negative Unix timestamp."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field_name} must be a non-negative int")
+    if value < 0:
+        raise ValueError(f"{field_name} must be a non-negative int")
+    return value
+
+
+def _normalize_positive_limit(limit: object) -> int:
+    """Return one canonical positive event-limit budget."""
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
+        raise ValueError("limit must be a positive int")
+    return limit
+
+
+def _normalize_timeout(value: object, field_name: str, *, allow_zero: bool) -> float:
+    """Return one canonical finite timeout budget."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        qualifier = "non-negative" if allow_zero else "positive"
+        raise ValueError(f"{field_name} must be a {qualifier} finite number")
+    normalized = float(value)
+    if not math.isfinite(normalized) or normalized < 0 or (not allow_zero and normalized == 0):
+        qualifier = "non-negative" if allow_zero else "positive"
+        raise ValueError(f"{field_name} must be a {qualifier} finite number")
+    return normalized
+
+
+def _normalize_max_event_size(value: object) -> int | None:
+    """Return one canonical optional max-event-size budget."""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError("max_event_size must be a positive int or None")
+    return value
+
+
 # ── Event conversion ──────────────────────────────────────────────
 
 
@@ -46,8 +85,8 @@ def _to_domain_events(
 
     Sorts by ascending ``(created_at, id)`` then wraps each ``NostrEvent``
     in an ``Event`` domain model. Events that fail model validation (null
-    bytes, overflow) or exceed ``max_event_size`` are silently dropped
-    with a debug log.
+    bytes, overflow) or exceed ``max_event_size`` are dropped with a
+    debug log.
     """
     raw_events.sort(key=lambda e: (e.created_at().as_secs(), e.id().to_hex()))
     result: list[Event] = []
@@ -195,9 +234,11 @@ async def stream_events(  # noqa: PLR0913
     boundary via ``_to_domain_events``.
 
     The ``idle_timeout`` is progress-based: the timer resets every time an
-    event is yielded.  A relay that produces events slowly but steadily will
-    never be killed by it.  A relay that connects but stops producing events
-    is abandoned after ``idle_timeout`` seconds.
+    event is yielded and is checked between window fetch iterations. It is
+    not a hard deadline on an in-flight fetch/verify step. A relay that
+    yields steadily across iterations will keep the stream alive, while a
+    relay that stops making progress will be abandoned on a later loop once
+    the elapsed idle window is observed.
 
     Args:
         client: Connected nostr-sdk ``Client`` with the target relay added.
@@ -209,12 +250,28 @@ async def stream_events(  # noqa: PLR0913
         limit: Max events per relay request (REQ limit).
         request_timeout: Seconds to wait for each ``stream_events`` call.
         idle_timeout: Seconds without yielding an event before the stream
-            is abandoned.  The timer starts when the function enters its
-            main loop and resets on every yield.
+            is abandoned on a later loop iteration. The timer starts when
+            the function enters its main loop, resets on every yield, and
+            does not interrupt an already-running fetch/verify step.
 
     Yields:
         Domain ``Event`` objects in ascending ``(created_at, id)`` order.
     """
+    start_time = _normalize_timestamp(start_time, "start_time")
+    end_time = _normalize_timestamp(end_time, "end_time")
+    limit = _normalize_positive_limit(limit)
+    request_timeout = _normalize_timeout(
+        request_timeout,
+        "request_timeout",
+        allow_zero=False,
+    )
+    idle_timeout = _normalize_timeout(
+        idle_timeout,
+        "idle_timeout",
+        allow_zero=True,
+    )
+    max_event_size = _normalize_max_event_size(max_event_size)
+
     if start_time > end_time:
         return
 

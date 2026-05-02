@@ -19,11 +19,34 @@ Each ``ServiceStateType`` has a corresponding typed class:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+
+from bigbrotr.models import Relay
+from bigbrotr.models.constants import NetworkType
 
 
-if TYPE_CHECKING:
-    from bigbrotr.models.constants import NetworkType
+_CURSOR_ID_HEX_LENGTH = 64
+
+
+def _validate_non_negative_int(value: object, name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"{name} must be an int")
+    if value < 0:
+        raise ValueError(f"{name} must be non-negative")
+    return value
+
+
+def _normalize_cursor_id(value: object) -> str:
+    if not isinstance(value, str):
+        raise TypeError("id must be a str")
+    if len(value) != _CURSOR_ID_HEX_LENGTH:
+        raise ValueError("id must be a 64-character hex string")
+    try:
+        normalized = bytes.fromhex(value).hex()
+    except ValueError as exc:
+        raise ValueError("id must be a 64-character hex string") from exc
+    if len(normalized) != _CURSOR_ID_HEX_LENGTH:
+        raise ValueError("id must be a 64-character hex string")
+    return normalized
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +71,11 @@ class Checkpoint:
 
     key: str
     timestamp: int = 0
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.key, str):
+            raise TypeError("key must be a str")
+        _validate_non_negative_int(self.timestamp, "timestamp")
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,7 +114,7 @@ class CandidateCheckpoint(Checkpoint):
     (for new candidates) or last validation attempt time (for retries).
 
     Created by
-    [insert_relays_as_candidates][bigbrotr.services.common.queries.insert_relays_as_candidates]
+    [insert_relays_as_candidates][bigbrotr.services.common.discovery_queries.insert_relays_as_candidates]
     and fetched by
     [fetch_candidates][bigbrotr.services.validator.queries.fetch_candidates].
 
@@ -100,6 +128,29 @@ class CandidateCheckpoint(Checkpoint):
 
     network: NetworkType
     failures: int = 0
+
+    def __post_init__(self) -> None:
+        relay = Relay(self.key)
+        if (
+            not isinstance(self.timestamp, int)
+            or isinstance(self.timestamp, bool)
+            or self.timestamp < 0
+        ):
+            raise ValueError("timestamp must be a non-negative integer")
+        if (
+            not isinstance(self.failures, int)
+            or isinstance(self.failures, bool)
+            or self.failures < 0
+        ):
+            raise ValueError("failures must be a non-negative integer")
+        if not isinstance(self.network, NetworkType):
+            raise TypeError("network must be a NetworkType")
+        if relay.network != self.network:
+            raise ValueError(
+                "candidate network "
+                f"{self.network.value!r} does not match relay URL network "
+                f"{relay.network.value!r}"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,6 +177,12 @@ class Cursor:
     timestamp: int = 0
     id: str = "0" * 64
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.key, str):
+            raise TypeError("key must be a str")
+        _validate_non_negative_int(self.timestamp, "timestamp")
+        object.__setattr__(self, "id", _normalize_cursor_id(self.id))
+
 
 @dataclass(frozen=True, slots=True)
 class SyncCursor(Cursor):
@@ -135,12 +192,30 @@ class SyncCursor(Cursor):
     ``timestamp`` is the event ``created_at``, ``id`` is the event ID.
     """
 
+    def __post_init__(self) -> None:
+        Cursor.__post_init__(self)
+        object.__setattr__(self, "key", Relay(self.key).url)
+
 
 @dataclass(frozen=True, slots=True)
 class FinderCursor(Cursor):
     """Per-relay cursor for event scanning pagination (Finder).
 
     Tracks how far local event scanning has progressed for a given relay.
-    ``timestamp`` is the ``seen_at`` from the ``event_relay`` junction,
+    ``timestamp`` is the ``observed_at`` from the ``event_observation`` junction,
     ``id`` is the event ID for tie-breaking.
+    """
+
+    def __post_init__(self) -> None:
+        Cursor.__post_init__(self)
+        object.__setattr__(self, "key", Relay(self.key).url)
+
+
+@dataclass(frozen=True, slots=True)
+class DvmRequestCursor(Cursor):
+    """Cursor for NIP-90 request replay protection (Dvm).
+
+    Tracks the newest processed job request using the event ``created_at``
+    timestamp and event ID. The ``key`` is the logical DVM request stream
+    identifier (currently ``"job_requests"``).
     """
