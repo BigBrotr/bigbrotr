@@ -72,8 +72,8 @@ This includes repository documentation files such as:
 - folder-level `README.md` files;
 - package-local guidance files;
 - `AGENTS.md` files and repository guidance files;
-- `.Codex/guides/*` and command-support documentation where they remain part
-  of the contributor workflow;
+- command-support documentation where it remains part of the contributor
+  workflow;
 - architecture notes that are meant to guide contributors;
 - deployment-local notes and operational files where relevant.
 

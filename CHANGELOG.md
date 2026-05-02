@@ -586,7 +586,7 @@ Minor release: two new services (Api and Dvm) bring read-only HTTP and Nostr int
 
 ### Documentation
 
-- **8-service architecture**: Updated all service counts (6 -> 8), architecture diagrams, service tables, and interaction maps across README, PROJECT_SPECIFICATION, CLAUDE.md, guides, and MkDocs
+- **8-service architecture**: Updated all service counts (6 -> 8), architecture diagrams, service tables, and interaction maps across README, project specification, local guides, and MkDocs
 - **Source docstrings**: Fixed cross-references (`utils.transport` -> `utils.protocol`), exception types (`ValueError` -> `CatalogError`), field references (`log_level` -> `metrics`), consumer lists, and column names across 11 source files
 - **Deployment configs**: LilBrotr composite index upgrade, missing metrics port variables, singular table names in README, proxy container clarification, postgres-exporter network enum cleanup, bigbrotr role verification in `99_verify.sql`
 - **Removed `aiomultiprocess`**: Dead runtime dependency never imported in source code
@@ -890,7 +890,7 @@ Major quality and operational hardening release: exception hierarchy replaces al
   - `docs/README.md` (~33 lines): Documentation index with quick links
 - **README.md** (~460 lines): Complete project overview rewritten with verified data from codebase
 - **Removed obsolete docs**: `OVERVIEW.md` (redundant with README), `TECHNICAL.md` (redundant with ARCHITECTURE), `V5_PLAN.md` (internal planning)
-- **CLAUDE.md**: Updated for v5.0.0 architecture, exception hierarchy, monitor split, ServiceState location
+- **Local contributor guidance**: Updated for v5.0.0 architecture, exception hierarchy, monitor split, ServiceState location
 
 ---
 
@@ -947,9 +947,9 @@ Major architectural restructuring: all code moved under `bigbrotr` namespace pac
 
 - **README.md**: Version badge, five-layer diamond DAG architecture diagram, updated all paths/commands/project structure tree, test count → 1896
 - **All docs/*.md**: Updated for new paths, imports, and architecture (ARCHITECTURE, CONFIGURATION, DATABASE, DEPLOYMENT, DEVELOPMENT, OVERVIEW, TECHNICAL)
-- **CLAUDE.md**: Rewritten for bigbrotr namespace and diamond DAG architecture
+- **Local contributor guidance**: Rewritten for bigbrotr namespace and diamond DAG architecture
 - **CONTRIBUTING.md**: Updated paths and install commands
-- **Agent knowledge base**: All 7 `.claude/agents/bigbrotr-expert/` files updated
+- **Contributor knowledge base**: Local engineering guide files updated
 
 ---
 
@@ -992,7 +992,7 @@ Architecture refinement release: domain logic extracted from core to `services/c
 
 ### Documentation
 - **Three-tier architecture**: Reframed documentation around Foundation (core + models), Active (services + utils), and Implementation tiers
-- **All docs updated**: `ARCHITECTURE.md`, `DEVELOPMENT.md`, `TECHNICAL.md`, `README.md`, `CLAUDE.md` reflect renamed files and `services/common/`
+- **All docs updated**: `ARCHITECTURE.md`, `DEVELOPMENT.md`, `TECHNICAL.md`, `README.md`, and local contributor guidance reflect renamed files and `services/common/`
 - **Agent knowledge base updated**: `AGENT.md`, `core-reference.md`, `architecture-index.md` aligned with new structure
 - **YAML template comments**: Fixed `BaseServiceConfig` file path references in all 4 service templates
 - Removed deprecated `test_nip11_nip66.ipynb` notebook

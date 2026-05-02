@@ -1458,7 +1458,7 @@ This file is different:
 
 ### 16.3 Local folder guides
 
-There are also local `CLAUDE.md` files across the repository. Their role is
+There are also local guidance files across the repository. Their role is
 smaller and more localized:
 
 - explain the current folder

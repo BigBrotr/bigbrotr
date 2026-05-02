@@ -617,7 +617,7 @@ Full documentation is available at **[bigbrotr.github.io/bigbrotr](https://bigbr
 | [User Guide](https://bigbrotr.github.io/bigbrotr/user-guide/) | Architecture, services, configuration, database, monitoring |
 | [How-to Guides](https://bigbrotr.github.io/bigbrotr/how-to/) | Docker deploy, manual deploy, Tor setup, troubleshooting |
 | [Development](https://bigbrotr.github.io/bigbrotr/development/) | Setup, testing, contributing |
-| [API Reference](https://bigbrotr.github.io/bigbrotr/reference/) | Auto-generated Python API docs |
+| [Python API Reference](https://bigbrotr.github.io/bigbrotr/reference/) | Auto-generated Python package API docs |
 | [Changelog](CHANGELOG.md) | Version history and migration guides |
 
 ---

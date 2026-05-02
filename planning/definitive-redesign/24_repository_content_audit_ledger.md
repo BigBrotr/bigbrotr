@@ -70,7 +70,7 @@ Fill this section when the audit actually starts.
 | 1. Deepest non-Python leaves | done | `.github`, deployment leaves, monitoring/support leaves, and docs-support leaves are now audited and corrected against the final repository contract |
 | 2. Python leaf packages | done | `models`, `utils`, `nips`, `core`, and `services` leaves are now fully audited against the final repository contract: the NIP/assertion leaf hardening run closed across the full remediation series, `pool_config.py` plus `api`/`dvm`/`monitor` config roots now forbid unknown authored keys, public `API`/`DVM` naming drift is gone, and the final residual `BaseModel` scan returns only a test-only false positive in `tests/unit/nips/test_base.py` |
 | 3. Tools and tests leaves | done | `tools/`, SQL-template guidance, unit/integration test packages, and internal fixture surfaces are now audited and aligned, including generated-SQL guidance, test deployment fixture roots, and tracked fixture-data boundaries |
-| 4. Parent package and folder surfaces | done | Parent package exports and parent-level guidance are now aligned across `src`, `tests`, `deployments`, `docs`, hidden tracked support roots (`.claude`, `.vscode`), and the final tracked-directory scan leaves no maintained folder without `README.md` or `AGENTS.md` |
+| 4. Parent package and folder surfaces | done | Parent package exports and parent-level guidance are now aligned across `src`, `tests`, `deployments`, `docs`, hidden tracked support roots, and the final tracked-directory scan leaves no maintained folder without `README.md` or `AGENTS.md` |
 | 5. Narrative docs and planning surfaces | done | MkDocs section surfaces, docs assets, deployment/operator narratives, root naming drift, and the content-audit ledger itself are now re-read and aligned to the live repository state |
 | 6. Root contract and build/CI surfaces | done | Root entry/config/build/legal surfaces were re-read during closeout; repeated full gates stayed green and no additional root-contract remediation was required beyond the slices already committed during the audit |
 | 7. Repository-wide gap remediation and closeout | done | The audit added the missing maintained counterparts discovered during execution, growing the tracked surface from `542` to `604` files; the final tracked-manifest scan returns `NONE` for directories lacking `README.md` or `AGENTS.md`, the final observable gate is green, and the worktree closes clean |
@@ -92,10 +92,10 @@ Fill this section when the audit actually starts.
 
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
-| 1.1 `.github` leaf audit | done | `chore: align github automation surfaces` | Audited all tracked `.github` leaf surfaces and corrected real drift: added `.github/AGENTS.md` and `.github/workflows/AGENTS.md` as maintained local guidance, removed stale local `CLAUDE.md` leftovers from the live tree, aligned issue-template contact paths with the public docs/security surfaces, tightened the PR template to the actual contributor contract, and strengthened `release.yml` so the validation gate now runs pre-commit plus the repository contract gate (`make ci`, `uv lock --check`, and docs build) instead of only narrating a stronger standard. Targeted YAML/markdown/spelling checks, full `make ci`, and `uv lock --check` all passed before closure |
+| 1.1 `.github` leaf audit | done | `chore: align github automation surfaces` | Audited all tracked `.github` leaf surfaces and corrected real drift: added `.github/AGENTS.md` and `.github/workflows/AGENTS.md` as maintained local guidance, removed stale local guidance leftovers from the live tree, aligned issue-template contact paths with the public docs/security surfaces, tightened the PR template to the actual contributor contract, and strengthened `release.yml` so the validation gate now runs pre-commit plus the repository contract gate (`make ci`, `uv lock --check`, and docs build) instead of only narrating a stronger standard. Targeted YAML/markdown/spelling checks, full `make ci`, and `uv lock --check` all passed before closure |
 | 1.2 Deployment service-config leaf audit | done | `chore: align deployment service-config guidance` | Audited the per-service deployment YAML leaves and their paired `config/services/README.md` files against the live service config models. Corrected the misleading leaf contract that claimed every file only contained non-default overrides, removed dead references to nonexistent `brotr/config/services/*.yaml` paths, and rewrote the local guidance so these files are described honestly as deployment-local overlays that may also restate important defaults for operator clarity. The slice intentionally leaves broader parent-level deployment guidance, including the missing `deployments/AGENTS.md` surface, to the later parent-folder audit. Targeted YAML/markdown/spelling checks, full `make ci`, and `uv lock --check` must pass before closure |
 | 1.3 Deployment SQL/monitoring/support leaf audit | done | `chore: align deployment sql and monitoring leaf surfaces` | Audited the deployment SQL-init leaves, monitoring assets, pgbouncer configs, static leaves, and paired docs against the final repository contract. The slice found real drift even after the redesign execution program: built-in `07_views_reporting.sql` was still described too generically even though the built-in deployments intentionally ship no regular reporting views; built-in PgBouncer configs still claimed `auth_query`-based auth even though the containers generate a SCRAM userlist at startup; API/DVM dashboards still labeled `readable_resources_exposed` as “Tables Exposed”; the overview dashboards still omitted `ranker` and `assertor` summary rows; and monitoring/docs surfaces still mixed old metric naming (`service_counter`) with the actual Prometheus counter family name (`service_counter_total`). The slice corrected the SQL template plus generated init files, tightened Prometheus alert wording for DuckDB-local failed-run tracking, expanded both overview dashboards to include ranker/assertor summary rows, renamed read-side dashboard cards to “Readable Resources Exposed”, and aligned the paired monitoring/database docs and root references. Targeted pre-commit checks, `uv run python tools/generate_sql.py --check`, `uv run mkdocs build --strict`, full `make ci`, and `uv lock --check` all passed before closure |
-| 1.4 Docs asset/snippet/override leaf audit | done | `docs: align docs support leaf surfaces` | Audited `_snippets`, docs-support markdown leaves, theme-support assets, and the MkDocs override seam against the final docs contract. The slice found that the support layer still carried a few real weaknesses: the pipeline/service snippets still used pre-final public naming (`Api`, `Dvm`) and did not show the shared `ReadCore`; the root docs local guide only existed as an untracked `docs/CLAUDE.md` leftover instead of an intentional repo-local guidance file; the empty `docs/overrides/main.html` no longer earned its bytes; and MkDocs was relying on warning-prone implicit nav omission for local support markdown. The slice added a real tracked `docs/README.md`, updated the shared snippets to reflect `API`, `DVM`, and the protocol-agnostic read core, removed the empty theme override plus `custom_dir`, and formalized docs-support exclusions via `mkdocs.yml:exclude_docs` so local guidance/snippet files no longer collide with the public site. Targeted pre-commit checks and `uv run mkdocs build --strict` passed before closure |
+| 1.4 Docs asset/snippet/override leaf audit | done | `docs: align docs support leaf surfaces` | Audited `_snippets`, docs-support markdown leaves, theme-support assets, and the MkDocs override seam against the final docs contract. The slice found that the support layer still carried a few real weaknesses: the pipeline/service snippets still used pre-final public naming (`Api`, `Dvm`) and did not show the shared `ReadCore`; the root docs local guide only existed as an untracked local-guidance leftover instead of an intentional repo-local guidance file; the empty `docs/overrides/main.html` no longer earned its bytes; and MkDocs was relying on warning-prone implicit nav omission for local support markdown. The slice added a real tracked `docs/README.md`, updated the shared snippets to reflect `API`, `DVM`, and the protocol-agnostic read core, removed the empty theme override plus `custom_dir`, and formalized docs-support exclusions via `mkdocs.yml:exclude_docs` so local guidance/snippet files no longer collide with the public site. Targeted pre-commit checks and `uv run mkdocs build --strict` passed before closure |
 
 ### Wave 2 — Python Leaf Packages
 
@@ -116,7 +116,7 @@ Fill this section when the audit actually starts.
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
 | 4.1 Parent package/export audit | done | `docs: close repository content audit ledger` | Parent package/export surfaces are now closed across service packages and test packages; public `API`/`DVM` naming and package-export prose now match the final repository contract |
-| 4.2 Parent folder local-guidance audit | done | `docs: close repository content audit ledger` | Parent folder guidance is now closed across `deployments`, `docs`, `tests`, `tools`, `planning`, `.github`, `src`, plus the tracked hidden support roots `.claude` and `.vscode`; the final tracked-directory scan returns `NONE` |
+| 4.2 Parent folder local-guidance audit | done | `docs: close repository content audit ledger` | Parent folder guidance is now closed across `deployments`, `docs`, `tests`, `tools`, `planning`, `.github`, `src`, plus tracked hidden support roots; the final tracked-directory scan returns `NONE` |
 
 ### Wave 5 — Narrative Docs And Planning Surfaces
 
@@ -136,7 +136,7 @@ Fill this section when the audit actually starts.
 
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
-| 7.1 Gap-remediation sweep | done | `docs: close repository content audit ledger` | The final gap-remediation sweep is complete: missing maintained counterparts were added across docs, deployments, internal fixtures, `.claude`, and `.vscode`, raising the tracked surface from `542` to `604` files |
+| 7.1 Gap-remediation sweep | done | `docs: close repository content audit ledger` | The final gap-remediation sweep is complete: missing maintained counterparts were added across docs, deployments, internal fixtures, and supported editor metadata, raising the tracked surface from `542` to `604` files |
 | 7.2 Final repository content-audit gate | done | `docs: close repository content audit ledger` | Final closeout gate complete: tracked-directory scan returns `NONE`, last observable unit-suite rerun passed (`5226 passed in 6.59s`), repeated `ruff`/`mypy`/SQL/docs/security/pre-commit gates stayed green, and the worktree is clean |
 
 ---
@@ -156,15 +156,15 @@ Use this section during execution for:
 - `1.1` `.github` slice, resolved in `chore: align github automation surfaces`:
   - added maintained `.github/AGENTS.md` / `.github/workflows/AGENTS.md`
     guidance;
-  - removed stale local `.github/**/CLAUDE.md` leftovers from the live tree;
+  - removed stale local guidance leftovers from the live tree;
   - aligned issue-template docs/security contact links with the final public
     support surfaces;
   - tightened the PR template and release validation workflow to the actual
     contributor/repository contract.
 - Deferred to later waves:
-  - many other `CLAUDE.md` local-guidance files still exist outside `.github`;
-    they must be judged folder by folder against the final repository shape
-    rather than removed mechanically in the `.github` slice.
+  - other local-guidance files outside `.github` must be judged folder by
+    folder against the final repository shape rather than removed mechanically
+    in the `.github` slice.
   - the parent-level `deployments/AGENTS.md` guidance surface is still missing
     even though the root repository contract points to it; handle that in the
     parent-folder guidance wave rather than mixing it into the service-config
@@ -183,7 +183,7 @@ Use this section during execution for:
   - aligned monitoring/database docs with the actual Prometheus counter name
     (`service_counter_total`) and the empty built-in reporting-view slot.
 - `1.4` docs-support leaf slice, resolved in `docs: align docs support leaf surfaces`:
-  - replaced the untracked `docs/CLAUDE.md` leftover with a real tracked
+  - replaced the untracked docs-local guidance leftover with a real tracked
     `docs/README.md` local guide;
   - updated shared docs snippets so the public vocabulary now uses `API`,
     `DVM`, and `ReadCore`;
@@ -197,10 +197,10 @@ Use this section during execution for:
 - `7.1/7.2` repository-wide closeout, resolved in
   `docs: close repository content audit ledger`:
   - the earlier later-wave deferrals are now closed at the correct boundary:
-    tracked support roots such as `.claude/` and `.vscode/` gained explicit
-    local guidance, narrative `API`/`DVM` drift was absorbed by the later docs
-    slices, and non-tracked local `CLAUDE.md` leftovers remain outside the
-    tracked-manifest scope rather than open audit debt;
+    tracked support roots gained explicit local guidance, narrative `API`/`DVM`
+    drift was absorbed by the later docs slices, and non-tracked local
+    guidance leftovers remain outside the tracked-manifest scope rather than
+    open audit debt;
   - tracked-file count grew from the frozen baseline `542` to `604` because
     the audit intentionally added `62` missing maintained counterpart files;
   - the final tracked-directory scan returns `NONE`, so no maintained tracked
@@ -682,17 +682,17 @@ Use this section during execution for:
   - removed the unused module-level logger scaffolding from
     `src/bigbrotr/models/service_state.py`, so the leaf models surface no
     longer carries dead code that serves no runtime or debugging purpose;
-  - confirmed that the local `README.md` / `CLAUDE.md` duplication in the
+  - confirmed that the local `README.md` / guidance-file duplication in the
     audited `models` / `utils` leaf folders is a broader repository policy
     question, not a safe one-folder cleanup, and therefore remains deferred
     for the later parent/root guidance waves.
 - `2.1` models/utils/NIPs leaf audit, ninth remediation slice:
-  - inspected the local `CLAUDE.md` guides in `src/bigbrotr/models`,
+  - inspected the local guidance files in `src/bigbrotr/models`,
     `src/bigbrotr/utils`, `tests/unit/models`, and `tests/unit/utils` and
     confirmed they are outside the tracked-manifest scope of this repository
     content audit, so the live tracked slice continues to govern only the
     code, test, and `README.md` surfaces in those folders;
-  - left the repo-wide keep/remove decision for `CLAUDE.md` vs `README.md`
+  - left the repo-wide keep/remove decision for local guidance versus `README.md`
     explicitly deferred to the later parent/root guidance waves, where that
     policy can be applied consistently instead of piecemeal.
 - `2.1` models/utils/NIPs leaf audit, tenth remediation slice:

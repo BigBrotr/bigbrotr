@@ -124,5 +124,5 @@ For a complete walkthrough, see the [Getting Started](getting-started/index.md) 
 | [User Guide](user-guide/index.md) | Architecture, service ownership, shared database, read side, deployments, configuration, and monitoring |
 | [How-to Guides](how-to/index.md) | Deployment, operator workflows, customization, backups, and troubleshooting |
 | [Development](development/index.md) | Dev setup, testing, coding standards, and contributing |
-| [API Reference](reference/index.md) | Auto-generated Python API documentation |
+| [Python API Reference](reference/index.md) | Auto-generated Python package API documentation |
 | [Changelog](changelog.md) | Version history and release notes |

@@ -12,4 +12,3 @@ prune tools
 prune docs
 prune site
 prune .github
-prune .claude
