@@ -44,8 +44,7 @@ At minimum, a built-in or serious custom deployment should include:
 - `config/brotr.yaml`;
 - `config/services/*.yaml`;
 - `postgres/init/*.sql`;
-- deployment-local `README.md`;
-- local guidance in the `config/` tree where operators actually work.
+- documentation links back to the canonical deployment docs in this site.
 
 The checked-in SQL package under `postgres/init/` is generated artifact, not
 freehand source of truth. If the schema shape must change, the change belongs
@@ -108,7 +107,8 @@ This separation keeps the deployment model clean:
 The normal path for a custom deployment is:
 
 1. start from the closest built-in reference deployment;
-2. keep the local `README.md` files accurate as the deployment diverges;
+2. update the canonical deployment and operator docs when the new deployment
+   changes a maintained contract;
 3. update config and operator notes honestly;
 4. only add SQL generator support if the schema package genuinely diverges.
 

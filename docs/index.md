@@ -120,9 +120,11 @@ For a complete walkthrough, see the [Getting Started](getting-started/index.md) 
 
 | Section | Description |
 |---------|-------------|
+| [Project](project/index.md) | Repository orientation, map, data flow, glossary, and deep current-state references |
 | [Getting Started](getting-started/index.md) | Installation, quick start tutorial, and first deployment |
-| [User Guide](user-guide/index.md) | Architecture, service ownership, shared database, read side, deployments, configuration, and monitoring |
+| [User Guide](user-guide/index.md) | Architecture, service ownership, shared database, NIP-85 pipeline, read side, deployments, configuration, and monitoring |
 | [How-to Guides](how-to/index.md) | Deployment, operator workflows, customization, backups, and troubleshooting |
 | [Development](development/index.md) | Dev setup, testing, coding standards, and contributing |
 | [Python API Reference](reference/index.md) | Auto-generated Python package API documentation |
+| [Appendices](appendices/decision-record.md) | Decision record, evidence map, and Nostr protocol analysis |
 | [Changelog](changelog.md) | Version history and release notes |

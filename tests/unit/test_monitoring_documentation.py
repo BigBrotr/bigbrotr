@@ -7,7 +7,6 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[2]
-README_PATH = ROOT / "README.md"
 MONITORING_SETUP_PATH = ROOT / "docs" / "how-to" / "monitoring-setup.md"
 DOCKER_DEPLOY_PATH = ROOT / "docs" / "how-to" / "docker-deploy.md"
 USER_GUIDE_PATH = ROOT / "docs" / "user-guide" / "monitoring.md"
@@ -54,14 +53,14 @@ def _healthcheck_endpoint(service_spec: object) -> str:
     return match.group(0)
 
 
-def test_readme_monitoring_summary_matches_operator_surface() -> None:
-    text = _read_text(README_PATH)
+def test_monitoring_reference_matches_operator_surface() -> None:
+    text = _read_text(USER_GUIDE_PATH)
 
     assert f"prometheuscommunity/postgres-exporter:{_postgres_exporter_version()}" in text
     assert "RefresherTargetsFailing" in text
     assert "RefresherViewsFailing" not in text
     assert "default `Prometheus` datasource" in text
-    assert "one deployment overview" in text
+    assert "one deployment overview dashboard" in text
 
 
 def test_monitoring_setup_documents_builtin_stack_and_dashboard_surface() -> None:

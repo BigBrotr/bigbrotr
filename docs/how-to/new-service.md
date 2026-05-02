@@ -286,7 +286,7 @@ Before considering a new service complete, verify:
 - config has strong validation and reasonable defaults
 - logs and metrics expose useful operational signals
 - tests cover success paths, validation failures, and critical boundaries
-- deployment docs and local `README.md` files are updated if the service becomes first-class
+- deployment and service docs are updated if the service becomes first-class
 
 ---
 

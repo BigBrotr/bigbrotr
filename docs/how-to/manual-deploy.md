@@ -50,7 +50,8 @@ Use the built-in deployment folder as the operator source of truth:
 - `deployments/bigbrotr/static/`
 
 If you are building a custom manual deployment, copy a built-in deployment
-first and keep its local `README.md` files accurate as the deployment diverges.
+first and update the canonical deployment/operator docs when the deployment
+contract diverges.
 
 ---
 

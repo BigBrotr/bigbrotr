@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Analytics layer**: 11 materialized views replaced with hybrid model (6 incremental summary tables + 6 bounded materialized views). `event_daily_counts` renamed to `daily_counts`
 - **Operational rollout contract**: deployments now include the `ranker` PostgreSQL role/password (`DB_RANKER_PASSWORD`), PGBouncer userlist support, Ranker DuckDB volume mounts, per-service Nostr key environment variables, and algorithm-aware Assertor v2 checkpointing
 - **Documentation topology**: README, docs site, deployment examples, and service diagrams now describe the full 10-service architecture and the complete NIP-85 pipeline (`refresher -> ranker -> assertor`)
+- **Documentation consolidation**: `docs/` is now the single maintained project documentation tree, with project orientation, repository map, data-flow, evidence, decision, and NIP-85 pipeline pages replacing the temporary wiki, historical planning notes, and folder-level README files
 - **CI pipeline**: `docs/**` and `*.md` removed from `paths-ignore` so documentation-only PRs trigger the full CI pipeline including `mkdocs build --strict`
 
 ### Fixed

@@ -12,6 +12,10 @@ BigBrotr exposes operational telemetry through three channels:
 2. **Structured logging** -- key=value text or JSON output
 3. **Grafana dashboards** -- auto-provisioned visualization
 
+The built-in deployment stacks pair application metrics with
+`prometheuscommunity/postgres-exporter:v0.17.0`, Prometheus, Alertmanager, and
+Grafana.
+
 ```mermaid
 flowchart LR
     subgraph Services
@@ -342,7 +346,7 @@ Fires when the Refresher service has failing current-state, analytics, or period
 ## Grafana Dashboards
 
 Grafana is auto-provisioned with a default `Prometheus` datasource (UID
-`prometheus`), a deployment overview dashboard, and dedicated per-service
+`prometheus`), one deployment overview dashboard, and dedicated per-service
 dashboards for:
 
 - Finder

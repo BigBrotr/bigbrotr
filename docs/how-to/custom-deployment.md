@@ -27,9 +27,9 @@ cd deployments/myproject
 If you want the lightweight storage profile instead, start from
 `deployments/lilbrotr`.
 
-The copied reference deployment already includes local `README.md` files at the
-deployment root and in the config folders. Keep those files honest as you make
-the new deployment diverge from the reference shape.
+The copied reference deployment is governed by the canonical deployment docs in
+this site. Keep those docs honest if your custom deployment changes a maintained
+contract rather than creating deployment-local documentation fragments.
 
 ## Step 2: Configure Docker Compose
 
@@ -203,10 +203,10 @@ docker compose ps
 !!! note
     If you need to reset and start fresh, run `docker compose down -v` to remove all containers and volumes, then `docker compose up -d` again.
 
-## Step 10: Add Local Operator Notes
+## Step 10: Document Operator Differences
 
-Keep the copied local `README.md` files accurate. At minimum, the
-deployment-local `README.md` should explain:
+Document the custom deployment's operator differences in the canonical docs or
+in your own external runbook. At minimum, explain:
 
 - what this deployment is for;
 - which reference deployment it started from;
@@ -214,9 +214,9 @@ deployment-local `README.md` should explain:
 - any custom SQL-template overrides, protocol-exposure limits, or operational
   differences.
 
-If the copied `config/README.md` or `config/services/README.md` files stop being
-true after your changes, update them too. Those local docs are the fastest way
-to keep a deployment self-explanatory for future operators.
+If the custom deployment becomes part of the maintained repository, update
+[Deployments](../user-guide/deployments.md), [Configuration](../user-guide/configuration.md),
+and the relevant operator how-to pages in the same change.
 
 ---
 

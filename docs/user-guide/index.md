@@ -25,6 +25,13 @@ Core concepts and runtime reference for the final BigBrotr architecture.
 
     Shared storage-first schema, derived tables, and public score outputs.
 
+-   :material-seal-variant:{ .lg .middle } **[NIP-85 Pipeline](nip85-pipeline.md)**
+
+    ---
+
+    Refresher facts, Ranker DuckDB compute state, public score exports, and
+    Assertor publication ownership.
+
 -   :material-eye-outline:{ .lg .middle } **[Read Side](read-side.md)**
 
     ---
@@ -56,4 +63,4 @@ Core concepts and runtime reference for the final BigBrotr architecture.
 !!! tip "Where to start"
     New to the final architecture? Start with [Architecture](architecture.md),
     then read [Services](services.md), [Database](database.md), and
-    [Read Side](read-side.md) in that order.
+    [NIP-85 Pipeline](nip85-pipeline.md) in that order.

@@ -34,6 +34,13 @@ codebase and repository.
     Jinja2 template system for generating built-in deployment SQL packages from
     shared templates and storage-profile overrides.
 
+-   :material-file-document-edit:{ .lg .middle } **[Documentation](documentation.md)**
+
+    ---
+
+    Canonical documentation ownership, cross-reference expectations, and
+    validation checks.
+
 -   :material-source-pull:{ .lg .middle } **[Contributing](contributing.md)**
 
     ---

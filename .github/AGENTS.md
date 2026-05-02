@@ -32,4 +32,5 @@ repository policy files under `.github/`.
   claims a stronger validation contract than the job actually enforces, fix the
   drift.
 - Keep this directory free of stale local-guidance leftovers. The maintained
-  local guidance surfaces here are `README.md` plus this `AGENTS.md`.
+  guidance surface here is this `AGENTS.md`; user-facing policy lives in the
+  specific GitHub policy/template files and in `docs/`.

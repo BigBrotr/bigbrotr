@@ -68,15 +68,16 @@ make docs
 
 ## Before You Start Coding
 
-### Read the local guidance
+### Read the canonical guidance
 
-BigBrotr keeps folder-local guidance close to the code.
+BigBrotr keeps living documentation in `docs/` and local automation guidance in
+`AGENTS.md` files.
 
 Before editing a package or major directory, read the relevant:
 
 - `AGENTS.md`
-- folder-level `README.md`
-- nearby docs that explain the local contract
+- canonical docs page that explains the local contract
+- nearby code and tests that prove the behavior
 
 This is especially important for:
 
@@ -188,13 +189,12 @@ Update documentation when you change:
 - deployment workflows;
 - database schema or SQL-template behavior;
 - contributor expectations;
-- folder-level project surfaces that now need different local guidance.
+- project surfaces that now need different documentation.
 
 That includes, when relevant:
 
 - `docs/` pages;
 - root-level docs like `README.md` and `CONTRIBUTING.md`;
-- folder-level `README.md` files;
 - local `AGENTS.md` files that describe maintained contracts.
 
 ---

@@ -99,13 +99,13 @@ PostgreSQL (shared)
 
 ## Package Navigation
 
-Repository-local package documentation is currently uneven. Do **not** assume
-that every package already has its own `AGENTS.md` or `README.md`.
+`docs/` is the canonical maintained documentation tree. Do **not** assume that
+package-local README files exist.
 
 When you enter a package or top-level area:
 
-- start from the root `README.md` and this file;
-- read any local `README.md` or `AGENTS.md` if it exists;
+- start from the root `README.md`, this file, and the relevant `docs/` pages;
+- read any local `AGENTS.md` if it exists;
 - inspect the relevant code, tests, config, and deployment examples directly;
 - treat the code as the source of truth when local prose is absent.
 
@@ -244,11 +244,12 @@ That means:
 - do not rely on project-local deep-dive guide files existing;
 - use committed repository artifacts directly:
   - root `README.md`;
+  - canonical documentation under `docs/`;
   - code;
   - tests;
   - deployment examples;
   - SQL templates;
-  - and any local folder `README.md` / `AGENTS.md` that does exist.
+  - and any local `AGENTS.md` that does exist.
 
 If a future slice adds committed local guides, they should be accurate,
 discoverable, and treated as part of the repository contract.

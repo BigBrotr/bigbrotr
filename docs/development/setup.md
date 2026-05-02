@@ -182,18 +182,17 @@ python -m bigbrotr finder --profile lilbrotr --once
 
 ---
 
-## Local Guidance Surfaces
+## Documentation Surfaces
 
-BigBrotr treats local documentation as part of the maintained project surface.
+BigBrotr treats `docs/` as the maintained documentation surface.
 
 Before changing a major area, read the nearest:
 
-- folder-level `README.md`
 - `AGENTS.md`
 - narrative docs that describe the local contract
 
 When a change materially alters how a maintained folder is understood or
-operated, update that local guidance in the same slice.
+operated, update the relevant canonical docs page in the same slice.
 
 ---
 
