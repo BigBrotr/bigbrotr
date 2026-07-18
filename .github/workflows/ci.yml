@@ -138,7 +138,9 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.xml
-          fail_ci_if_error: true
+          # Coverage upload is auxiliary: a Codecov-side outage (e.g. GPG
+          # signature verification failure) must not block merges.
+          fail_ci_if_error: false
           verbose: true
 
   # --------------------------------------------------------------------------
